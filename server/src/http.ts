@@ -6,7 +6,7 @@ import { handlePull } from './pull'
 import { handleStatus } from './status'
 import { handleDeleteData } from './delete-data'
 import { createRateLimiter } from './rate-limit'
-import { registerDevice, revokeDevices, verificarJwtDeSupabase, type ClavesDeFirma, type EmisorDeLogin } from './devices'
+import { registerDevice, revokeDevices, listDevices, verificarJwtDeSupabase, type ClavesDeFirma, type EmisorDeLogin } from './devices'
 import { clavesDeSupabase } from './jwks'
 import { iniciarVinculacion, aprobarVinculacion, reclamarVinculacion } from './link'
 import { handleShareProject } from './share'
@@ -197,7 +197,10 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   // §9.2 — la emisión del token. Va ANTES de `authenticate` y fuera de su try/catch porque
   // es el único camino que NO lleva un token `nmk_`: la credencial es el JWT del login que
   // Nest ya tiene, y este endpoint es justamente el que devuelve el `nmk_` por primera vez.
+  // `GET` en la misma ruta lista las máquinas de la cuenta (spec 2b-3): autentica con el
+  // `nmk_` y tampoco pasa por `authenticate`, por el mismo motivo que el revoke.
   if (path === '/v1/devices') {
+    if (req.method === 'GET') return handleListDevices(pool, req, res)
     if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
     return handleRegisterDevice(pool, req, res)
   }
@@ -517,11 +520,27 @@ async function handleLinkPoll(pool: Pool, req: IncomingMessage, res: ServerRespo
   }
 }
 
-/** `POST /v1/devices/revoke` — ver `revokeDevices`. Body opcional: `{ all?: boolean }`. */
+/** `GET /v1/devices` — ver `listDevices`. */
+async function handleListDevices(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const result = await listDevices(pool, req.headers.authorization ?? '')
+    if (!result.ok) return send(res, result.status, { error: result.error })
+    return send(res, 200, { devices: result.devices })
+  } catch (err) {
+    console.error('[http] /v1/devices', err)
+    return send(res, 500, { error: 'internal_error' })
+  }
+}
+
+/** `POST /v1/devices/revoke` — ver `revokeDevices`. Body opcional: `{ all?: boolean, deviceId?: string }`. */
 async function handleRevokeDevice(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
     const body = (await readBody(req)) as Record<string, unknown>
-    const result = await revokeDevices(pool, req.headers.authorization ?? '', { all: body.all === true })
+    const result = await revokeDevices(pool, req.headers.authorization ?? '', {
+      all: body.all === true,
+      // Un deviceId que no es string (número, objeto) cuenta como presente-e-inválido.
+      deviceId: body.deviceId === undefined ? undefined : typeof body.deviceId === 'string' ? body.deviceId : '',
+    })
     if (!result.ok) return send(res, result.status, { error: result.error })
     return send(res, 200, { ok: true, revoked: result.revoked })
   } catch (err) {

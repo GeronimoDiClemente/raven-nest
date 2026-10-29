@@ -167,3 +167,36 @@ describe('http', () => {
     }
   })
 })
+
+describe('http /v1/devices (spec 2b-3)', () => {
+  it('GET /v1/devices con Bearer lista las máquinas', async () => {
+    const res = await fetch(`${base}/v1/devices`, { headers: { Authorization: `Bearer ${TOKEN}` } })
+    expect(res.status).toBe(200)
+    const body = await res.json() as { devices: { name: string; current: boolean }[] }
+    expect(body.devices).toEqual([expect.objectContaining({ name: 'http', current: true })])
+  })
+
+  it('GET /v1/devices sin token es 401', async () => {
+    expect((await fetch(`${base}/v1/devices`)).status).toBe(401)
+  })
+
+  it('PUT /v1/devices es 405 y GET /v1/devices/revoke es 405', async () => {
+    const put = await fetch(`${base}/v1/devices`, { method: 'PUT', headers: { Authorization: `Bearer ${TOKEN}` } })
+    expect(put.status).toBe(405)
+    const res = await fetch(`${base}/v1/devices/revoke`, { headers: { Authorization: `Bearer ${TOKEN}` } })
+    expect(res.status).toBe(405)
+  })
+
+  it('POST /v1/devices/revoke con deviceId propio es 400 use_self_revoke; sin uuid, invalid_device_id; ajeno, 404', async () => {
+    const propio = await pool.query('select id from devices where token_hash = $1', [hashToken(TOKEN)])
+    let res = await post('/v1/devices/revoke', { deviceId: propio.rows[0].id })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'use_self_revoke' })
+    res = await post('/v1/devices/revoke', { deviceId: 'x' })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'invalid_device_id' })
+    res = await post('/v1/devices/revoke', { deviceId: randomUUID() })
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'not_found' })
+  })
+})

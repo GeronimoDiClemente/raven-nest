@@ -85,4 +85,68 @@ describe('revokeDevices', () => {
   it('un header vacio es 401 y no toca la base', async () => {
     await expect(revokeDevices(pool, '')).resolves.toEqual({ ok: false, status: 401, error: 'unauthorized' })
   })
+
+  describe('por deviceId', () => {
+    const esperado401 = { ok: false, status: 401, error: 'unauthorized' }
+
+    it('revoca otra máquina de la cuenta; la que llama sigue autenticando', async () => {
+      const cuenta = await cuentaConDevice()
+      const otra = await registerDevice(pool, { userId: cuenta.userId, email: null }, { name: 'PC' })
+      if (!otra.ok) throw new Error('registro fallido')
+
+      await expect(revokeDevices(pool, cuenta.token, { deviceId: otra.deviceId })).resolves.toEqual({ ok: true, revoked: 1 })
+
+      await expect(authenticate(pool, `Bearer ${otra.token}`)).resolves.toMatchObject({ ok: false, status: 401 })
+      await expect(authenticate(pool, `Bearer ${cuenta.token}`)).resolves.toMatchObject({ ok: true })
+    })
+
+    it('una máquina de otra cuenta es 404 y no se toca', async () => {
+      const cuenta = await cuentaConDevice()
+      const ajena = await cuentaConDevice()
+      await expect(revokeDevices(pool, cuenta.token, { deviceId: ajena.deviceId }))
+        .resolves.toEqual({ ok: false, status: 404, error: 'not_found' })
+      await expect(authenticate(pool, `Bearer ${ajena.token}`)).resolves.toMatchObject({ ok: true })
+    })
+
+    it('un uuid inexistente es 404', async () => {
+      const cuenta = await cuentaConDevice()
+      await expect(revokeDevices(pool, cuenta.token, { deviceId: randomUUID() }))
+        .resolves.toEqual({ ok: false, status: 404, error: 'not_found' })
+    })
+
+    it('una máquina ya revocada es 404', async () => {
+      const cuenta = await cuentaConDevice()
+      const otra = await registerDevice(pool, { userId: cuenta.userId, email: null }, { name: 'PC' })
+      if (!otra.ok) throw new Error('registro fallido')
+      await revokeDevices(pool, cuenta.token, { deviceId: otra.deviceId })
+      await expect(revokeDevices(pool, cuenta.token, { deviceId: otra.deviceId }))
+        .resolves.toEqual({ ok: false, status: 404, error: 'not_found' })
+    })
+
+    it('la propia es 400 use_self_revoke y sigue autenticando', async () => {
+      const cuenta = await cuentaConDevice()
+      await expect(revokeDevices(pool, cuenta.token, { deviceId: cuenta.deviceId }))
+        .resolves.toEqual({ ok: false, status: 400, error: 'use_self_revoke' })
+      await expect(authenticate(pool, `Bearer ${cuenta.token}`)).resolves.toMatchObject({ ok: true })
+    })
+
+    it('un id que no es uuid es 400 invalid_device_id', async () => {
+      const cuenta = await cuentaConDevice()
+      await expect(revokeDevices(pool, cuenta.token, { deviceId: 'no-uuid' }))
+        .resolves.toEqual({ ok: false, status: 400, error: 'invalid_device_id' })
+    })
+
+    it('all junto con deviceId es ambiguo: 400 invalid_device_id y no revoca nada', async () => {
+      const cuenta = await cuentaConDevice()
+      const otra = await registerDevice(pool, { userId: cuenta.userId, email: null }, { name: 'PC' })
+      if (!otra.ok) throw new Error('registro fallido')
+      await expect(revokeDevices(pool, cuenta.token, { all: true, deviceId: otra.deviceId }))
+        .resolves.toEqual({ ok: false, status: 400, error: 'invalid_device_id' })
+      await expect(authenticate(pool, `Bearer ${otra.token}`)).resolves.toMatchObject({ ok: true })
+    })
+
+    it('token inválido con deviceId es 401', async () => {
+      await expect(revokeDevices(pool, 'nmk_nunca_existio', { deviceId: randomUUID() })).resolves.toEqual(esperado401)
+    })
+  })
 })

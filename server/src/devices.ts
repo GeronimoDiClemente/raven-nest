@@ -458,7 +458,59 @@ export async function syncTeamMemberships(
 
 export type RevokeResult =
   | { ok: true; revoked: number }
-  | { ok: false; status: 401; error: string }
+  | { ok: false; status: 401; error: 'unauthorized' }
+  | { ok: false; status: 404; error: 'not_found' }
+  | { ok: false; status: 400; error: 'use_self_revoke' | 'invalid_device_id' }
+
+export interface DeviceListado {
+  id: string
+  name: string
+  platform: string | null
+  last_seen_at: string | null
+  current: boolean
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** El device vivo al que pertenece un token `nmk_`, o null. Sin gates de plan (ver `revokeDevices`). */
+async function deviceDelToken(pool: Pool, token: string): Promise<{ id: string; user_id: string } | null> {
+  const limpio = (token ?? '').replace(/^Bearer\s+/i, '').trim()
+  if (!limpio) return null
+  const { rows } = await pool.query(
+    'select id, user_id from devices where token_hash = $1 and revoked_at is null',
+    [hashToken(limpio)]
+  )
+  return rows.length === 0 ? null : { id: rows[0].id, user_id: rows[0].user_id }
+}
+
+/**
+ * Las máquinas vivas de la cuenta de quien llama, la más vista primero. Mismo criterio de
+ * auth que `revokeDevices`: token `nmk_` sin gates de allowlist ni plan, para que Settings
+ * pueda listar (y desconectar) también desde `plan_required`.
+ */
+export async function listDevices(
+  pool: Pool,
+  token: string
+): Promise<{ ok: true; devices: DeviceListado[] } | { ok: false; status: 401; error: 'unauthorized' }> {
+  const caller = await deviceDelToken(pool, token)
+  if (!caller) return { ok: false, status: 401, error: 'unauthorized' }
+  const { rows } = await pool.query(
+    `select id, name, platform, last_seen_at from devices
+      where user_id = $1 and revoked_at is null
+      order by last_seen_at desc nulls last, created_at desc`,
+    [caller.user_id]
+  )
+  return {
+    ok: true,
+    devices: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      platform: r.platform ?? null,
+      last_seen_at: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
+      current: r.id === caller.id,
+    })),
+  }
+}
 
 /**
  * Revoca la credencial de un device. Es el gemelo de `registerDevice`: sin él, un token
@@ -480,27 +532,37 @@ export type RevokeResult =
 export async function revokeDevices(
   pool: Pool,
   token: string,
-  opts: { all?: boolean } = {}
+  opts: { all?: boolean; deviceId?: string } = {}
 ): Promise<RevokeResult> {
-  const limpio = (token ?? '').replace(/^Bearer\s+/i, '').trim()
-  if (!limpio) return { ok: false, status: 401, error: 'unauthorized' }
+  const caller = await deviceDelToken(pool, token)
+  if (!caller) return { ok: false, status: 401, error: 'unauthorized' }
 
-  const { rows } = await pool.query(
-    'select id, user_id from devices where token_hash = $1 and revoked_at is null',
-    [hashToken(limpio)]
-  )
-  if (rows.length === 0) return { ok: false, status: 401, error: 'unauthorized' }
+  // Por id: desconectar OTRA máquina de la cuenta (Settings › Account). `all` + `deviceId`
+  // es ambiguo y se rechaza en vez de elegir uno: revocar de más no se deshace.
+  if (opts.deviceId !== undefined) {
+    if (opts.all === true || !UUID_RE.test(opts.deviceId)) {
+      return { ok: false, status: 400, error: 'invalid_device_id' }
+    }
+    // La propia va por el revoke sin id: así la UI no cierra su sesión por un click ambiguo.
+    if (opts.deviceId === caller.id) return { ok: false, status: 400, error: 'use_self_revoke' }
+    const { rowCount } = await pool.query(
+      'update devices set revoked_at = now() where id = $1 and user_id = $2 and revoked_at is null',
+      [opts.deviceId, caller.user_id]
+    )
+    if (!rowCount) return { ok: false, status: 404, error: 'not_found' }
+    return { ok: true, revoked: rowCount }
+  }
 
   // `all` es para un "cerrar sesión en todas las máquinas". El default revoca sólo la que
   // llama: desconectar una máquina no tiene por qué dejar al resto afuera.
   const { rowCount } = opts.all
     ? await pool.query(
         'update devices set revoked_at = now() where user_id = $1 and revoked_at is null',
-        [rows[0].user_id]
+        [caller.user_id]
       )
     : await pool.query(
         'update devices set revoked_at = now() where id = $1 and revoked_at is null',
-        [rows[0].id]
+        [caller.id]
       )
 
   return { ok: true, revoked: rowCount ?? 0 }
