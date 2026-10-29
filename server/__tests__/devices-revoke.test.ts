@@ -130,6 +130,13 @@ describe('revokeDevices', () => {
       await expect(authenticate(pool, `Bearer ${cuenta.token}`)).resolves.toMatchObject({ ok: true })
     })
 
+    it('la propia en MAYÚSCULAS también es 400 use_self_revoke y sigue autenticando', async () => {
+      const cuenta = await cuentaConDevice()
+      await expect(revokeDevices(pool, cuenta.token, { deviceId: cuenta.deviceId.toUpperCase() }))
+        .resolves.toEqual({ ok: false, status: 400, error: 'use_self_revoke' })
+      await expect(authenticate(pool, `Bearer ${cuenta.token}`)).resolves.toMatchObject({ ok: true })
+    })
+
     it('un id que no es uuid es 400 invalid_device_id', async () => {
       const cuenta = await cuentaConDevice()
       await expect(revokeDevices(pool, cuenta.token, { deviceId: 'no-uuid' }))

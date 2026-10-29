@@ -2,6 +2,7 @@ import { createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, 
 import type { Pool } from 'pg'
 import { hashToken } from './auth'
 import { PLANES_PAGOS } from './plan-sync'
+import { UUID_RE } from './uuid'
 
 /**
  * §9.2 — la emisión del token, el único camino nuevo del servicio y el único aditivo:
@@ -470,8 +471,6 @@ export interface DeviceListado {
   current: boolean
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
 /** El device vivo al que pertenece un token `nmk_`, o null. Sin gates de plan (ver `revokeDevices`). */
 async function deviceDelToken(pool: Pool, token: string): Promise<{ id: string; user_id: string } | null> {
   const limpio = (token ?? '').replace(/^Bearer\s+/i, '').trim()
@@ -543,11 +542,14 @@ export async function revokeDevices(
     if (opts.all === true || !UUID_RE.test(opts.deviceId)) {
       return { ok: false, status: 400, error: 'invalid_device_id' }
     }
+    // pg devuelve los uuid en minúscula y la regex acepta mayúscula: sin normalizar, el id
+    // propio en mayúsculas esquivaría el chequeo y el UPDATE (uuid case-insensitive) lo revocaría.
+    const id = opts.deviceId.toLowerCase()
     // La propia va por el revoke sin id: así la UI no cierra su sesión por un click ambiguo.
-    if (opts.deviceId === caller.id) return { ok: false, status: 400, error: 'use_self_revoke' }
+    if (id === caller.id) return { ok: false, status: 400, error: 'use_self_revoke' }
     const { rowCount } = await pool.query(
       'update devices set revoked_at = now() where id = $1 and user_id = $2 and revoked_at is null',
-      [opts.deviceId, caller.user_id]
+      [id, caller.user_id]
     )
     if (!rowCount) return { ok: false, status: 404, error: 'not_found' }
     return { ok: true, revoked: rowCount }

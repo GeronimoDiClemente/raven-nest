@@ -170,10 +170,17 @@ describe('http', () => {
 
 describe('http /v1/devices (spec 2b-3)', () => {
   it('GET /v1/devices con Bearer lista las máquinas', async () => {
-    const res = await fetch(`${base}/v1/devices`, { headers: { Authorization: `Bearer ${TOKEN}` } })
+    const userId = randomUUID()
+    const token = `nmk_lista_${RUN}`
+    await pool.query(`insert into users (id, plan) values ($1, 'pro')`, [userId])
+    await pool.query(
+      `insert into devices (id, user_id, name, token_hash) values ($1, $2, 'lista', $3)`,
+      [randomUUID(), userId, hashToken(token)]
+    )
+    const res = await fetch(`${base}/v1/devices`, { headers: { Authorization: `Bearer ${token}` } })
     expect(res.status).toBe(200)
     const body = await res.json() as { devices: { name: string; current: boolean }[] }
-    expect(body.devices).toEqual([expect.objectContaining({ name: 'http', current: true })])
+    expect(body.devices).toEqual([expect.objectContaining({ name: 'lista', current: true })])
   })
 
   it('GET /v1/devices sin token es 401', async () => {
