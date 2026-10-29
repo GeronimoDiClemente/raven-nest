@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decidir, armarPrecioAPlan, PRECIOS_LEGACY, suscripcionSigueViva } from '../eventos.ts'
+import { decidir, armarPrecioAPlan, PRECIOS_LEGACY, suscripcionSigueViva, periodoDeCobro, PERIODO_VACIO } from '../eventos.ts'
 
 const PRO_MENSUAL = 'price_1TJmwsJarRYFmNbKh7G6JXnF'
 const TEAM_MENSUAL = 'price_1TJmyRJarRYFmNbKeiOLrXss'
@@ -190,4 +190,39 @@ describe('suscripcionSigueViva', () => {
       expect(suscripcionSigueViva(status as string | null | undefined)).toBe(false)
     },
   )
+})
+
+describe('periodoDeCobro', () => {
+  const ENV = { STRIPE_PRICE_CLOUD_MONTHLY: CLOUD_MENSUAL, STRIPE_PRICE_CLOUD_ANNUAL: CLOUD_ANUAL }
+  const conPrecio = (id: string, extra: Record<string, unknown> = {}) => ({ items: { data: [{ price: { id } }] }, ...extra })
+
+  it('el precio anual da annual y el mensual monthly', () => {
+    expect(periodoDeCobro(conPrecio(CLOUD_ANUAL), ENV).billing_interval).toBe('annual')
+    expect(periodoDeCobro(conPrecio(CLOUD_MENSUAL), ENV).billing_interval).toBe('monthly')
+  })
+
+  it('un precio legacy no tiene intervalo', () => {
+    expect(periodoDeCobro(conPrecio(PRO_MENSUAL), ENV).billing_interval).toBeNull()
+  })
+
+  it('un secret vacío no matchea un precio vacío', () => {
+    expect(periodoDeCobro(conPrecio(''), { STRIPE_PRICE_CLOUD_MONTHLY: '', STRIPE_PRICE_CLOUD_ANNUAL: '  ' }).billing_interval).toBeNull()
+    expect(periodoDeCobro({}, {}).billing_interval).toBeNull()
+  })
+
+  it('current_period_end pasa de segundos a ISO; ausente o null da null', () => {
+    expect(periodoDeCobro(conPrecio(CLOUD_ANUAL, { current_period_end: 1795910400 }), ENV).current_period_end)
+      .toBe('2026-11-29T00:00:00.000Z')
+    expect(periodoDeCobro(conPrecio(CLOUD_ANUAL), ENV).current_period_end).toBeNull()
+    expect(periodoDeCobro(conPrecio(CLOUD_ANUAL, { current_period_end: null }), ENV).current_period_end).toBeNull()
+  })
+
+  it('cancel_at_period_end se copia; ausente es false', () => {
+    expect(periodoDeCobro(conPrecio(CLOUD_ANUAL, { cancel_at_period_end: true }), ENV).cancel_at_period_end).toBe(true)
+    expect(periodoDeCobro(conPrecio(CLOUD_ANUAL), ENV).cancel_at_period_end).toBe(false)
+  })
+
+  it('PERIODO_VACIO es todo null y false', () => {
+    expect(PERIODO_VACIO).toEqual({ billing_interval: null, current_period_end: null, cancel_at_period_end: false })
+  })
 })

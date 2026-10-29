@@ -8,7 +8,7 @@
 
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2?target=deno'
-import { armarPrecioAPlan, decidir, suscripcionSigueViva, type EventoStripe } from './eventos.ts'
+import { armarPrecioAPlan, decidir, periodoDeCobro, PERIODO_VACIO, suscripcionSigueViva, type EventoStripe } from './eventos.ts'
 import { avisarPlan, clasificarAviso, configDeAviso, resolverBaja, type Desenlace } from './aviso-de-plan.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
@@ -97,10 +97,11 @@ Deno.serve(async (req) => {
   }
 
   // El mapa se arma por request: un secret seteado después del deploy aplica sin redeploy.
-  const precioAPlan = armarPrecioAPlan({
+  const preciosDeCloud = {
     STRIPE_PRICE_CLOUD_MONTHLY: Deno.env.get('STRIPE_PRICE_CLOUD_MONTHLY'),
     STRIPE_PRICE_CLOUD_ANNUAL: Deno.env.get('STRIPE_PRICE_CLOUD_ANNUAL'),
-  })
+  }
+  const precioAPlan = armarPrecioAPlan(preciosDeCloud)
   const decision = decidir(event as unknown as EventoStripe, precioAPlan, priceIdDeRespaldo)
 
   if (decision.tipo === 'activar') {
@@ -108,8 +109,9 @@ Deno.serve(async (req) => {
     // al servidor de sync falla): si la suscripción ya se canceló, activarla la resucitaría en
     // `profiles` y en el servidor, y nada lo corrige después. Se mira su estado de AHORA.
     let estadoActual: string
+    let sub: Stripe.Subscription
     try {
-      const sub = suscripcionLeida?.id === decision.subscriptionId
+      sub = suscripcionLeida?.id === decision.subscriptionId
         ? suscripcionLeida
         : await stripe.subscriptions.retrieve(decision.subscriptionId)
       estadoActual = sub.status
@@ -131,6 +133,9 @@ Deno.serve(async (req) => {
       plan: decision.plan,
       stripe_customer_id: decision.customerId,
       stripe_subscription_id: decision.subscriptionId,
+      // En API `basil` `current_period_end` pasa a los items de la suscripción: si se sube la
+      // apiVersion, hay que leerlo de ahí o este campo queda en null.
+      ...periodoDeCobro(sub, preciosDeCloud),
       updated_at: new Date().toISOString(),
     })
     if (error) {
@@ -155,7 +160,7 @@ Deno.serve(async (req) => {
     // efectivamente bajaron, para avisar por cada uno.
     const { data: bajados, error } = await supabase
       .from('profiles')
-      .update({ plan: 'free', updated_at: new Date().toISOString() })
+      .update({ plan: 'free', ...PERIODO_VACIO, updated_at: new Date().toISOString() })
       .eq('stripe_subscription_id', decision.subscriptionId)
       .select('id')
     if (error) {

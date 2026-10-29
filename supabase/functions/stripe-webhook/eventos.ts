@@ -170,3 +170,42 @@ const SIGUEN_VIVAS = ['active', 'trialing', 'past_due']
 export function suscripcionSigueViva(status: string | null | undefined): boolean {
   return typeof status === 'string' && SIGUEN_VIVAS.includes(status)
 }
+
+export interface PeriodoDeCobro {
+  billing_interval: 'monthly' | 'annual' | null
+  current_period_end: string | null
+  cancel_at_period_end: boolean
+}
+
+/** Sin suscripción: lo que queda en `profiles` al bajar a free. */
+export const PERIODO_VACIO: PeriodoDeCobro = {
+  billing_interval: null,
+  current_period_end: null,
+  cancel_at_period_end: false,
+}
+
+/**
+ * Intervalo, fin del período y cancelación de una suscripción, para `profiles` (spec 2b-3).
+ *
+ * El intervalo sale del precio contra los secrets de Cloud, trimeados como en `armarPrecioAPlan`;
+ * un precio legacy (o un secret vacío) da `null`. `current_period_end` viene en segundos.
+ */
+export function periodoDeCobro(
+  sub: {
+    items?: { data?: Array<{ price?: { id?: string } }> }
+    current_period_end?: number | null
+    cancel_at_period_end?: boolean | null
+  },
+  env: PreciosDeCloudEnv,
+): PeriodoDeCobro {
+  const precio = sub.items?.data?.[0]?.price?.id
+  const mensual = env.STRIPE_PRICE_CLOUD_MONTHLY?.trim()
+  const anual = env.STRIPE_PRICE_CLOUD_ANNUAL?.trim()
+  const billing_interval = precio && precio === anual ? 'annual' : precio && precio === mensual ? 'monthly' : null
+  const fin = sub.current_period_end
+  return {
+    billing_interval,
+    current_period_end: typeof fin === 'number' ? new Date(fin * 1000).toISOString() : null,
+    cancel_at_period_end: sub.cancel_at_period_end === true,
+  }
+}
