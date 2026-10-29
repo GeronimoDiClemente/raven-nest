@@ -100,7 +100,7 @@ export function useProfile(): Profile {
       // próximo `focus` lo pisaba (y en Playwright el foco llega solo).
       const e2ePlan = window.appFlags?.e2eBypass ? (overridePlan ?? window.appFlags.e2ePlan) : null
       if (e2ePlan && PLANES_CONOCIDOS.includes(e2ePlan)) {
-        setProfile({ plan: e2ePlan, loading: false, isTrialActive: false, trialDaysLeft: 0, rawPlan: e2ePlan, userId: null, ...leerE2eBilling(), recargar })
+        setProfile({ plan: e2ePlan as Plan, loading: false, isTrialActive: false, trialDaysLeft: 0, rawPlan: e2ePlan, userId: null, ...leerE2eBilling(), recargar })
         return
       }
       if (enVuelo) return
