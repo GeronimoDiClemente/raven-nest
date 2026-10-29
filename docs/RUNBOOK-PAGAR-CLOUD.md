@@ -6,9 +6,11 @@ ni a este archivo: todos salen de 1Password (o de variables de entorno), y acá 
 nombres.
 
 > **BLOQUEANTE — leer antes de mergear a `main`.** `release.yml` deploya TODAS las edge
-> functions de Stripe a **producción** en cada push a `main` (incluida `stripe-portal`, todas con
-> `--no-verify-jwt`: cada función autentica en código). El próximo merge publica el webhook
-> nuevo en prod automáticamente. **Antes de ese merge tienen que estar cargados en prod**
+> functions de Stripe a **producción** (incluida `stripe-portal`, todas con `--no-verify-jwt`:
+> cada función autentica en código) cada vez que corre en canal estable: un push a `main` **que
+> cambie `package.json`** (el bump de versión) o un `workflow_dispatch` con `canal=estable`. Un
+> merge que no toca `package.json` no dispara nada; el bump siguiente publica el webhook nuevo en
+> prod automáticamente. **Antes de ese merge tienen que estar cargados en prod**
 > (Supabase prod) `STRIPE_PRICE_CLOUD_MONTHLY`, `STRIPE_PRICE_CLOUD_ANNUAL`, `PLAN_SYNC_URL` y
 > `PLAN_SYNC_SECRET`, **y en Railway prod** `PLAN_SYNC_SECRET` (el mismo valor). **Si falta
 > alguno, cada activación de suscripción devuelve 500** y Stripe la reintenta sin que el plan
@@ -104,38 +106,77 @@ Un smoke de compra real con una tarjeta propia y reembolso.
 Spec: `docs/superpowers/specs/2026-10-29-cuenta-en-settings-design.md`. Rama
 `feat/memories-settings` (commits `839954e..1a374a0`). **Mismo régimen: cada paso es una acción
 externa con OK explícito de Gero, y el BLOQUEANTE de arriba sigue vigente**: no mergear a `main`
-(dispara `release.yml`) sin los secrets de prod cargados y el servidor nuevo corriendo en Railway
+(el bump de versión que lo acompaña dispara `release.yml`) sin los secrets de prod cargados y el servidor nuevo corriendo en Railway
 prod. 2b-3 agrega un servidor más nuevo todavía (ver paso 4).
 
-**Orden de salida** (la migración antes que las functions; el servidor antes que el merge):
+**Orden de salida** (la migración antes que las functions; el servidor antes que el merge). Cada
+paso se hace dos veces: primero contra el **entorno local** (Supabase local + servidor de sync
+local, para el smoke de abajo) y recién con el smoke en verde contra **prod** (Supabase prod
+`qkqlsytxtshgjxwmafpw`, Railway prod).
+
+> **La migración de prod va antes que CUALQUIER build de esta rama que apunte a prod**
+> (`useProfile` pide las columnas nuevas). Una beta (`release.yml` con `canal=beta`) o un
+> `npm run dev` contra prod también cuentan. Sin la migración, `useProfile` reintenta sin las
+> columnas y el plan se ve bien, pero sin período (`Renews on` / `Cancels on` no aparecen).
 
 1. **Migración** `supabase/migrations/20261029000000_profiles_billing_period.sql`: tres columnas
    en `profiles` (intervalo, fin del período, cancelación al fin del período) y el trigger que
-   las protege de updates del propio usuario. Staging primero (`supabase db push`), después prod.
+   las protege de updates del propio usuario.
+   - Local: `supabase migration up` contra el stack local.
+   - Prod: `supabase db push --project-ref qkqlsytxtshgjxwmafpw`. **`release.yml` no corre
+     migraciones**: esto es siempre a mano.
 2. **Secrets**: `PLAN_SYNC_URL` y `PLAN_SYNC_SECRET` ya son secrets del proyecto, pero **ahora los
    lee también `admin-api`** (antes sólo `stripe-webhook`). Si ya están cargados por 2b-2 no hay
-   nada que hacer; si no, cargarlos (mismo valor que `PLAN_SYNC_SECRET` de Railway):
-   ```bash
-   supabase secrets set --project-ref <ref> PLAN_SYNC_URL=<base del sync> PLAN_SYNC_SECRET=<1Password>
-   ```
+   nada que hacer; si no, cargarlos (mismo valor que `PLAN_SYNC_SECRET` del Railway de ese
+   entorno):
+   - Local: en `supabase/functions/.env` (lo lee `supabase functions serve --env-file`).
+   - Prod:
+     ```bash
+     supabase secrets set --project-ref qkqlsytxtshgjxwmafpw PLAN_SYNC_URL=<base del sync de prod> PLAN_SYNC_SECRET=<1Password>
+     ```
 3. **Deploy de las cuatro functions**, todas con `--no-verify-jwt` como en `release.yml`:
    `stripe-webhook`, `stripe-checkout`, `stripe-portal`, `admin-api`.
-4. **Servidor de sync en Railway**: `GET /v1/devices` (lista de máquinas de la cuenta) y revocar
+   - Local: `supabase functions serve --no-verify-jwt --env-file supabase/functions/.env`.
+   - Prod: `release.yml` las deploya cuando corre en canal estable (ver el BLOQUEANTE de arriba:
+     sólo con el bump de `package.json` o a mano); si hace falta antes,
+     `supabase functions deploy <nombre> --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw`.
+4. **Servidor de sync**: `GET /v1/devices` (lista de máquinas de la cuenta) y revocar
    por `deviceId` en `POST /v1/devices/revoke`. Sin migración nueva de la base del servidor. Con
-   el servidor viejo, Settings › Account no puede listar ni desconectar máquinas.
-5. Recién ahí, mergear (release.yml deploya las functions a prod).
+   el servidor viejo (`GET /v1/devices` → 405) Settings › Account esconde el bloque Machines y no
+   puede desconectar máquinas.
+   - Local: `server/` contra el Postgres de desarrollo (ver `server/README.md`).
+   - Prod: deploy en Railway prod (`nest-memory-sync`).
+5. Recién ahí, mergear a `main`. El merge solo no deploya nada: las functions llegan a prod con el
+   próximo bump de versión (`release.yml`), así que los pasos 1–4 de prod tienen que estar hechos
+   antes de ese bump, no sólo antes del merge.
 
 **Smoke contra Supabase local** (PENDIENTE, no corrido; ningún test de 2b-3 toca Stripe ni una
 base real salvo los del servidor). El entorno local de 2b-2 vivía en la PC Windows (Supabase en
 55xxx, Stripe CLI por winget): en la Mac hay que reconstruirlo siguiendo el addendum del 22-10 del
 handoff `docs/HANDOFF-2026-10-20-memories-obsidian.md`.
 
-- `UPDATE profiles SET billing_interval = 'year'` con el JWT de un usuario común → **no cambia**
-  (el trigger lo revierte). Cubre también el texto de la migración, que el test unitario solo
-  valida con regex.
-- Un `checkout.session.completed` de prueba (`stripe trigger` o una compra con 4242) deja las
+- Con el JWT de un usuario común, un update con valores **válidos** (si viola el `CHECK` falla
+  igual con el trigger roto y no prueba nada):
+  ```sql
+  -- psql contra la base local; el rol y los claims son los que pone PostgREST con ese JWT.
+  BEGIN;
+  SET LOCAL ROLE authenticated;
+  SELECT set_config('request.jwt.claims', '{"sub":"<uuid>","role":"authenticated"}', true);
+  UPDATE profiles SET billing_interval = 'annual',
+    current_period_end = now() + interval '1 year', cancel_at_period_end = true
+  WHERE id = '<uuid>';
+  SELECT billing_interval, current_period_end, cancel_at_period_end FROM profiles WHERE id = '<uuid>';
+  ROLLBACK;
+  ```
+  → las tres columnas **no cambian** (el trigger las revierte). Control: lo mismo con
+  `SET LOCAL ROLE service_role` y `"role":"service_role"` en los claims **sí** las cambia (si el
+  control tampoco cambia, el update no llegó a la fila y la prueba no dice nada). Cubre también
+  el texto de la migración, que el test unitario solo valida con regex.
+- Una compra con la tarjeta `4242 4242 4242 4242` **desde la app** (Upgrade › Cloud) deja las
   **tres columnas** (`billing_interval`, `current_period_end`, `cancel_at_period_end`) pobladas;
-  `customer.subscription.deleted` las limpia al bajar a free.
+  `customer.subscription.deleted` las limpia al bajar a free. (No sirve `stripe trigger
+  checkout.session.completed`: no trae `metadata.user_id` ni el precio de Cloud, y `decidir` lo
+  ignora.)
 - `PUT /plan` desde el back-office → el servidor de sync **recibe** el plan (`POST /internal/plan`
   firmado). Con el sync caído la respuesta suma `sync_notificado: false` y el `audit` lo registra
   (el PUT espera hasta 10 s).
@@ -151,8 +192,15 @@ handoff `docs/HANDOFF-2026-10-20-memories-obsidian.md`.
   y recarga el perfil.
 - Formato `last seen 3d ago` (y `last seen never` si es null).
 - En trial activo la fila dice `Trial` y **muestra Upgrade** (quien está en trial quiere poder pagar).
-- `plan_required` se muestra como `Cloud sync is off.` (el spec no lo cubre; hoy sólo lo produce un
-  plan que esta versión no conoce).
+- `error` (`device_limit`, `needs_key`, `auth`, red) y `plan_required` cuentan como cuenta
+  conectada: Usage y Machines se ven y la lista se pide (con `device_limit` es justo cuando hay
+  que desconectar otra máquina). La beta se detecta por `statusDetail === 'not_in_beta'` del
+  status del daemon. Reemplaza el Ruling de la Task 8 ("`plan_required` como `Cloud sync is
+  off.`").
+- Portal con `no_subscription` → `No subscription found for this account.` (no el genérico de red).
+- Servidor sin `GET /v1/devices` (405 `method_not_allowed`) → el bloque Machines y el
+  `{n} connected` no se muestran, en vez de un `Couldn't load your machines.` que ningún Retry
+  arregla.
 - `{k} local only` con `over_limit` suma los del roster por encima del tope.
 - Bug previo arreglado: el preload `memory:status` aceptaba un solo oyente
   (`removeStatusListener` hacía `removeAllListeners`), así que al desmontar `CloudMemoryCard`,
