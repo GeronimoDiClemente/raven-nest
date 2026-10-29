@@ -278,6 +278,8 @@ contextBridge.exposeInMainWorld('appFlags', {
   // Plan simulado para demos/E2E de features gateadas por plan. Solo se
   // expone bajo RAVEN_E2E=1 — useProfile además re-chequea e2eBypass.
   e2ePlan: process.env.RAVEN_E2E === '1' ? (process.env.RAVEN_E2E_PLAN ?? null) : null,
+  // Período de facturación simulado: JSON crudo, el renderer lo parsea (mismo doble gate).
+  e2eBilling: process.env.RAVEN_E2E === '1' ? (process.env.RAVEN_E2E_BILLING ?? null) : null,
   // Repos simulados para E2E (RAVEN_E2E_REPOS, un JSON array de UserRepo).
   // My Repos exige una cuenta GitHub conectada de verdad, asi que sin esto la
   // fila de repo no se puede ver renderizada — y por no poder verla se

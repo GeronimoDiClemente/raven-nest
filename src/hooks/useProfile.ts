@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Plan } from '../lib/stripe'
 
@@ -17,6 +17,31 @@ interface Profile {
   rawPlan: string
   /** El usuario de la última lectura; null = sin sesión (Ruling P4: otra cuenta, otra base). */
   userId: string | null
+  /** Período de facturación (Task 1: lo escribe el webhook). null = sin suscripción o sin dato. */
+  billingInterval: 'monthly' | 'annual' | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
+  /** La misma lectura que dispara `focus`, respetando la lectura en vuelo. */
+  recargar: () => void
+}
+
+const PLANES_CONOCIDOS = ['free', 'cloud', 'pro', 'team', 'enterprise']
+
+/** RAVEN_E2E_BILLING llega como string crudo; un JSON roto se ignora. */
+function leerE2eBilling(): Pick<Profile, 'billingInterval' | 'currentPeriodEnd' | 'cancelAtPeriodEnd'> {
+  const vacio = { billingInterval: null, currentPeriodEnd: null, cancelAtPeriodEnd: false }
+  const crudo = window.appFlags?.e2eBypass ? window.appFlags.e2eBilling : null
+  if (!crudo) return vacio
+  try {
+    const b = JSON.parse(crudo) as { billingInterval?: unknown; currentPeriodEnd?: unknown; cancelAtPeriodEnd?: unknown }
+    return {
+      billingInterval: b.billingInterval === 'monthly' || b.billingInterval === 'annual' ? b.billingInterval : null,
+      currentPeriodEnd: typeof b.currentPeriodEnd === 'string' ? b.currentPeriodEnd : null,
+      cancelAtPeriodEnd: b.cancelAtPeriodEnd === true,
+    }
+  } catch {
+    return vacio
+  }
 }
 
 function computeEffectivePlan(rawPlan: string, trialStartedAt: string | null): {
@@ -43,6 +68,9 @@ function computeEffectivePlan(rawPlan: string, trialStartedAt: string | null): {
 }
 
 export function useProfile(): Profile {
+  // `load` vive dentro del efecto; el ref deja exponerlo con un callback estable.
+  const cargarRef = useRef<() => void>(() => {})
+  const recargar = useCallback(() => { cargarRef.current() }, [])
   const [profile, setProfile] = useState<Profile>({
     plan: 'free',
     loading: true,
@@ -50,6 +78,10 @@ export function useProfile(): Profile {
     trialDaysLeft: 0,
     rawPlan: 'free',
     userId: null,
+    billingInterval: null,
+    currentPeriodEnd: null,
+    cancelAtPeriodEnd: false,
+    recargar,
   })
 
   useEffect(() => {
@@ -65,7 +97,7 @@ export function useProfile(): Profile {
       // probar features gateadas por plan sin un perfil Supabase.
       const e2ePlan = window.appFlags?.e2eBypass ? window.appFlags.e2ePlan : null
       if (e2ePlan === 'free' || e2ePlan === 'cloud' || e2ePlan === 'pro' || e2ePlan === 'team' || e2ePlan === 'enterprise') {
-        setProfile({ plan: e2ePlan, loading: false, isTrialActive: false, trialDaysLeft: 0, rawPlan: e2ePlan, userId: null })
+        setProfile({ plan: e2ePlan, loading: false, isTrialActive: false, trialDaysLeft: 0, rawPlan: e2ePlan, userId: null, ...leerE2eBilling(), recargar })
         return
       }
       if (enVuelo) return
@@ -86,18 +118,38 @@ export function useProfile(): Profile {
       // and the on-signup edge function.
       const { data } = await supabase
         .from('profiles')
-        .select('plan, trial_started_at')
+        .select('plan, trial_started_at, billing_interval, current_period_end, cancel_at_period_end')
         .eq('id', user.id)
         .maybeSingle()
 
       if (alive) {
         const rawPlan: string = data?.plan ?? 'free'
         const computed = computeEffectivePlan(rawPlan, data?.trial_started_at ?? null)
-        setProfile({ ...computed, loading: false, rawPlan, userId: user.id })
+        const intervalo = data?.billing_interval
+        setProfile({
+          ...computed,
+          loading: false,
+          rawPlan,
+          userId: user.id,
+          billingInterval: intervalo === 'monthly' || intervalo === 'annual' ? intervalo : null,
+          currentPeriodEnd: data?.current_period_end ?? null,
+          cancelAtPeriodEnd: data?.cancel_at_period_end === true,
+          recargar,
+        })
       }
     }
 
+    cargarRef.current = load
     load()
+
+    // E2E: deja producir el paso free -> cloud sin Stripe. Sólo con el bypass.
+    const alCambiarPlanE2e = (e: Event) => {
+      const plan = (e as CustomEvent<{ plan: string }>).detail?.plan
+      if (!PLANES_CONOCIDOS.includes(plan)) return
+      setProfile(p => ({ ...p, plan: plan as Plan, rawPlan: plan, loading: false }))
+    }
+    const e2e = !!window.appFlags?.e2eBypass
+    if (e2e) window.addEventListener('nest:e2e-plan', alCambiarPlanE2e)
 
     // Un pago exitoso lo escribe el webhook de Stripe directo en `profiles`, sin
     // avisarle al cliente. Sin esto el hook leia una sola vez al montar, asi que
@@ -109,8 +161,9 @@ export function useProfile(): Profile {
     return () => {
       alive = false
       window.removeEventListener('focus', load)
+      if (e2e) window.removeEventListener('nest:e2e-plan', alCambiarPlanE2e)
     }
-  }, [])
+  }, [recargar])
 
   return profile
 }

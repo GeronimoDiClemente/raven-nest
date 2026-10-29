@@ -1294,6 +1294,9 @@ declare global {
       e2eBypass: boolean
       // Plan simulado para demos/E2E (RAVEN_E2E_PLAN); null fuera de RAVEN_E2E.
       e2ePlan?: string | null
+      // Período de facturación simulado (RAVEN_E2E_BILLING): JSON crudo { billingInterval,
+      // currentPeriodEnd, cancelAtPeriodEnd }; null fuera de RAVEN_E2E. Ver useProfile.
+      e2eBilling?: string | null
       // Repos simulados para E2E (RAVEN_E2E_REPOS), JSON de UserRepo[]; null
       // fuera de RAVEN_E2E. Ver useUserRepos.
       e2eRepos?: string | null

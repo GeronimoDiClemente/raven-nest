@@ -6,7 +6,7 @@ import type { BillingInterval } from './stripe'
 export const COPY_CHECKOUT_NO_DISPONIBLE = "Checkout isn't available right now — try again later."
 export const COPY_CHECKOUT_SIN_RED = "Couldn't reach checkout. Check your connection and try again."
 
-export type ResultadoDeCobro = { ok: true } | { ok: false; error: string }
+export type ResultadoDeCobro = { ok: true } | { ok: false; error: string; code: string | null }
 
 /** El copy de un código de error de las funciones. D8: el portal usa el genérico. */
 export function textoDeErrorDeCobro(code: string | null): string {
@@ -42,7 +42,7 @@ export async function abrirPortal(): Promise<ResultadoDeCobro> {
     window.electronShell.openExternal(r.url)
     return { ok: true }
   }
-  return { ok: false, error: textoDeErrorDeCobro(r.code) }
+  return { ok: false, error: textoDeErrorDeCobro(r.code), code: r.code }
 }
 
 export async function abrirCheckout(interval: BillingInterval): Promise<ResultadoDeCobro> {
@@ -53,5 +53,5 @@ export async function abrirCheckout(interval: BillingInterval): Promise<Resultad
   }
   // Ya paga: el servidor evita el doble cobro y acá se abre su suscripción en vez de fallar.
   if (r.code === 'already_subscribed') return abrirPortal()
-  return { ok: false, error: textoDeErrorDeCobro(r.code) }
+  return { ok: false, error: textoDeErrorDeCobro(r.code), code: r.code }
 }

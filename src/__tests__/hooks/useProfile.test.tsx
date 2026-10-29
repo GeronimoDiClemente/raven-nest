@@ -140,3 +140,85 @@ describe('useProfile — el plan cloud', () => {
     expect(result.current.plan).toBe('cloud')
   })
 })
+
+describe('useProfile — período de facturación', () => {
+  const USER = { id: 'u-1' }
+  const select = vi.fn()
+
+  function mockFila(data: unknown) {
+    supabaseMock.getUser.mockResolvedValue({ data: { user: USER } })
+    supabaseMock.from.mockImplementation(() => ({
+      select: (cols: string) => {
+        select(cols)
+        return { eq: () => ({ maybeSingle: () => Promise.resolve({ data }) }) }
+      },
+    }))
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: false }
+  })
+
+  it('pide y mapea intervalo, fin y cancelación', async () => {
+    mockFila({ plan: 'cloud', trial_started_at: null, billing_interval: 'annual', current_period_end: '2026-11-29T00:00:00Z', cancel_at_period_end: true })
+    const { result } = renderHook(() => useProfile())
+    await waitFor(() => expect(result.current.userId).toBe('u-1'))
+    expect(select).toHaveBeenCalledWith('plan, trial_started_at, billing_interval, current_period_end, cancel_at_period_end')
+    expect(result.current.billingInterval).toBe('annual')
+    expect(result.current.currentPeriodEnd).toBe('2026-11-29T00:00:00Z')
+    expect(result.current.cancelAtPeriodEnd).toBe(true)
+  })
+
+  it('sin fila: null, null, false', async () => {
+    mockFila(null)
+    const { result } = renderHook(() => useProfile())
+    await waitFor(() => expect(result.current.userId).toBe('u-1'))
+    expect(result.current.billingInterval).toBeNull()
+    expect(result.current.currentPeriodEnd).toBeNull()
+    expect(result.current.cancelAtPeriodEnd).toBe(false)
+  })
+
+  it('recargar vuelve a leer, respetando la lectura en vuelo', async () => {
+    mockFila({ plan: 'free', trial_started_at: null })
+    const { result } = renderHook(() => useProfile())
+    await waitFor(() => expect(result.current.userId).toBe('u-1'))
+    expect(supabaseMock.from).toHaveBeenCalledTimes(1)
+    await act(async () => { result.current.recargar(); result.current.recargar() })
+    await waitFor(() => expect(supabaseMock.from).toHaveBeenCalledTimes(2))
+  })
+
+  it('e2eBilling bajo el bypass alimenta el período; JSON inválido se ignora', async () => {
+    const billing = { billingInterval: 'monthly', currentPeriodEnd: '2026-11-29T00:00:00Z', cancelAtPeriodEnd: false }
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: true, e2ePlan: 'cloud', e2eBilling: JSON.stringify(billing) }
+    const a = renderHook(() => useProfile())
+    await waitFor(() => expect(a.result.current.loading).toBe(false))
+    expect(a.result.current.billingInterval).toBe('monthly')
+    expect(a.result.current.currentPeriodEnd).toBe(billing.currentPeriodEnd)
+    a.unmount()
+
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: true, e2ePlan: 'cloud', e2eBilling: '{no es json' }
+    const b = renderHook(() => useProfile())
+    await waitFor(() => expect(b.result.current.loading).toBe(false))
+    expect(b.result.current.billingInterval).toBeNull()
+  })
+
+  it("'nest:e2e-plan' cambia el plan sólo con el bypass", async () => {
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: true, e2ePlan: 'free' }
+    const a = renderHook(() => useProfile())
+    await waitFor(() => expect(a.result.current.plan).toBe('free'))
+    await act(async () => { window.dispatchEvent(new CustomEvent('nest:e2e-plan', { detail: { plan: 'cloud' } })) })
+    expect(a.result.current.plan).toBe('cloud')
+    expect(a.result.current.rawPlan).toBe('cloud')
+    await act(async () => { window.dispatchEvent(new CustomEvent('nest:e2e-plan', { detail: { plan: 'diamante' } })) })
+    expect(a.result.current.plan).toBe('cloud')
+    a.unmount()
+
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: false }
+    supabaseMock.getUser.mockResolvedValue({ data: { user: null } })
+    const b = renderHook(() => useProfile())
+    await waitFor(() => expect(b.result.current.loading).toBe(false))
+    await act(async () => { window.dispatchEvent(new CustomEvent('nest:e2e-plan', { detail: { plan: 'cloud' } })) })
+    expect(b.result.current.plan).toBe('free')
+  })
+})
