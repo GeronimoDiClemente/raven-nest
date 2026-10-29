@@ -15,17 +15,26 @@
 /**
  * El servicio con el que habla una instalación que nadie configuró.
  *
- * **Es una decisión de producto que vive en una constante a propósito**: el día que el
- * servicio se mude a un dominio propio se cambia acá, y las instalaciones viejas —que ya
- * habrían quedado apuntando a una dirección muerta— se arreglan desde la UI sin esperar un
- * release, que es justamente para lo que existe el override guardado.
+ * **Es una decisión de producto que vive en una constante a propósito.** Desde el 2026-10-29
+ * es un dominio propio y no la dirección de un proveedor: mudar el servicio (de Railway a otro
+ * lado) pasa a ser cambiar un registro DNS, sin release y sin que ninguna instalación lo note.
  */
-export const BASE_DE_SYNC_POR_DEFECTO = 'https://sync-production-54ba.up.railway.app'
+export const BASE_DE_SYNC_POR_DEFECTO = 'https://sync.nestmux.com'
+
+/**
+ * Direcciones que son el MISMO servidor que otra, con otro nombre. La de Railway prod es la
+ * que se horneó antes del dominio propio: la tienen guardada instalaciones (Advanced › Sync
+ * server) y el plugin (el servicio de su `login`). Sin el alias, el plugin vería un token «de
+ * otro servicio» y avisaría. Staging no va acá: es otro servidor, y sus tokens no valen en prod.
+ */
+const ALIAS_DE_BASE: Record<string, string> = {
+  'https://sync-production-54ba.up.railway.app': BASE_DE_SYNC_POR_DEFECTO,
+}
 
 export interface OrigenesDeBase {
   /** Lo que eligió ESTA instalación (`connection.json`). */
   guardada: string | null
-  /** Lo que se horneó en el build (`MAIN_VITE_SUPABASE_URL`), para los builds de desarrollo. */
+  /** Lo que se horneó en el build (`MAIN_VITE_SYNC_URL`), para los builds de desarrollo. */
   delBuild: string | null
 }
 
@@ -34,7 +43,8 @@ export interface OrigenesDeBase {
  *
  * Sólo http y https: un `file:` o un `javascript:` guardado no puede convertirse en un
  * destino al que la app le manda un token. Las barras finales se sacan porque quien la usa
- * concatena, y `https://x//v1/sync/push` no es la misma ruta.
+ * concatena, y `https://x//v1/sync/push` no es la misma ruta. Una dirección de `ALIAS_DE_BASE`
+ * sale con su nombre nuevo: como todo origen pasa por acá, ninguno tiene que saber del alias.
  */
 export function normalizarBaseDeSync(valor: string | null | undefined): string | null {
   const limpio = (valor ?? '').trim()
@@ -47,7 +57,8 @@ export function normalizarBaseDeSync(valor: string | null | undefined): string |
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
   if (url.hostname === '') return null
-  return `${url.origin}${url.pathname}`.replace(/\/+$/, '')
+  const base = `${url.origin}${url.pathname}`.replace(/\/+$/, '')
+  return ALIAS_DE_BASE[base] ?? base
 }
 
 /**

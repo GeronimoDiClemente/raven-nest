@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import SyncServiceCard from '../../components/SyncServiceCard'
 
-const POR_DEFECTO = 'https://sync-production-54ba.up.railway.app'
+const POR_DEFECTO = 'https://sync.nestmux.com'
 
 function montar(extra: Record<string, unknown> = {}) {
   const api = {

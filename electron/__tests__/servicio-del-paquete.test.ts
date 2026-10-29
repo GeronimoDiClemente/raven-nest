@@ -52,3 +52,15 @@ describe('avisoDeServicioDistinto', () => {
     expect(avisoDeServicioDistinto({ env: 'nada', guardada: 'https://a.example' })).toBeNull()
   })
 })
+
+describe('login hecho contra la dirección de Railway prod', () => {
+  const VIEJA = 'https://sync-production-54ba.up.railway.app'
+
+  it('sigue resolviendo, ya con el nombre nuevo', () => {
+    expect(servicioDelPaquete({ env: undefined, guardada: VIEJA })).toBe('https://sync.nestmux.com')
+  })
+
+  it('no avisa «otro servicio» contra el nombre nuevo: es el mismo servidor', () => {
+    expect(avisoDeServicioDistinto({ env: 'https://sync.nestmux.com', guardada: VIEJA })).toBeNull()
+  })
+})

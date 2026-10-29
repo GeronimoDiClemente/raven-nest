@@ -110,3 +110,37 @@ describe('decidirCambioDeBase', () => {
     expect(decidirCambioDeBase(BASE_DE_SYNC_POR_DEFECTO)).toEqual({ ok: true, guardar: BASE_DE_SYNC_POR_DEFECTO })
   })
 })
+
+// Spec de dominios propios §4.1: la dirección de Railway prod es el mismo servidor que
+// sync.nestmux.com. La tienen guardada instalaciones y el login del plugin; tiene que seguir
+// valiendo y salir con el nombre nuevo, sin que nadie vuelva a conectarse.
+describe('alias de la dirección vieja', () => {
+  const VIEJA = 'https://sync-production-54ba.up.railway.app'
+  const NUEVA = 'https://sync.nestmux.com'
+
+  it('el default es el dominio propio', () => {
+    expect(BASE_DE_SYNC_POR_DEFECTO).toBe(NUEVA)
+  })
+
+  it('la de Railway prod sale como la nueva, aunque venga en mayúsculas o con barras', () => {
+    expect(normalizarBaseDeSync(VIEJA)).toBe(NUEVA)
+    expect(normalizarBaseDeSync('  HTTPS://SYNC-PRODUCTION-54BA.UP.RAILWAY.APP//  ')).toBe(NUEVA)
+  })
+
+  it('con un path es otra ruta: no se toca', () => {
+    expect(normalizarBaseDeSync(`${VIEJA}/algo`)).toBe(`${VIEJA}/algo`)
+  })
+
+  it('staging es otro servidor: no se alias-a', () => {
+    expect(normalizarBaseDeSync('https://sync-production-75a4.up.railway.app'))
+      .toBe('https://sync-production-75a4.up.railway.app')
+  })
+
+  it('una instalación con la vieja guardada pasa a la nueva', () => {
+    expect(resolverBaseDeSync({ guardada: VIEJA, delBuild: null })).toBe(NUEVA)
+  })
+
+  it('escribir la vieja en el campo guarda la nueva', () => {
+    expect(decidirCambioDeBase(VIEJA)).toEqual({ ok: true, guardar: NUEVA })
+  })
+})
