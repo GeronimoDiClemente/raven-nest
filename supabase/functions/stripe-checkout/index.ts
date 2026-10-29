@@ -8,7 +8,7 @@
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2?target=deno'
 import { jwtDelHeader } from '../_shared/jwt.ts'
-import { decidirCheckout } from './checkout.ts'
+import { decidirCheckout, esClienteInexistente, sinCliente } from './checkout.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-11-20.acacia',
@@ -77,6 +77,29 @@ Deno.serve(async (req) => {
     if (!session.url) return json(502, { error: 'stripe_error' })
     return json(200, { url: session.url })
   } catch (e) {
+    const viejo = decision.sesion.customer
+    if (viejo && esClienteInexistente(e)) {
+      // El customer guardado ya no existe en Stripe: se limpia (condicionado al id viejo, por si
+      // el webhook ya lo cambió) y se reintenta UNA vez con el email. El reintento no depende
+      // de que el update haya andado.
+      console.warn('[stripe-checkout] el customer ya no existe en Stripe, reintento sin él', { userId: user.id, customer: viejo })
+      const { error: limpiarError } = await admin
+        .from('profiles')
+        .update({ stripe_customer_id: null, updated_at: new Date().toISOString() })
+        .eq('id', user.id)
+        .eq('stripe_customer_id', viejo)
+      if (limpiarError) {
+        console.error('[stripe-checkout] no se pudo limpiar el customer', { userId: user.id, error: limpiarError.message })
+      }
+      try {
+        const reintento = await stripe.checkout.sessions.create(sinCliente(decision.sesion, user.email ?? null))
+        if (!reintento.url) return json(502, { error: 'stripe_error' })
+        return json(200, { url: reintento.url })
+      } catch (e2) {
+        console.error('[stripe-checkout] el reintento también falló', { userId: user.id, error: e2 instanceof Error ? e2.message : String(e2) })
+        return json(502, { error: 'stripe_error' })
+      }
+    }
     console.error('[stripe-checkout] Stripe rechazó la sesión', { userId: user.id, error: e instanceof Error ? e.message : String(e) })
     return json(502, { error: 'stripe_error' })
   }

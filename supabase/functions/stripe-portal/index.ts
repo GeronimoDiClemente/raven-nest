@@ -5,7 +5,7 @@
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2?target=deno'
 import { jwtDelHeader } from '../_shared/jwt.ts'
-import { decidirPortal } from './portal.ts'
+import { decidirPortal, decidirPortalTrasError } from './portal.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-11-20.acacia',
@@ -49,7 +49,22 @@ Deno.serve(async (req) => {
     const session = await stripe.billingPortal.sessions.create(decision.sesion)
     return json(200, { url: session.url })
   } catch (e) {
+    const tras = decidirPortalTrasError(e)
+    if (tras.limpiarCliente) {
+      // Customer borrado en Stripe: se limpia el id muerto (condicionado, por si el webhook ya lo
+      // cambió) y se responde como si nunca hubiera tenido uno. Si el update falla igual se contesta 404.
+      console.warn('[stripe-portal] el customer ya no existe en Stripe', { userId: user.id, customer: decision.sesion.customer })
+      const { error: limpiarError } = await admin
+        .from('profiles')
+        .update({ stripe_customer_id: null, updated_at: new Date().toISOString() })
+        .eq('id', user.id)
+        .eq('stripe_customer_id', decision.sesion.customer)
+      if (limpiarError) {
+        console.error('[stripe-portal] no se pudo limpiar el customer', { userId: user.id, error: limpiarError.message })
+      }
+      return json(tras.status, { error: tras.error })
+    }
     console.error('[stripe-portal] Stripe rechazó la sesión', { userId: user.id, error: e instanceof Error ? e.message : String(e) })
-    return json(502, { error: 'stripe_error' })
+    return json(tras.status, { error: tras.error })
   }
 })

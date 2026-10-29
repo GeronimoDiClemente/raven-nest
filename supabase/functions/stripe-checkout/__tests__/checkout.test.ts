@@ -1,7 +1,7 @@
 // Spec 2b-2 §4.2: la decisión del checkout, pura. El shell (index.ts) sólo autentica, lee el
 // perfil y le pasa esto a Stripe.
 import { describe, it, expect } from 'vitest'
-import { decidirCheckout, URL_CANCELADO, URL_EXITO, type PerfilDeCobro } from '../checkout.ts'
+import { decidirCheckout, esClienteInexistente, sinCliente, URL_CANCELADO, URL_EXITO, type PerfilDeCobro } from '../checkout.ts'
 
 const PRECIOS = { monthly: 'price_m', annual: 'price_a' }
 const SIN_PERFIL: PerfilDeCobro = { plan: 'free', stripe_customer_id: null, stripe_subscription_id: null }
@@ -70,5 +70,40 @@ describe('decidirCheckout', () => {
     expect(JSON.stringify(d.sesion)).not.toContain('trial')
     expect(URL_EXITO).toBe('https://nestmux.com/checkout/success')
     expect(URL_CANCELADO).toBe('https://nestmux.com/checkout/cancelled')
+  })
+})
+
+describe('esClienteInexistente', () => {
+  it('sólo el resource_missing sobre el parámetro customer', () => {
+    expect(esClienteInexistente({ code: 'resource_missing', param: 'customer' })).toBe(true)
+    expect(esClienteInexistente({ code: 'resource_missing', param: 'price' })).toBe(false)
+    expect(esClienteInexistente({ code: 'card_declined', param: 'customer' })).toBe(false)
+    expect(esClienteInexistente(null)).toBe(false)
+    expect(esClienteInexistente(undefined)).toBe(false)
+    expect(esClienteInexistente('resource_missing')).toBe(false)
+    expect(esClienteInexistente(new Error('boom'))).toBe(false)
+  })
+})
+
+describe('sinCliente', () => {
+  const conCustomer = () => {
+    const d = base({ perfil: { ...SIN_PERFIL, stripe_customer_id: 'cus_x' } })
+    if (!d.ok) throw new Error('debía ser ok')
+    return d.sesion
+  }
+
+  it('saca el customer y pone el email', () => {
+    const s = sinCliente(conCustomer(), 'gero@x.com')
+    expect(s.customer).toBeUndefined()
+    expect(s.customer_email).toBe('gero@x.com')
+    expect(s.line_items).toEqual([{ price: 'price_m', quantity: 1 }])
+  })
+
+  it('sin email no queda ni customer ni customer_email, y no muta la original', () => {
+    const orig = conCustomer()
+    const s = sinCliente(orig, null)
+    expect('customer' in s).toBe(false)
+    expect('customer_email' in s).toBe(false)
+    expect(orig.customer).toBe('cus_x')
   })
 })
