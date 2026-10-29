@@ -225,4 +225,60 @@ describe('useProfile — período de facturación', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent('nest:e2e-plan', { detail: { plan: 'cloud' } })) })
     expect(b.result.current.plan).toBe('free')
   })
+
+  // Sin la migración de 2b-3 en la base, PostgREST rechaza el select entero (columna que no
+  // existe). Ignorar ese error dejaba `data` en null → plan free para TODOS los que pagan.
+  describe('sin las columnas del período en la base', () => {
+    const COMPLETO = 'plan, trial_started_at, billing_interval, current_period_end, cancel_at_period_end'
+    const ERROR = { data: null, error: { code: '42703', message: 'column profiles.billing_interval does not exist' } }
+
+    function mockPorColumnas(respuestas: Record<string, () => unknown>) {
+      supabaseMock.getUser.mockResolvedValue({ data: { user: USER } })
+      supabaseMock.from.mockImplementation(() => ({
+        select: (cols: string) => {
+          select(cols)
+          return { eq: () => ({ maybeSingle: () => Promise.resolve(respuestas[cols]?.() ?? ERROR) }) }
+        },
+      }))
+    }
+
+    it('reintenta sin las columnas nuevas: plan cloud y período vacío', async () => {
+      mockPorColumnas({
+        [COMPLETO]: () => ERROR,
+        'plan, trial_started_at': () => ({ data: { plan: 'cloud', trial_started_at: null }, error: null }),
+      })
+      const { result } = renderHook(() => useProfile())
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(select).toHaveBeenNthCalledWith(1, COMPLETO)
+      expect(select).toHaveBeenNthCalledWith(2, 'plan, trial_started_at')
+      expect(result.current.plan).toBe('cloud')
+      expect(result.current.rawPlan).toBe('cloud')
+      expect(result.current.billingInterval).toBeNull()
+      expect(result.current.currentPeriodEnd).toBeNull()
+      expect(result.current.cancelAtPeriodEnd).toBe(false)
+    })
+
+    it('si los dos fallan conserva el plan anterior, sin bajar a free', async () => {
+      let rota = false
+      mockPorColumnas({
+        [COMPLETO]: () => (rota ? ERROR : { data: { plan: 'cloud', trial_started_at: null, billing_interval: 'monthly', current_period_end: '2026-11-29T00:00:00Z', cancel_at_period_end: false }, error: null }),
+        'plan, trial_started_at': () => ERROR,
+      })
+      const { result } = renderHook(() => useProfile())
+      await waitFor(() => expect(result.current.plan).toBe('cloud'))
+      rota = true
+      await act(async () => { window.dispatchEvent(new Event('focus')) })
+      await waitFor(() => expect(select).toHaveBeenCalledTimes(3))
+      expect(result.current.plan).toBe('cloud')
+      expect(result.current.billingInterval).toBe('monthly')
+      expect(result.current.loading).toBe(false)
+    })
+
+    it('si los dos fallan al montar, deja de cargar', async () => {
+      mockPorColumnas({})
+      const { result } = renderHook(() => useProfile())
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(select).toHaveBeenCalledTimes(2)
+    })
+  })
 })

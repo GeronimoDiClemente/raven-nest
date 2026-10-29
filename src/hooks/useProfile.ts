@@ -119,27 +119,34 @@ export function useProfile(): Profile {
       // READ ONLY — never write to profiles from the client.
       // Profile creation is handled by the DB trigger (handle_new_user)
       // and the on-signup edge function.
-      const { data } = await supabase
+      const consultar = (columnas: string) => supabase
         .from('profiles')
-        .select('plan, trial_started_at, billing_interval, current_period_end, cancel_at_period_end')
+        .select(columnas)
         .eq('id', user.id)
-        .maybeSingle()
+        .maybeSingle<Record<string, unknown>>()
+      let { data, error } = await consultar('plan, trial_started_at, billing_interval, current_period_end, cancel_at_period_end')
+      // Sin la migración de 2b-3 en la base, PostgREST rechaza el select entero por las
+      // columnas que no existen. Ignorar el error dejaba `data` en null → free para TODOS los
+      // que pagan. Se reintenta con las de siempre y el período queda vacío.
+      if (error) ({ data, error } = await consultar('plan, trial_started_at'))
+      if (!alive) return
+      // Tampoco eso: no se sabe el plan, y un `free` inventado esconde lo que pagó. Se conserva
+      // la lectura anterior (la inicial, si es la primera) y se deja de cargar.
+      if (error) { setProfile(p => ({ ...p, loading: false })); return }
 
-      if (alive) {
-        const rawPlan: string = data?.plan ?? 'free'
-        const computed = computeEffectivePlan(rawPlan, data?.trial_started_at ?? null)
-        const intervalo = data?.billing_interval
-        setProfile({
-          ...computed,
-          loading: false,
-          rawPlan,
-          userId: user.id,
-          billingInterval: intervalo === 'monthly' || intervalo === 'annual' ? intervalo : null,
-          currentPeriodEnd: data?.current_period_end ?? null,
-          cancelAtPeriodEnd: data?.cancel_at_period_end === true,
-          recargar,
-        })
-      }
+      const rawPlan = typeof data?.plan === 'string' ? data.plan : 'free'
+      const computed = computeEffectivePlan(rawPlan, typeof data?.trial_started_at === 'string' ? data.trial_started_at : null)
+      const intervalo = data?.billing_interval
+      setProfile({
+        ...computed,
+        loading: false,
+        rawPlan,
+        userId: user.id,
+        billingInterval: intervalo === 'monthly' || intervalo === 'annual' ? intervalo : null,
+        currentPeriodEnd: typeof data?.current_period_end === 'string' ? data.current_period_end : null,
+        cancelAtPeriodEnd: data?.cancel_at_period_end === true,
+        recargar,
+      })
     }
 
     cargarRef.current = load
