@@ -120,7 +120,8 @@ export default function AccountPlanSection({ memory, onOpenMemorySync }: { memor
         </>
       )}
 
-      {uso.tipo === 'conectado' && (
+      {/* Un servidor viejo sin GET /v1/devices no tiene lista: ni título ni "Couldn't load" eterno. */}
+      {uso.tipo === 'conectado' && maquinas.estado.tipo !== 'no_soportado' && (
         <>
           <Titulo>Machines</Titulo>
           <MachinesBlock estado={maquinas.estado} onRetry={() => void maquinas.cargar()} onRevocar={maquinas.revocar} />

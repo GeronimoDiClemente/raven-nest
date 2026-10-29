@@ -9,7 +9,14 @@ import { Button } from '@/components/ui/button'
 export type EstadoDeMaquinas =
   | { tipo: 'cargando' }
   | { tipo: 'error' }
+  // Servidor viejo sin GET /v1/devices: no hay lista que pedir, y un Retry no lo arregla.
+  | { tipo: 'no_soportado' }
   | { tipo: 'ok'; lista: MaquinaDeLaCuenta[] }
+
+/** `/v1/devices` de un servidor viejo sólo acepta POST: 405 con o sin cuerpo. */
+function rutaAusente(error: string): boolean {
+  return error === 'method_not_allowed' || error === 'HTTP 405'
+}
 
 /** `activo` = el sync está conectado: sin conexión no hay a quién preguntarle. */
 export function useMaquinas(activo: boolean) {
@@ -25,11 +32,18 @@ export function useMaquinas(activo: boolean) {
     try {
       const r = await window.memory?.devices?.()
       if (r?.ok) siguiente = { tipo: 'ok', lista: r.devices }
+      else if (r && rutaAusente(r.error)) siguiente = { tipo: 'no_soportado' }
     } catch { /* queda en error */ }
     if (n === pedido.current) setEstado(siguiente)
   }, [])
 
-  useEffect(() => { if (activo) void cargar() }, [activo, cargar])
+  useEffect(() => {
+    if (activo) { void cargar(); return }
+    // Desconectado o cambiando de cuenta: la lista vieja (con sus Disconnect) no puede volver a
+    // verse al reconectar, y una lectura en vuelo es de la cuenta anterior.
+    pedido.current++
+    setEstado({ tipo: 'cargando' })
+  }, [activo, cargar])
 
   /** true = la máquina ya no está (o la lista se releyó); false = mostrar el error en la fila. */
   const revocar = useCallback(async (id: string): Promise<boolean> => {
@@ -89,6 +103,7 @@ export default function MachinesBlock({ estado, onRetry, onRevocar }: {
     }
   }
 
+  if (estado.tipo === 'no_soportado') return null
   if (estado.tipo === 'cargando') {
     return <div aria-busy className="h-4 w-48 animate-pulse rounded bg-muted" />
   }

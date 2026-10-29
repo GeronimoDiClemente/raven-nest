@@ -338,12 +338,13 @@ describe('AccountPlanSection — Machines', () => {
     expect(puente.devices).toHaveBeenCalledTimes(2)
   })
 
-  it('una lectura vieja que llega después del revoke no resucita la máquina', async () => {
+  // Cambio de cuenta o desconexión: la lista vieja (con sus Disconnect) no puede volver a verse
+  // al reconectar mientras llega la nueva.
+  it('al dejar de estar conectado la lista vuelve a cargando', async () => {
     const puente = fingirPuente()
     const ui = () => <AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />
     const { rerender } = render(ui())
     await screen.findByText('MacBook')
-    // Reconectar dispara otra lectura; queda colgada y después llega con la lista VIEJA.
     let soltarLista: (v: unknown) => void = () => {}
     puente.devices.mockReturnValueOnce(new Promise((r) => { soltarLista = r }))
     fingirMemoria({ state: 'disconnected', cloudProjects: null })
@@ -351,12 +352,45 @@ describe('AccountPlanSection — Machines', () => {
     fingirMemoria()
     rerender(ui())
     await waitFor(() => expect(puente.devices).toHaveBeenCalledTimes(2))
-    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect MacBook' }))
-    fireEvent.click(within(fila('MacBook')).getByRole('button', { name: 'Disconnect' }))
-    await waitFor(() => expect(screen.queryByText('MacBook')).toBeNull())
-    await act(async () => { soltarLista({ ok: true, devices: MAQUINAS }) })
     expect(screen.queryByText('MacBook')).toBeNull()
-    expect(screen.getByText('2 connected')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Disconnect/ })).toBeNull()
+    expect(screen.queryByText(/connected$/)).toBeNull()
+    await act(async () => { soltarLista({ ok: true, devices: [MAQUINAS[0]] }) })
+    expect(screen.getByText('Gero-PC')).toBeTruthy()
+    expect(screen.getByText('1 connected')).toBeTruthy()
+  })
+
+  it('una lectura que llega después de desconectar no se dibuja al reconectar', async () => {
+    const puente = fingirPuente()
+    let soltarVieja: (v: unknown) => void = () => {}
+    puente.devices.mockReturnValueOnce(new Promise((r) => { soltarVieja = r }))
+    const ui = () => <AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />
+    const { rerender } = render(ui())
+    await waitFor(() => expect(puente.devices).toHaveBeenCalledTimes(1))
+    fingirMemoria({ state: 'disconnected', cloudProjects: null })
+    rerender(ui())
+    // La de la cuenta anterior llega con la sección desconectada.
+    await act(async () => { soltarVieja({ ok: true, devices: MAQUINAS }) })
+    puente.devices.mockReturnValueOnce(new Promise(() => {}))
+    fingirMemoria()
+    rerender(ui())
+    await waitFor(() => expect(puente.devices).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText('MacBook')).toBeNull()
+  })
+
+  // Servidor viejo sin GET /v1/devices: `/v1/devices` sólo acepta POST y contesta 405
+  // `method_not_allowed` (el daemon lo pasa tal cual, o `HTTP 405` sin cuerpo). Un Retry no lo
+  // arregla nunca: el bloque no se muestra.
+  it.each(['method_not_allowed', 'HTTP 405'])('servidor sin la ruta (%s): sin bloque Machines ni conteo', async (codigo) => {
+    const puente = fingirPuente()
+    puente.devices.mockResolvedValue({ ok: false, error: codigo })
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
+    await waitFor(() => expect(puente.devices).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Machines' })).toBeNull())
+    expect(screen.queryByText("Couldn't load your machines.")).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(screen.queryByText(/connected$/)).toBeNull()
+    expect(screen.getByText('1 of 1 · raven-nest')).toBeTruthy()
   })
 
   it('con un revoke en vuelo, el Disconnect de otra fila también queda deshabilitado', async () => {
