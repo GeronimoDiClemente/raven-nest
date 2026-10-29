@@ -103,3 +103,26 @@ servidor de sync local (nada de Railway). Gero **no entrega su `sk_test`** por c
    cerrar cosas; Docker Desktop es lo más pesado.
 5. Al cerrar la prueba: revocar la restricted key, borrar los archivos de secretos temporales,
    `npx supabase stop --workdir <dir>`, `docker stop nest-memory-pg`.
+
+---
+
+# Addendum 2026-10-29 — 2b-3 cuenta en Settings: SPEC ESCRITO (sin plan, sin código)
+
+Gero sigue **desde la Mac**. La rama `feat/memories-settings` está pusheada a origin (primer push el
+29-10; antes era sólo local). En la Mac: `git fetch && git switch feat/memories-settings`,
+`npm i`, `npm run native:electron`. Credenciales de Doppler/1Password, nada en el repo.
+
+- Spec: `docs/superpowers/specs/2026-10-29-cuenta-en-settings-design.md`. Decisiones D1-D4 de Gero
+  en su §2 (alcance plan+uso, vive en Settings › Account, fechas guardadas por el webhook,
+  Disconnect por máquina).
+- **Estado del gate de brainstorming:** el diseño se aprobó sección por sección en el chat; **falta
+  que Gero revise el spec escrito**. Recién con ese OK → `superpowers:writing-plans` → elegir modo
+  de ejecución.
+- Incluye los huecos de 2b-2 (back-office sin avisar al sync, customer borrado → 502) y el e2e/04
+  que no renderizaba el toast ni `Keep syncing`.
+- La prueba de 2b-2 en modo test (addendum 22-10) sigue frenada en las dos acciones de Gero en
+  el sandbox de Stripe (restricted key y portal default). Su entorno era de la PC Windows (Supabase
+  local en 55xxx, CLI de Stripe por winget): en la Mac hay que levantarlo de nuevo con la receta.
+  Las migraciones y deploys de 2b-3 salen junto con los de 2b-2.
+- Notas de entorno Windows (`restaurar-libc`, EBUSY por `electron.exe` del MCP) no aplican a la Mac;
+  ojo con el ABI de Node para el binding de tests (CLAUDE.md).
