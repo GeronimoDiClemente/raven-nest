@@ -14,6 +14,7 @@ import type { InstalledThemeInfo, ScannedThemeInfo, OpenVSXThemeResult } from '.
 import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
 import MemoryAdoptionDialog from './MemoryAdoptionDialog'
+import AccountPlanSection from './account/AccountPlanSection'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -530,6 +531,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
               >
                 <div className="sp-section">
                   <p className="sp-email">{userEmail || '—'}</p>
+
+                  {/* Spec 2b-3 §3: Plan, Usage y Machines. */}
+                  <AccountPlanSection onOpenMemorySync={() => onOpenMemories?.('settings')} />
 
 
                   {/* La memoria no vive en Settings: su configuración es la pestaña
