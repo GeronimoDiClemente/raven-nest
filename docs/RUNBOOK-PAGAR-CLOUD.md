@@ -67,7 +67,7 @@ servidor (corre la migración `011_kept_project.sql` sola al arrancar). Verifica
   el mismo plan). No hay nonce ni rate limiter en el endpoint.
 - Limitación conocida: un perfil cuyo `stripe_customer_id` **ya no existe en Stripe** (cliente
   borrado a mano, cambio de cuenta de Stripe) recibe **502** en `stripe-checkout`, y lo seguirá
-  recibiendo. Se arregla en 2b-3; mientras tanto, limpiar `profiles.stripe_customer_id` a mano.
+  recibiendo. Se arregla en 2b-3 (§6); mientras tanto, limpiar `profiles.stripe_customer_id` a mano.
 
 ## 3. Compra de punta a punta (tarjeta de test `4242 4242 4242 4242`)
 
@@ -98,6 +98,70 @@ commits de colaboradores: el deploy lo hace Gero.
 Repetir 1–2 en modo live y en los proyectos de producción (Supabase prod, Railway prod), con
 precios y secretos nuevos (ver el bloque bloqueante de arriba: es previo al merge a `main`).
 Un smoke de compra real con una tarjeta propia y reembolso.
+
+## 6. 2b-3 — cuenta en Settings (sale junto con 2b-2)
+
+Spec: `docs/superpowers/specs/2026-10-29-cuenta-en-settings-design.md`. Rama
+`feat/memories-settings` (commits `839954e..1a374a0`). **Mismo régimen: cada paso es una acción
+externa con OK explícito de Gero, y el BLOQUEANTE de arriba sigue vigente**: no mergear a `main`
+(dispara `release.yml`) sin los secrets de prod cargados y el servidor nuevo corriendo en Railway
+prod. 2b-3 agrega un servidor más nuevo todavía (ver paso 4).
+
+**Orden de salida** (la migración antes que las functions; el servidor antes que el merge):
+
+1. **Migración** `supabase/migrations/20261029000000_profiles_billing_period.sql`: tres columnas
+   en `profiles` (intervalo, fin del período, cancelación al fin del período) y el trigger que
+   las protege de updates del propio usuario. Staging primero (`supabase db push`), después prod.
+2. **Secrets**: `PLAN_SYNC_URL` y `PLAN_SYNC_SECRET` ya son secrets del proyecto, pero **ahora los
+   lee también `admin-api`** (antes sólo `stripe-webhook`). Si ya están cargados por 2b-2 no hay
+   nada que hacer; si no, cargarlos (mismo valor que `PLAN_SYNC_SECRET` de Railway):
+   ```bash
+   supabase secrets set --project-ref <ref> PLAN_SYNC_URL=<base del sync> PLAN_SYNC_SECRET=<1Password>
+   ```
+3. **Deploy de las cuatro functions**, todas con `--no-verify-jwt` como en `release.yml`:
+   `stripe-webhook`, `stripe-checkout`, `stripe-portal`, `admin-api`.
+4. **Servidor de sync en Railway**: `GET /v1/devices` (lista de máquinas de la cuenta) y revocar
+   por `deviceId` en `POST /v1/devices/revoke`. Sin migración nueva de la base del servidor. Con
+   el servidor viejo, Settings › Account no puede listar ni desconectar máquinas.
+5. Recién ahí, mergear (release.yml deploya las functions a prod).
+
+**Smoke contra Supabase local** (PENDIENTE, no corrido; ningún test de 2b-3 toca Stripe ni una
+base real salvo los del servidor). El entorno local de 2b-2 vivía en la PC Windows (Supabase en
+55xxx, Stripe CLI por winget): en la Mac hay que reconstruirlo siguiendo el addendum del 22-10 del
+handoff `docs/HANDOFF-2026-10-20-memories-obsidian.md`.
+
+- `UPDATE profiles SET billing_interval = 'year'` con el JWT de un usuario común → **no cambia**
+  (el trigger lo revierte). Cubre también el texto de la migración, que el test unitario solo
+  valida con regex.
+- Un `checkout.session.completed` de prueba (`stripe trigger` o una compra con 4242) deja las
+  **tres columnas** (`billing_interval`, `current_period_end`, `cancel_at_period_end`) pobladas;
+  `customer.subscription.deleted` las limpia al bajar a free.
+- `PUT /plan` desde el back-office → el servidor de sync **recibe** el plan (`POST /internal/plan`
+  firmado). Con el sync caído la respuesta suma `sync_notificado: false` y el `audit` lo registra
+  (el PUT espera hasta 10 s).
+- Customer borrado en el sandbox → `stripe-checkout` crea la sesión **con email** (sin `customer`)
+  y `stripe-portal` contesta **404 `no_subscription`**. Confirma que Stripe devuelve
+  `code: resource_missing, param: customer` (supuesto documentado, nunca visto en vivo).
+- Nest dev: Settings › Account muestra Plan, Usage y Machines; `Disconnect` en otra máquina de la
+  misma cuenta la saca de la lista; `Manage subscription` abre el portal.
+
+**Desvíos respecto del spec** (decididos al ejecutar):
+
+- Portal con customer borrado → **404 `no_subscription`**, no 409; la app lo distingue por `code`
+  y recarga el perfil.
+- Formato `last seen 3d ago` (y `last seen never` si es null).
+- En trial activo la fila dice `Trial` y **muestra Upgrade** (quien está en trial quiere poder pagar).
+- `plan_required` se muestra como `Cloud sync is off.` (el spec no lo cubre; hoy sólo lo produce un
+  plan que esta versión no conoce).
+- `{k} local only` con `over_limit` suma los del roster por encima del tope.
+- Bug previo arreglado: el preload `memory:status` aceptaba un solo oyente
+  (`removeStatusListener` hacía `removeAllListeners`), así que al desmontar `CloudMemoryCard`,
+  `SettingsPanel` quedaba sordo y Account no se actualizaba. Ahora `onStatus` admite varios
+  oyentes y cada uno se da de baja solo (patrón de `onMemoryChanged`).
+- `GET` y `POST` conviven en `/v1/devices` (POST ya era el registro); el 405 se testea con PUT.
+
+**Entorno Mac**: el node de Homebrew es 26 y rompe `electron-rebuild`; usar
+`export PATH=/opt/homebrew/opt/node@22/bin:$PATH` antes de npm/npx.
 
 ## Cómo responde el webhook al aviso de plan
 

@@ -126,3 +126,50 @@ Gero sigue **desde la Mac**. La rama `feat/memories-settings` está pusheada a o
   Las migraciones y deploys de 2b-3 salen junto con los de 2b-2.
 - Notas de entorno Windows (`restaurar-libc`, EBUSY por `electron.exe` del MCP) no aplican a la Mac;
   ojo con el ABI de Node para el binding de tests (CLAUDE.md).
+
+---
+
+# Addendum 2026-10-29 (2) — 2b-3 cuenta en Settings: CÓDIGO TERMINADO, sin salir
+
+Rama `feat/memories-settings`, commits `839954e..1a374a0` (spec y plan:
+`docs/superpowers/{specs,plans}/2026-10-29-cuenta-en-settings*`). **Nada se desplegó ni se mergeó**:
+no hubo `db push`, deploys, secrets ni llamadas a Stripe. La salida va en `docs/RUNBOOK-PAGAR-CLOUD.md`
+§6, junto con la de 2b-2 y con el mismo bloqueante (no mergear a main sin secrets de prod y servidor nuevo).
+
+- **Qué hay:** migración `20261029000000_profiles_billing_period.sql` (intervalo, fin de período y
+  cancelación en `profiles`, protegidas por el trigger); `stripe-webhook` las guarda; `PUT /plan` de
+  `admin-api` avisa al sync (`PLAN_SYNC_URL`/`PLAN_SYNC_SECRET` ahora también los lee admin-api);
+  customer borrado ya no traba checkout (sesión con email) ni portal (404 `no_subscription`); servidor
+  de sync con `GET /v1/devices` y revoke por `deviceId`; daemon con `devices()`/`revokeDevice()`;
+  Settings › Account con Plan, Usage y Machines; `Keep syncing` abre Memory settings › Sync y
+  `Plan & billing` abre Account.
+- **Verificado (corridas finales):** supabase/functions **227 tests**; server **514 tests** contra
+  Postgres real + `tsc` 0; proyecto jsdom **1015 tests** (140 archivos); e2e 03+04 **15/15** headless
+  tras `npm run build`; los dos `tsc` de CI **0 errores**. Cada tarea pasó revisión sin pendientes.
+- **NO verificado:** el smoke contra Supabase local y Stripe sandbox (pasos en el runbook §6). El
+  entorno de 2b-2 vivía en la PC Windows y hay que rehacerlo en la Mac. Los shells Deno (`index.ts`
+  de las functions) no tienen test ni typecheck; la forma `resource_missing`/`param: customer` de
+  Stripe es la documentada pero nunca se vio en vivo.
+- **Desvíos del spec:** portal con customer borrado = 404 `no_subscription` (no 409); `last seen 3d
+  ago`; trial muestra Upgrade; `plan_required` = "Cloud sync is off."; `GET`+`POST` en `/v1/devices`.
+  Bug previo arreglado en `1a374a0`: `memory:status` del preload admitía un solo oyente (lo destapó el
+  e2e: al desmontar la tarjeta Cloud, Account quedaba sorda).
+- **Menores diferidos que conviene mirar (el ledger vive en `.superpowers/` git-ignored y se borra):**
+  - `stripe-webhook`: en `subscription.updated` el plan sale del precio del EVENTO y el período de la
+    sub releída; en un reintento viejo pueden diferir (derivar el precio de `sub` lo unifica). El
+    cableado Deno (upsert con período, `bajar_a_free`) y la secuencia limpiar+reintentar de checkout
+    y portal no tienen test.
+  - `stripe-portal/portal.ts` importa `esClienteInexistente` de `../stripe-checkout` (único import
+    cruzado entre functions; la convención es `_shared/`).
+  - `PUT /plan` espera hasta 10 s al sync si está caído.
+  - Test de migración sólo por texto (regex): lo cubre el smoke.
+  - Servidor: `deviceId: null` → 400 sin test. Daemon: `listDevices` mapea id faltante a `"undefined"`;
+    sin tests de body no-JSON ni fetch que lanza.
+  - UI: el `disconnected` inicial de `useMemory` puede mostrar "Cloud sync is off." un instante (el
+    hook no expone "primer status leído"); `seccionPedida`/`pedidoDeSettings` son props separados con
+    `eslint-disable` (mejor un objeto `{n, seccion}`); sin test unitario de que Keep syncing pasa
+    `('settings','sync')` (lo cubre el e2e).
+  - e2e: el toast-cloud depende de que el perfil cargue antes del evento; fake de status sin tipo;
+    `useMemory.test` no restaura `onStatus`/`window.memory` en `afterEach`.
+- **Entorno Mac:** node de Homebrew = 26 y rompe `electron-rebuild`; usar
+  `export PATH=/opt/homebrew/opt/node@22/bin:$PATH`. Tests del server: Postgres 16 nativo en :55432.
