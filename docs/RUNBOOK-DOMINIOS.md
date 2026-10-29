@@ -9,10 +9,9 @@ El código ya está en la rama (`092c289`): el default es `https://sync.nestmux.
 de Railway prod es un alias. **No buildear `dist/` hasta cerrar A.3**: el MCP de memoria de los
 agentes corre el `dist` del repo y, sin DNS, se queda sin sync.
 
-Hoy (29-10) `sync.nestmux.com` ya resuelve, pero a las IPs de Vercel (`216.198.79.65`,
-`64.29.17.1`): hay un registro comodín o de apex que lo atrapa. El CNAME de A.2 lo pisa.
+Antes del CNAME, `sync.nestmux.com` resolvía a las IPs de Vercel por el `ALIAS *` (ver A.2).
 
-### A.1 Railway: sumar el dominio — [ ] hecho (fecha: …)
+### A.1 Railway: sumar el dominio — [x] hecho (29-10, 23:46 UTC)
 
 Desde `server/` (el link de Railway es por directorio):
 
@@ -24,12 +23,20 @@ railway domain sync.nestmux.com --service sync
 Anotar el **CNAME destino** que devuelve (algo como `xxxx.up.railway.app`) y, si lo pide, el TXT
 de verificación. `railway domain status sync.nestmux.com` lo vuelve a mostrar.
 
-### A.2 Vercel DNS — [ ] hecho (fecha: …)
+Salió: id `50926acb-072d-457e-9661-6a1040f6fc81`, `CNAME sync → xnoo6nb5.up.railway.app` y
+`TXT _railway-verify.sync`.
+
+### A.2 Vercel DNS — [x] hecho (29-10)
 
 En el dominio `nestmux.com`: `CNAME sync → <destino de A.1>` (y el TXT, si hubo). Por el MCP de
 Vercel (`create_record`) o el dashboard.
 
-### A.3 Verificar — [ ] hecho (fecha: …)
+Ojo: el dominio vive en el team `geronimodiclemente-gmailcoms-projects`
+(`team_cCW7bfitUfTw9QTPSAs3tetE`). Sin el `teamId`, el MCP contesta 403. Hay un `ALIAS *` que
+Vercel maneja solo: es lo que atrapaba a `sync` antes del CNAME. El CAA permite Let's Encrypt,
+que es lo que usa Railway.
+
+### A.3 Verificar — [x] hecho (29-10: DNS a Railway, HTTP/2 401 con certificado válido)
 
 ```bash
 dig +short sync.nestmux.com          # tiene que dar el destino de Railway, no las IPs de Vercel
@@ -47,3 +54,20 @@ puede borrarla (el default ya es el mismo servidor); para un servidor local, `MA
 ## B. `api.nestmux.com` — espera D3
 
 No se toca hasta que Gero apruebe Supabase Pro + Custom Domain (spec §4.2 y D3).
+
+## C. Railway después del incidente del 20 al 22 de octubre
+
+Railway descifró variables de entorno de un subconjunto de workspaces (su informe preliminar:
+https://blog.railway.com/p/preliminary-report-october-security-incident) y pide rotarlas.
+El 29-10 el servicio `sync` tenía `BETA_LINK_SECRET`, `DATABASE_URL`, `SUPABASE_URL` y
+`SUPABASE_ANON_KEY`. La anon key es pública por diseño, y la base no tiene endpoint público.
+
+- [ ] Rotar `BETA_LINK_SECRET`. Invalida los links de beta ya mandados.
+- [ ] Rotar la contraseña de Postgres (`POSTGRES_PASSWORD`/`PGPASSWORD`) y la `DATABASE_URL` del servicio.
+- [ ] Renovar el token del CLI de Railway y revisar los accesos de GitHub.
+- [ ] Al deployar el código nuevo, cargar `R2_*` (hoy prod **no hace backups**) y `PLAN_SYNC_SECRET`.
+  Después, probar un restore con `server/scripts/restore-check.mjs`.
+- [ ] Activar los backups de volumen y el PITR de Railway en el Postgres.
+- [ ] Releer el informe final de Railway. Si confirma acceso a código o a volúmenes, reabrir la mudanza.
+
+La validación completa (alternativas, costos y disparadores) está en `docs/railway-validacion-2026-10-29.md`.
