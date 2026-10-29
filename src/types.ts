@@ -18,6 +18,15 @@ export type LayoutId =
 
 export const MAX_PANES = 12
 
+/** Spec 2b-3: una máquina de la cuenta de sync. `lastSeenAt` en ms. */
+export interface MaquinaDeLaCuenta {
+  id: string
+  name: string
+  platform: string | null
+  lastSeenAt: number | null
+  current: boolean
+}
+
 export interface Account {
   name: string
   aiType: AIType
@@ -1172,6 +1181,10 @@ declare global {
       /** Spec 2b-2 §4.8: elegir el proyecto que sigue sincronizando (POST /v1/projects/keep).
        *  Opcional: un preload viejo no lo expone. */
       keepProject?: (projectKey: string) => Promise<{ ok: boolean; error?: string }>
+      /** Spec 2b-3: máquinas de la cuenta (GET /v1/devices). Opcional como el resto. */
+      devices?: () => Promise<{ ok: true; devices: MaquinaDeLaCuenta[] } | { ok: false; error: string }>
+      /** Spec 2b-3: revocar otra máquina de la cuenta por id (POST /v1/devices/revoke). */
+      revokeDevice?: (deviceId: string) => Promise<{ ok: true } | { ok: false; error: string }>
       /** Spec 2b-2 §4.8: pedirle al daemon un status nuevo (al cambiar el plan). */
       refreshStatus?: () => Promise<{ ok: boolean }>
       /**

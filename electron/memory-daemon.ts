@@ -14,6 +14,7 @@ import { resolveLWW, resolveTopicCollision, type LWWRow } from './memory-merge'
 import { GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { sealMutationPayload, openPulledRow, type EnvelopeContext } from './memory-envelope'
 import { isCiphertext } from './memory-crypto'
+import type { MaquinaDeLaCuenta } from '../src/types'
 
 const DEBOUNCE_MS = 3_000
 const MAX_WAIT_MS = 30_000
@@ -1250,6 +1251,84 @@ export class MemoryDaemon {
     if (generacionAlSalir !== this.generacionDeStore) return { ok: true }
     await this.status()
     this.scheduleMutationPush()
+    return { ok: true }
+  }
+
+  /**
+   * Spec 2b-3: las máquinas de la cuenta (GET /v1/devices) para Settings › Account. Mismo
+   * esqueleto que keepProject: si la cuenta cambia mientras vuela, la lista es de la anterior.
+   * Nunca lanza.
+   */
+  async listDevices(): Promise<{ ok: true; devices: MaquinaDeLaCuenta[] } | { ok: false; error: string }> {
+    const { getSyncBaseUrl, getToken, isOnline } = this.deps
+    const generacionAlSalir = this.generacionDeStore
+    const url = getSyncBaseUrl()
+    const token = getToken()
+    if (!url || !token) return { ok: false, error: 'not_connected' }
+    if (!isOnline()) return { ok: false, error: 'offline' }
+
+    let release: (() => void) | null = null
+    try {
+      const { response, release: releaseTimer } = await this.fetchWithTimeout(`${url}/v1/devices`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      release = releaseTimer
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: unknown } | null
+        return { ok: false, error: typeof body?.error === 'string' ? body.error : `HTTP ${response.status}` }
+      }
+      const body = (await response.json().catch(() => null)) as { devices?: unknown } | null
+      if (generacionAlSalir !== this.generacionDeStore) return { ok: false, error: 'account_changed' }
+      const crudas = Array.isArray(body?.devices) ? (body.devices as Record<string, unknown>[]) : []
+      const devices: MaquinaDeLaCuenta[] = crudas.map((d) => {
+        const visto = typeof d.last_seen_at === 'string' ? Date.parse(d.last_seen_at) : NaN
+        return {
+          id: String(d.id),
+          name: String(d.name ?? ''),
+          platform: typeof d.platform === 'string' ? d.platform : null,
+          lastSeenAt: Number.isFinite(visto) ? visto : null,
+          current: d.current === true,
+        }
+      })
+      return { ok: true, devices }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    } finally {
+      release?.()
+    }
+  }
+
+  /**
+   * Spec 2b-3: revoca otra máquina de la cuenta por id (POST /v1/devices/revoke). El servidor
+   * rechaza la propia con `use_self_revoke`. Nunca lanza.
+   */
+  async revokeDevice(deviceId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    const { getSyncBaseUrl, getToken, isOnline } = this.deps
+    const generacionAlSalir = this.generacionDeStore
+    const url = getSyncBaseUrl()
+    const token = getToken()
+    if (!url || !token) return { ok: false, error: 'not_connected' }
+    if (!isOnline()) return { ok: false, error: 'offline' }
+
+    let release: (() => void) | null = null
+    try {
+      const { response, release: releaseTimer } = await this.fetchWithTimeout(`${url}/v1/devices/revoke`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId }),
+      })
+      release = releaseTimer
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: unknown } | null
+        return { ok: false, error: typeof body?.error === 'string' ? body.error : `HTTP ${response.status}` }
+      }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    } finally {
+      release?.()
+    }
+    if (generacionAlSalir !== this.generacionDeStore) return { ok: false, error: 'account_changed' }
     return { ok: true }
   }
 

@@ -3816,6 +3816,17 @@ ipcMain.handle('memory:keepProject', async (_e, projectKey: string) => {
   return memory.daemon.keepProject(projectKey)
 })
 
+// Spec 2b-3: máquinas de la cuenta en Settings › Account.
+ipcMain.handle('memory:devices', async () => {
+  if (!memory) return { ok: false, error: 'Memory is not available' }
+  return memory.daemon.listDevices()
+})
+ipcMain.handle('memory:revokeDevice', async (_e, deviceId: string) => {
+  if (!memory) return { ok: false, error: 'Memory is not available' }
+  if (typeof deviceId !== 'string' || !deviceId.trim()) return { ok: false, error: 'Missing deviceId' }
+  return memory.daemon.revokeDevice(deviceId)
+})
+
 // Spec 2b-2 §4.8 (D9): la app vio cambiar el plan (pagó o canceló) y pide un status nuevo, para
 // que el tope suba —y lo retenido converja— sin esperar al próximo poll (15 min en Free). El
 // evento `memory:status` hace que el renderer vuelva a leer por `memory:status`.

@@ -94,6 +94,9 @@ contextBridge.exposeInMainWorld('memory', {
   // la app ve cambiar el plan.
   keepProject: (projectKey: string) => ipcRenderer.invoke('memory:keepProject', projectKey),
   refreshStatus: () => ipcRenderer.invoke('memory:refreshStatus'),
+  // Spec 2b-3: máquinas de la cuenta (listar y revocar otra por id).
+  devices: () => ipcRenderer.invoke('memory:devices'),
+  revokeDevice: (deviceId: string) => ipcRenderer.invoke('memory:revokeDevice', deviceId),
   // Cifrado del lado del cliente (spec §5.3). Opcionales en `window.memory` como todo lo
   // que sumo la fase 1: un preload viejo no los expone y la UI tiene que montar igual.
   encryptionStatus: () => ipcRenderer.invoke('memory:encryption:status'),
