@@ -1,6 +1,7 @@
 // Edge Function — contrato /api/internal/* que consume el back-office.
 // Deploy: supabase functions deploy admin-api
 // Secrets: supabase secrets set NEST_ADMIN_API_TOKEN=<32+ chars>
+//          supabase secrets set PLAN_SYNC_URL=<base del servicio de sync> PLAN_SYNC_SECRET=<secreto compartido>
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { verificarAuth, type Actor } from './auth.ts'
@@ -10,6 +11,7 @@ import { MANIFEST } from './manifest.ts'
 import { aAccountDetail, aAccountSummary, type UsuarioAuth } from './mapear.ts'
 import { PLANES_VALIDOS, aSubResumen, elegirSub, esSubViva, type SubResumen } from './pricing.ts'
 import { paginarTodo } from './paginar.ts'
+import { avisarCambioManual } from '../_shared/aviso-de-plan.ts'
 import {
   aEquipos, validarSacarMiembro, validarTransferencia,
   type Equipo, type FilaMiembro, type FilaRepo, type FilaTeam,
@@ -720,8 +722,24 @@ Deno.serve(async (req) => {
       const ok = !error && !sinFila
       const mensaje = error?.message ?? (sinFila ? 'La cuenta no tiene perfil' : null)
 
+      // Sólo si el update pegó: el servidor de sync converge a lo que quedó en `profiles`.
+      const aviso = ok
+        ? await avisarCambioManual(
+          fetch,
+          { PLAN_SYNC_URL: Deno.env.get('PLAN_SYNC_URL'), PLAN_SYNC_SECRET: Deno.env.get('PLAN_SYNC_SECRET') },
+          id, plan, Math.floor(Date.now() / 1000),
+        )
+        : null
+      if (aviso && !aviso.notificado) {
+        console.error('[admin-api] el plan cambió pero no llegó al servidor de sync', { id, plan, motivo: aviso.motivo })
+      }
+
       const auditado = await auditar(actor, 'change_plan', 'user', id, email,
-        { plan: antes?.plan ?? null }, { plan }, ok, mensaje)
+        { plan: antes?.plan ?? null },
+        aviso
+          ? { plan, sync_notificado: aviso.notificado, ...(aviso.notificado ? {} : { sync_motivo: aviso.motivo }) }
+          : { plan },
+        ok, mensaje)
 
       if (error) return json({ error: error.message }, 500)
       if (sinFila) return json({ error: 'La cuenta no tiene perfil' }, 404)
@@ -731,6 +749,7 @@ Deno.serve(async (req) => {
       return json({
         cambios: [{ key: 'plan', de: antes?.plan ?? null, a: plan }],
         ...(auditado ? {} : { auditado: false }),
+        ...(aviso && !aviso.notificado ? { sync_notificado: false } : {}),
       })
     }
 

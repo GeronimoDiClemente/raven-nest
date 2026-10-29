@@ -1,6 +1,6 @@
 // Spec 2b-2 §4.4: después de escribir `profiles`, el webhook le avisa al servidor de sync.
 import { describe, it, expect, vi } from 'vitest'
-import { avisarPlan, clasificarAviso, configDeAviso, firmarAviso, resolverBaja } from '../aviso-de-plan.ts'
+import { avisarCambioManual, avisarPlan, clasificarAviso, configDeAviso, firmarAviso, resolverBaja } from '../aviso-de-plan.ts'
 
 const CUERPO = '{"user_id":"00000000-0000-4000-8000-000000000001","plan":"cloud"}'
 // D13: el MISMO vector que verifica el servidor (server/__tests__/plan-sync.test.ts).
@@ -102,5 +102,38 @@ describe('resolverBaja', () => {
 
   it('sin filas afectadas: nada que limpiar, 200', () => {
     expect(resolverBaja([])).toEqual({ limpiar: false, status: 200 })
+  })
+})
+
+// Spec 2b-3: el PUT /plan del back-office avisa igual que el webhook.
+describe('avisarCambioManual', () => {
+  const ENV = { PLAN_SYNC_URL: 'https://sync.test', PLAN_SYNC_SECRET: 'test-secret' }
+  const USER = '00000000-0000-4000-8000-000000000001'
+
+  it('sin PLAN_SYNC_SECRET no llama a fetch y da sin_config', async () => {
+    const f = vi.fn()
+    const r = await avisarCambioManual(f as unknown as typeof fetch, { PLAN_SYNC_URL: 'https://sync.test' }, USER, 'cloud', 1_700_000_000)
+    expect(r).toEqual({ notificado: false, motivo: 'sin_config' })
+    expect(f).not.toHaveBeenCalled()
+  })
+
+  it('200: notificado, con el body firmado', async () => {
+    const f = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
+    const r = await avisarCambioManual(f as unknown as typeof fetch, ENV, USER, 'cloud', 1_700_000_000)
+    expect(r).toEqual({ notificado: true })
+    const [url, init] = f.mock.calls[0]
+    expect(url).toBe('https://sync.test/internal/plan')
+    expect(init.body).toBe(CUERPO)
+    expect(init.headers['X-Nest-Signature']).toBe(`t=1700000000,v1=${V1_DEL_VECTOR}`)
+  })
+
+  it('500: no notificado con motivo HTTP 500', async () => {
+    const f = vi.fn().mockResolvedValue(new Response(null, { status: 500 }))
+    expect(await avisarCambioManual(f as unknown as typeof fetch, ENV, USER, 'cloud', 1)).toEqual({ notificado: false, motivo: 'HTTP 500' })
+  })
+
+  it('fetch que lanza: no notificado con el mensaje', async () => {
+    const f = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
+    expect(await avisarCambioManual(f as unknown as typeof fetch, ENV, USER, 'cloud', 1)).toEqual({ notificado: false, motivo: 'ECONNREFUSED' })
   })
 })

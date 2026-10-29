@@ -59,6 +59,24 @@ export async function avisarPlan(
 }
 
 /**
+ * Spec 2b-3: el PUT /plan del back-office cambia `profiles.plan` a mano y avisa al servidor de
+ * sync igual que el webhook. Acá un fallo no se reintenta: el llamador lo audita y se lo
+ * informa al operador, que puede repetir el cambio.
+ */
+export async function avisarCambioManual(
+  fetchImpl: typeof fetch,
+  env: { PLAN_SYNC_URL?: string; PLAN_SYNC_SECRET?: string },
+  userId: string,
+  plan: string,
+  ahoraSeg: number,
+): Promise<{ notificado: true } | { notificado: false; motivo: string }> {
+  const config = configDeAviso(env)
+  if (!config) return { notificado: false, motivo: 'sin_config' }
+  const r = await avisarPlan(fetchImpl, config, userId, plan, ahoraSeg)
+  return r.ok ? { notificado: true } : { notificado: false, motivo: r.motivo }
+}
+
+/**
  * Ruling P9 (desvío acotado del spec §4.4): un 400 es un dato determinísticamente inválido
  * (user_id que no es uuid, plan desconocido) y reintentarlo durante días no lo arregla: se
  * descarta (el llamador lo loguea y le contesta 200 a Stripe). Todo lo demás —401/404 (config
