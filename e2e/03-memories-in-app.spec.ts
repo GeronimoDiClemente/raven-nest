@@ -25,6 +25,7 @@
 // del archivo los cubren.)
 import { test, expect } from '@playwright/test'
 import { launchHarness, teardown, type Harness } from './helpers/harness'
+import { fingirCloudSobreElTope, fingirMaquinas } from './helpers/fingir-cuenta'
 import { existsSync, mkdirSync } from 'fs'
 import { basename, join } from 'path'
 
@@ -147,7 +148,7 @@ test('el overlay tapa de verdad lo que hay debajo, no solo por numero', async ()
     // Orca). La seccion esta montada desde que se abre el panel, asi que no hay nada que
     // clickear para llegar.
 
-    const puerta = page.getByRole('button', { name: 'Memory settings' })
+    const puerta = page.getByRole('button', { name: 'Memory settings', exact: true })
     await expect(puerta).toBeVisible({ timeout: 10_000 })
     await puerta.click()
 
@@ -213,7 +214,7 @@ test('Settings ya no tiene las tarjetas de memoria — solo la puerta', async ()
     // clickear para llegar.
     // La puerta se llama ahora "Memory settings" (era "Open Memories") y abre Memories
     // con la pestaña Settings activa.
-    const puerta = page.getByRole('button', { name: 'Memory settings' })
+    const puerta = page.getByRole('button', { name: 'Memory settings', exact: true })
     await expect(puerta).toBeVisible({ timeout: 10_000 })
 
     // Lo que la Task 10 SACO de Settings. Si alguna vuelve, es una regresion.
@@ -457,7 +458,7 @@ test('Free con un proyecto: «Projects in the cloud» y su Upgrade abren el moda
   try {
     await fingirFreeConUnProyecto(h)
     await page.locator('.sidebar-item-settings').first().click()
-    const puerta = page.getByRole('button', { name: 'Memory settings' })
+    const puerta = page.getByRole('button', { name: 'Memory settings', exact: true })
     await expect(puerta).toBeVisible({ timeout: 10_000 })
     await puerta.click()
 
@@ -506,6 +507,58 @@ test('la pestaña Settings: una captura por sección', async () => {
       await page.waitForTimeout(600)
       await page.screenshot({ path: join(SHOTS, `20-settings-${i + 1}-${s.toLowerCase().replace(/[^a-z]+/g, '-')}.png`) })
     }
+  } finally {
+    await teardown(h)
+  }
+})
+
+// Spec 2b-3: Settings › Account con Cloud mensual, sobre el tope y tres máquinas. El plan y la
+// facturación salen de RAVEN_E2E_PLAN / RAVEN_E2E_BILLING; el status, el doctor y las máquinas
+// están fingidos en main (`e2e/helpers/fingir-cuenta.ts`).
+test('Account muestra Cloud, el uso y las máquinas', async () => {
+  const h = await launchHarness({
+    withRepo: false,
+    env: {
+      RAVEN_E2E_PLAN: 'cloud',
+      RAVEN_E2E_BILLING: JSON.stringify({ billingInterval: 'monthly', currentPeriodEnd: '2026-11-29T00:00:00Z', cancelAtPeriodEnd: false }),
+    },
+  })
+  const { page } = h
+  try {
+    await fingirMaquinas(h)
+    await fingirCloudSobreElTope(h)
+    await page.locator('.sidebar-item-settings').first().click()
+
+    // Plan
+    await expect(page.getByText('Cloud · Monthly', { exact: true })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Renews on Nov 29, 2026', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Manage subscription' })).toBeVisible()
+
+    // Usage y Machines
+    await expect(page.getByText('3 connected', { exact: true })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('macOS · This machine', { exact: true })).toBeVisible()
+    await expect(page.getByText('macOS · last seen 3d ago', { exact: true })).toBeVisible()
+    await expect(page.getByText('Windows · last seen never', { exact: true })).toBeVisible()
+    await expect(page.getByText('Disconnecting stops syncing on that machine. Memory it already downloaded stays there.')).toBeVisible()
+    // Ésta no se desconecta desde acá: sólo las otras dos tienen el botón.
+    await expect(page.getByRole('button', { name: /^Disconnect / })).toHaveCount(2)
+
+    // La confirmación es en línea, y Cancel la cierra sin revocar.
+    await page.getByRole('button', { name: 'Disconnect MacBook', exact: true }).click()
+    await expect(page.getByText('Disconnect MacBook?', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.getByText('Disconnect MacBook?', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('3 connected', { exact: true })).toBeVisible()
+
+    // 1 local only del doctor (api) + 1 que pasa del tope (web) = 2.
+    await page.getByRole('button', { name: '2 local only — Keep syncing in Memory settings ›', exact: true }).click()
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay.getByRole('heading', { name: 'Sync' })).toBeVisible({ timeout: 10_000 })
+    await expect(overlay.getByRole('combobox', { name: 'Keep syncing' })).toBeVisible({ timeout: 10_000 })
+
+    // La animación de entrada del overlay: sin esperar, la captura sale con Settings atravesado.
+    await page.waitForTimeout(600)
+    await page.screenshot({ path: join(SHOTS, '30-account-keep-syncing.png') })
   } finally {
     await teardown(h)
   }

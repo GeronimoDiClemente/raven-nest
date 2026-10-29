@@ -16,6 +16,7 @@
 // lo que este test existe para cazar: texto que directamente no se lee.
 import { test, expect } from '@playwright/test'
 import { launchHarness, teardown } from './helpers/harness'
+import { fingirCloudSobreElTope, fingirMaquinas } from './helpers/fingir-cuenta'
 
 const UMBRAL = 3
 
@@ -224,6 +225,64 @@ test('el estado vacio de Memories (sin repo) tambien pasa el guard de 3:1', asyn
       }
     }
     expect(malos, `${malos.length} elementos por debajo de ${UMBRAL}:1`).toEqual([])
+  } finally {
+    await teardown(h)
+  }
+})
+
+// Spec 2b-3: Account con Cloud, el toast y la sección Sync sobre el tope. Test aparte y no
+// pantallas del de arriba: ese abre Memories antes que Settings, y al desmontarse el
+// `useMemory` de CloudMemoryCard su `removeStatusListener` saca TODOS los listeners de
+// `memory:status` —también el de SettingsPanel—, así que el status fingido nunca le llegaba
+// a Account. Acá Settings se abre sin haber pasado por Memories.
+test('Account, el toast de Cloud y Keep syncing también pasan el guard de 3:1', async () => {
+  // Arranca en Free para producir el paso free -> cloud con el evento; la facturación sólo
+  // se dibuja con un plan pago, o sea desde ahí.
+  const h = await launchHarness({
+    withRepo: false,
+    env: {
+      RAVEN_E2E_PLAN: 'free',
+      RAVEN_E2E_BILLING: JSON.stringify({ billingInterval: 'monthly', currentPeriodEnd: '2026-11-29T00:00:00Z', cancelAtPeriodEnd: false }),
+    },
+  })
+  const { page } = h
+  try {
+    const pantallas: Array<[string, () => Promise<void>]> = [
+      // El toast vive 8 s: se mide acá y puede seguir visible en la siguiente.
+      ['toast-cloud', async () => {
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent('nest:e2e-plan', { detail: { plan: 'cloud' } })))
+        await page.getByText('Cloud is active — syncing all your projects.').waitFor({ timeout: 10_000 })
+      }],
+      ['account-cloud', async () => {
+        await fingirMaquinas(h)
+        await fingirCloudSobreElTope(h)
+        await page.locator('.sidebar-item-settings').first().click()
+        await page.getByText('3 connected', { exact: true }).waitFor({ timeout: 10_000 })
+        await page.getByRole('button', { name: 'Disconnect MacBook', exact: true }).click()
+        await page.getByText('Disconnect MacBook?', { exact: true }).waitFor()
+        // La animación de entrada del panel.
+        await page.waitForTimeout(700)
+      }],
+      ['memory-settings-keep-syncing', async () => {
+        await page.getByRole('button', { name: /local only — Keep syncing in Memory settings ›$/ }).click()
+        await page.locator('.memories-workspace').getByRole('combobox', { name: 'Keep syncing' }).waitFor({ timeout: 10_000 })
+        // Medir a mitad del fundido mezcla las dos pantallas.
+        await page.waitForTimeout(800)
+      }],
+    ]
+
+    const todos: Array<Ofensor & { pantalla: string }> = []
+    for (const [nombre, ir] of pantallas) {
+      await ir()
+      for (const o of await medirContraste(page)) todos.push({ ...o, pantalla: nombre })
+    }
+    if (todos.length) {
+      console.log('\nTEXTO ILEGIBLE (cuenta):')
+      for (const o of todos) {
+        console.log(`  [${o.pantalla}] ${o.ratio}:1  ${o.selector}  "${o.texto}"  ${o.color} sobre ${o.fondo}`)
+      }
+    }
+    expect(todos, `${todos.length} elementos por debajo de ${UMBRAL}:1`).toEqual([])
   } finally {
     await teardown(h)
   }
