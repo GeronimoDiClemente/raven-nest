@@ -40,7 +40,7 @@ function fingirPerfil(p: Partial<Record<string, unknown>> = {}) {
 
 function fingirMemoria(m: Partial<Record<string, unknown>> = {}) {
   memoria.actual = {
-    state: 'connected', error: null, cloudProjects: [{ projectKey: 'k-rn', name: 'raven-nest' }],
+    state: 'connected', error: null, statusDetail: null, cloudProjects: [{ projectKey: 'k-rn', name: 'raven-nest' }],
     limits: { max_projects: 1 }, localOnlyProjects: [], overLimit: false, ...m,
   }
 }
@@ -193,6 +193,39 @@ describe('AccountPlanSection — Usage', () => {
     render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     expect(screen.getByText('Cloud sync is invite-only during the beta.')).toBeTruthy()
     expect(puente.devices).not.toHaveBeenCalled()
+  })
+
+  // Los props como los arma useMemory para `{ connected: true, daemonStatus: 'error',
+  // daemonStatusDetail: 'not_in_beta' }`: el motivo en statusDetail, `error` en null.
+  it('beta con el status real del daemon (statusDetail)', () => {
+    const puente = fingirPuente()
+    fingirMemoria({ state: 'error', error: null, statusDetail: 'not_in_beta', cloudProjects: null, limits: null })
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
+    expect(screen.getByText('Cloud sync is invite-only during the beta.')).toBeTruthy()
+    expect(screen.queryByText('Cloud sync is off.')).toBeNull()
+    expect(puente.devices).not.toHaveBeenCalled()
+  })
+
+  // `{ connected: true, daemonStatus: 'error', daemonStatusDetail: 'device_limit' }`: justo cuando
+  // hay que desconectar otra máquina, la lista tiene que verse.
+  it('device_limit: Machines visible y se piden las máquinas', async () => {
+    const puente = fingirPuente()
+    fingirMemoria({ state: 'error', error: null, statusDetail: 'device_limit', cloudProjects: null, limits: null })
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
+    expect(screen.queryByText('Cloud sync is off.')).toBeNull()
+    expect(await screen.findByText('MacBook')).toBeTruthy()
+    expect(screen.getByText('3 connected')).toBeTruthy()
+    expect(puente.devices).toHaveBeenCalledTimes(1)
+  })
+
+  it('plan_required: Usage y Machines visibles', async () => {
+    const puente = fingirPuente()
+    fingirMemoria({ state: 'plan_required', statusDetail: null })
+    render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
+    expect(screen.queryByText('Cloud sync is off.')).toBeNull()
+    expect(screen.getByText('1 of 1 · raven-nest')).toBeTruthy()
+    expect(await screen.findByText('MacBook')).toBeTruthy()
+    expect(puente.devices).toHaveBeenCalledTimes(1)
   })
 
   it('pide las máquinas cuando el sync pasa a conectado', async () => {

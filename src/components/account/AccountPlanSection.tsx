@@ -25,7 +25,7 @@ function Enlace({ children, onClick }: { children: ReactNode; onClick: () => voi
 }
 
 /** Lo que la sección lee de `useMemory`. */
-export type MemoriaDeCuenta = Pick<ReturnType<typeof useMemory>, 'state' | 'error' | 'cloudProjects' | 'limits' | 'localOnlyProjects' | 'overLimit'>
+export type MemoriaDeCuenta = Pick<ReturnType<typeof useMemory>, 'state' | 'error' | 'statusDetail' | 'cloudProjects' | 'limits' | 'localOnlyProjects' | 'overLimit'>
 
 /**
  * `memory` viene de SettingsPanel y NO de un `useMemory()` propio. Nació porque el `onStatus`
@@ -41,6 +41,7 @@ export default function AccountPlanSection({ memory, onOpenMemorySync }: { memor
   const uso = estadoDeUso({
     state: memory.state,
     error: memory.error,
+    statusDetail: memory.statusDetail,
     cloudProjects: memory.cloudProjects,
     maxProjects: memory.limits?.max_projects ?? null,
     localOnly: memory.localOnlyProjects,

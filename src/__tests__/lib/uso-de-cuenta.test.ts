@@ -1,12 +1,31 @@
 import { describe, it, expect } from 'vitest'
 import { estadoDeUso } from '../../lib/uso-de-cuenta'
 
-const base = { state: 'connected', error: null, cloudProjects: null, maxProjects: null, localOnly: [], overLimit: false }
+const base = { state: 'connected', error: null, statusDetail: null, cloudProjects: null, maxProjects: null, localOnly: [], overLimit: false }
 const rn = { projectKey: 'k-rn', name: 'raven-nest' }
 
 describe('estadoDeUso', () => {
   it('not_in_beta en error es la beta, no un sync apagado', () => {
     expect(estadoDeUso({ ...base, state: 'error', error: 'not_in_beta' })).toEqual({ tipo: 'beta' })
+  })
+
+  // El status REAL del daemon: el motivo llega en `statusDetail`, no en `error` (que sólo llena
+  // un connect fallido de esa misma instancia de useMemory).
+  it('not_in_beta en statusDetail es la beta', () => {
+    expect(estadoDeUso({ ...base, state: 'error', statusDetail: 'not_in_beta' })).toEqual({ tipo: 'beta' })
+  })
+
+  it.each(['device_limit', 'needs_key', 'auth', 'fetch failed'])('error %s sigue siendo una cuenta conectada', (detalle) => {
+    expect(estadoDeUso({ ...base, state: 'error', statusDetail: detalle, cloudProjects: null }))
+      .toEqual({ tipo: 'conectado', proyectos: null, soloLocales: 0 })
+  })
+
+  it('plan_required sigue siendo una cuenta conectada', () => {
+    expect(estadoDeUso({ ...base, state: 'plan_required' }).tipo).toBe('conectado')
+  })
+
+  it('unavailable es apagado', () => {
+    expect(estadoDeUso({ ...base, state: 'unavailable' })).toEqual({ tipo: 'apagado' })
   })
 
   it('desconectado es apagado', () => {
