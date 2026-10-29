@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const supabaseMock = vi.hoisted(() => ({ functions: { invoke: vi.fn() } }))
 vi.mock('../../lib/supabase', () => ({ supabase: supabaseMock }))
 
-import { abrirCheckout, abrirPortal, COPY_CHECKOUT_NO_DISPONIBLE, COPY_CHECKOUT_SIN_RED, textoDeErrorDeCobro } from '../../lib/checkout'
+import { abrirCheckout, abrirPortal, COPY_CHECKOUT_NO_DISPONIBLE, COPY_CHECKOUT_SIN_RED, COPY_SIN_SUSCRIPCION, textoDeErrorDeCobro } from '../../lib/checkout'
 
 const conCodigo = (error: string) => ({ data: null, error: { context: { json: async () => ({ error }) } } })
 let openExternal: ReturnType<typeof vi.fn>
@@ -24,6 +24,12 @@ describe('textoDeErrorDeCobro', () => {
     expect(textoDeErrorDeCobro('checkout_unavailable')).toBe(COPY_CHECKOUT_NO_DISPONIBLE)
     expect(textoDeErrorDeCobro('stripe_error')).toBe(COPY_CHECKOUT_SIN_RED)
     expect(textoDeErrorDeCobro(null)).toBe(COPY_CHECKOUT_SIN_RED)
+  })
+
+  // No es un problema de red: decir "Check your connection" era falso.
+  it('no_subscription tiene su propio copy', () => {
+    expect(COPY_SIN_SUSCRIPCION).toBe('No subscription found for this account.')
+    expect(textoDeErrorDeCobro('no_subscription')).toBe(COPY_SIN_SUSCRIPCION)
   })
 })
 
@@ -58,10 +64,10 @@ describe('abrirCheckout', () => {
 })
 
 describe('abrirPortal', () => {
-  it('abre el portal; sin suscripción, el genérico (D8)', async () => {
+  it('abre el portal; sin suscripción, su copy (no el de red)', async () => {
     supabaseMock.functions.invoke.mockResolvedValueOnce({ data: { url: 'https://billing.stripe.test/p' }, error: null })
     expect(await abrirPortal()).toEqual({ ok: true })
     supabaseMock.functions.invoke.mockResolvedValueOnce(conCodigo('no_subscription'))
-    expect(await abrirPortal()).toEqual({ ok: false, error: COPY_CHECKOUT_SIN_RED, code: 'no_subscription' })
+    expect(await abrirPortal()).toEqual({ ok: false, error: COPY_SIN_SUSCRIPCION, code: 'no_subscription' })
   })
 })

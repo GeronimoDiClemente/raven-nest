@@ -5,12 +5,18 @@ import type { BillingInterval } from './stripe'
 
 export const COPY_CHECKOUT_NO_DISPONIBLE = "Checkout isn't available right now — try again later."
 export const COPY_CHECKOUT_SIN_RED = "Couldn't reach checkout. Check your connection and try again."
+export const COPY_SIN_SUSCRIPCION = 'No subscription found for this account.'
 
 export type ResultadoDeCobro = { ok: true } | { ok: false; error: string; code: string | null }
 
-/** El copy de un código de error de las funciones. D8: el portal usa el genérico. */
+/**
+ * El copy de un código de error de las funciones. D8: el portal usa el genérico, salvo
+ * `no_subscription` (2b-3), que no es un problema de red y no puede decir "Check your connection".
+ */
 export function textoDeErrorDeCobro(code: string | null): string {
-  return code === 'checkout_unavailable' ? COPY_CHECKOUT_NO_DISPONIBLE : COPY_CHECKOUT_SIN_RED
+  if (code === 'checkout_unavailable') return COPY_CHECKOUT_NO_DISPONIBLE
+  if (code === 'no_subscription') return COPY_SIN_SUSCRIPCION
+  return COPY_CHECKOUT_SIN_RED
 }
 
 /** supabase-js pone la Response del no-2xx en `error.context`; el código va en su cuerpo. */

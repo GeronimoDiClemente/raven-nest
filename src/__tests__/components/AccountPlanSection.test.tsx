@@ -127,10 +127,10 @@ describe('AccountPlanSection — Plan', () => {
   it('no_subscription: muestra el error y relee el perfil una vez', async () => {
     fingirPuente()
     fingirPerfil({ plan: 'cloud', rawPlan: 'cloud' })
-    portal.abrirPortal.mockResolvedValue({ ok: false, error: 'Sin suscripción.', code: 'no_subscription' })
+    portal.abrirPortal.mockResolvedValue({ ok: false, error: 'No subscription found for this account.', code: 'no_subscription' })
     render(<AccountPlanSection memory={memoria.actual as never} onOpenMemorySync={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Manage subscription' }))
-    await screen.findByText('Sin suscripción.')
+    await screen.findByText('No subscription found for this account.')
     expect(recargar).toHaveBeenCalledTimes(1)
   })
 
