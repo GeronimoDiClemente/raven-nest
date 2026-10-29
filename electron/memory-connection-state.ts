@@ -21,8 +21,8 @@ export interface MemoryConnectionState {
   connectedAt: number | null
   /**
    * C4: base of the sync service. `null` means "use the one from the build" (the
-   * MAIN_VITE_SUPABASE_URL env var), which is what keeps an existing installation
-   * working without anyone touching a file. Lives here and not in settings-store.ts
+   * MAIN_VITE_SYNC_URL env var, or the default in base-de-sync.ts), which is what keeps
+   * an existing installation working without anyone touching a file. Lives here and not in settings-store.ts
    * because it is memory-subsystem state, same as deviceId, and because pointing at a
    * different backend should not require recompiling the app.
    */

@@ -3,7 +3,7 @@
 // Vivía como una expresión de tres términos adentro de `main.ts` y ahí se escondía un agujero
 // que costó una semana de diagnóstico equivocado del lado del servidor: el término que el C4
 // pensó para que apuntar a otro backend no exigiera recompilar (`syncBaseUrl` en
-// `connection.json`) **no lo escribía nadie**, y el otro (`MAIN_VITE_SUPABASE_URL`) se hornea
+// `connection.json`) **no lo escribía nadie**, y el otro (hoy `MAIN_VITE_SYNC_URL`) se hornea
 // en tiempo de build desde un `.env` que sólo existe en una máquina de desarrollo. Los
 // workflows de release no pasan esa variable, así que toda instalación armada por CI contesta
 // «No sync service configured for this build» y no hay nada que el usuario pueda hacer.

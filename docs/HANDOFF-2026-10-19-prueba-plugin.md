@@ -71,7 +71,7 @@ Arriba si `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8099/v1/sync/
 ```bash
 export KIT=/tmp/nmk            # path CORTO, ver la trampa del socket
 mkdir -p $KIT/home $KIT/userdata $KIT/paquete-home
-RAVEN_HOME=$KIT/home MAIN_VITE_SUPABASE_URL=http://127.0.0.1:8099 \
+RAVEN_HOME=$KIT/home MAIN_VITE_SYNC_URL=http://127.0.0.1:8099 \
   npx electron-vite dev -- --user-data-dir=$KIT/userdata --remote-debugging-port=9223
 ```
 

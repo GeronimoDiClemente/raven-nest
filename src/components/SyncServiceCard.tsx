@@ -2,10 +2,10 @@
 //
 // El C4 de `memory-connection-state.ts` decía desde el principio que «apuntar a otro backend
 // no debería exigir recompilar», y sin embargo el campo que lo permitía no lo escribía nadie:
-// la única fuente real era `MAIN_VITE_SUPABASE_URL`, horneada en el build desde un `.env` que
-// vive en una máquina de desarrollo. Los workflows de release no la pasan, así que toda
-// instalación armada por CI se quedaba sin nube y sin forma de arreglarlo. Esta tarjeta es la
-// mitad que faltaba.
+// la única fuente real era `MAIN_VITE_SUPABASE_URL` (hoy `MAIN_VITE_SYNC_URL`), horneada en
+// el build desde un `.env` que vive en una máquina de desarrollo. Los workflows de release no
+// la pasan, así que toda instalación armada por CI se quedaba sin nube y sin forma de
+// arreglarlo. Esta tarjeta es la mitad que faltaba.
 //
 // Self-contained como MemoryEncryptionCard y LinkDeviceCard: si el puente no expone
 // `syncService` —un preload viejo— no se muestra nada.

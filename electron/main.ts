@@ -252,7 +252,7 @@ function memoryProvisionerPaths(): ProvisionerPaths {
 function getMemorySyncBaseUrl(): string {
   return resolverBaseDeSync({
     guardada: memoryConnectionState.syncBaseUrl,
-    delBuild: (import.meta.env.MAIN_VITE_SUPABASE_URL as string | undefined) ?? null,
+    delBuild: (import.meta.env.MAIN_VITE_SYNC_URL as string | undefined) ?? null,
   })
 }
 
