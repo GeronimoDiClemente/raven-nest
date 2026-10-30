@@ -8,9 +8,12 @@
 
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2?target=deno'
-import { armarPrecioAPlan, decidir, periodoDeCobro, PERIODO_VACIO, suscripcionSigueViva, type EventoStripe } from './eventos.ts'
+import { armarPrecioAPlan, decidir, PERIODO_VACIO, resolverActivacion, type EventoStripe } from './eventos.ts'
 import { avisarPlan, clasificarAviso, configDeAviso, resolverBaja, type Desenlace } from '../_shared/aviso-de-plan.ts'
 
+// `apiVersion` fija sólo la forma de lo que devuelven las llamadas (el `retrieve` de abajo). La de
+// los eventos la fija el endpoint de webhook en Stripe, que puede estar en otra versión: por eso
+// `eventos.ts` lee las dos formas (hasta `acacia` y desde `basil`).
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2024-11-20.acacia',
   httpClient: Stripe.createFetchHttpClient(),
@@ -108,13 +111,11 @@ Deno.serve(async (req) => {
     // El evento puede ser un reintento viejo (Stripe reintenta días y sin orden cuando el aviso
     // al servidor de sync falla): si la suscripción ya se canceló, activarla la resucitaría en
     // `profiles` y en el servidor, y nada lo corrige después. Se mira su estado de AHORA.
-    let estadoActual: string
     let sub: Stripe.Subscription
     try {
       sub = suscripcionLeida?.id === decision.subscriptionId
         ? suscripcionLeida
         : await stripe.subscriptions.retrieve(decision.subscriptionId)
-      estadoActual = sub.status
     } catch (e) {
       // Sin saber si vive no se activa ni se descarta: 500 y Stripe reintenta.
       console.error('[stripe-webhook] no se pudo releer la suscripción antes de activar', {
@@ -122,32 +123,28 @@ Deno.serve(async (req) => {
       })
       return new Response('Could not verify subscription', { status: 500 })
     }
-    if (!suscripcionSigueViva(estadoActual)) {
-      console.log('[stripe-webhook] activación descartada: la suscripción ya no está viva', {
-        evento: event.type, userId: decision.userId, subscription: decision.subscriptionId, status: estadoActual,
+    // El plan y el período salen de la suscripción releída, no del evento.
+    const activacion = resolverActivacion(decision, sub, precioAPlan, preciosDeCloud)
+    if (activacion.tipo === 'descartar') {
+      console.log('[stripe-webhook] activación descartada', {
+        evento: event.type, userId: decision.userId, subscription: decision.subscriptionId, motivo: activacion.motivo,
       })
       return new Response('ok', { status: 200 })
     }
     const { error } = await supabase.from('profiles').upsert({
-      id: decision.userId,
-      plan: decision.plan,
-      stripe_customer_id: decision.customerId,
-      stripe_subscription_id: decision.subscriptionId,
-      // En API `basil` `current_period_end` pasa a los items de la suscripción: si se sube la
-      // apiVersion, hay que leerlo de ahí o este campo queda en null.
-      ...periodoDeCobro(sub, preciosDeCloud),
+      ...activacion.fila,
       updated_at: new Date().toISOString(),
     })
     if (error) {
       // 500 a proposito: Stripe reintenta. Tragarse el error aca es
       // exactamente como se pierde un pago sin que nadie se entere.
       console.error('[stripe-webhook] fallo al activar el plan', {
-        evento: event.type, userId: decision.userId, plan: decision.plan, error: error.message,
+        evento: event.type, userId: decision.userId, plan: activacion.fila.plan, error: error.message,
       })
       return new Response('Could not apply plan', { status: 500 })
     }
     console.log('[stripe-webhook] plan activado', {
-      evento: event.type, userId: decision.userId, plan: decision.plan,
+      evento: event.type, userId: decision.userId, plan: activacion.fila.plan,
     })
     if ((await avisarPlanDe(decision.userId)) === 'reintentar') {
       return new Response('Could not notify sync service', { status: 500 })
