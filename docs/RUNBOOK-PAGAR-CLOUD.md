@@ -150,10 +150,31 @@ local, para el smoke de abajo) y recién con el smoke en verde contra **prod** (
    próximo bump de versión (`release.yml`), así que los pasos 1–4 de prod tienen que estar hechos
    antes de ese bump, no sólo antes del merge.
 
-**Smoke contra Supabase local** (PENDIENTE, no corrido; ningún test de 2b-3 toca Stripe ni una
-base real salvo los del servidor). El entorno local de 2b-2 vivía en la PC Windows (Supabase en
-55xxx, Stripe CLI por winget): en la Mac hay que reconstruirlo siguiendo el addendum del 22-10 del
-handoff `docs/HANDOFF-2026-10-20-memories-obsidian.md`.
+**Smoke contra Supabase local**: **corrido en verde el 2026-10-30 en la Mac**, los cinco puntos
+de abajo, sobre `bff4d01`. El entorno se rearmó siguiendo el addendum del 22-10 del handoff
+`docs/HANDOFF-2026-10-20-memories-obsidian.md`. Lo que no estaba escrito y hizo falta:
+
+- **Puertos:** otro proyecto ya ocupaba los 54xxx y los 55xxx, así que Supabase corrió en los
+  56xxx y el servidor de sync en el 8788.
+- **`PLAN_SYNC_URL` desde las functions:** las functions corren en Docker sobre colima y ven al host
+  como `http://192.168.5.2:<puerto>`. Con `host.docker.internal` el aviso nunca llega y
+  `admin-api` contesta `sync_notificado: false` aunque el sync esté arriba.
+- **Stripe CLI:** la clave restringida del `.env` no alcanza para `stripe listen` (pide *Debugging
+  Tools Write*); hace falta `stripe login`. El CLI actual exige `--events` en `listen` (los cuatro
+  de `stripe-webhook`: `checkout.session.completed`, `customer.subscription.updated`,
+  `customer.subscription.deleted`, `invoice.paid`) y `--confirm` en `cancel`/`delete`, que si no
+  se quedan esperando una confirmación interactiva.
+- **Probar el reintento de checkout:** hace falta dejar un customer borrado en el perfil. El trigger
+  revierte `stripe_customer_id` salvo que `auth.role()` sea `service_role`, y eso lo leen los
+  claims, no el rol de Postgres: `set_config('request.jwt.claims', '{"role":"service_role"}', true)`
+  en la misma transacción. Ojo: el portal con customer borrado ya limpia el id, así que si se
+  prueba primero el portal, el checkout no pasa por el reintento.
+- **Nest dev sin tocar la Nest instalada:** se levanta en un `git worktree` aparte, con su propio
+  `.env` y `RAVEN_HOME`, `--user-data-dir` separado y `RAVEN_E2E_HEADLESS=1`, y se maneja por
+  CDP. En el repo principal, `npm run dev` pisaría `dist-electron/`, que es de donde los panes de
+  Nest sacan el `memory-mcp.js`.
+- **Después de pagar:** el `success_url` (`https://nestmux.com/checkout/success`) da 404, porque la
+  página no existe en el sitio. Esto no forma parte del smoke, pero hay que resolverlo antes de prod.
 
 - Con el JWT de un usuario común, un update con valores **válidos** (si viola el `CHECK` falla
   igual con el trigger roto y no prueba nada):
@@ -182,7 +203,8 @@ handoff `docs/HANDOFF-2026-10-20-memories-obsidian.md`.
   (el PUT espera hasta 10 s).
 - Customer borrado en el sandbox → `stripe-checkout` crea la sesión **con email** (sin `customer`)
   y `stripe-portal` contesta **404 `no_subscription`**. Confirma que Stripe devuelve
-  `code: resource_missing, param: customer` (supuesto documentado, nunca visto en vivo).
+  `code: resource_missing, param: customer`: se vio en vivo el 2026-10-30, porque el checkout entró
+  al reintento.
 - Nest dev: Settings › Account muestra Plan, Usage y Machines; `Disconnect` en otra máquina de la
   misma cuenta la saca de la lista; `Manage subscription` abre el portal.
 
