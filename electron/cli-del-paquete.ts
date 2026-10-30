@@ -18,9 +18,14 @@
 // vez del daemon por socket.
 // Primero que todo: el aviso de `node:sqlite` se emite al cargarlo — ver el archivo.
 import './silenciar-aviso-sqlite'
-import { homedir, hostname } from 'os'
-import { existsSync } from 'fs'
-import { parsearArgumentos, AYUDA } from './argumentos-del-paquete'
+import { homedir, hostname, userInfo } from 'os'
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
+import { parsearArgumentos, textoDeAyuda } from './argumentos-del-paquete'
+import {
+  crearEstilo, decidirColor, marca, marcas, fila, acortarHome, recortar, hace,
+  grupoDeTipo, etiquetaDeTipo, barraDeGrupos, type GrupoDeTipo,
+} from './estilo-del-paquete'
 import { destinosDeSetup, planDeSetup, planDeDeshacer, comoLanzarElServidor } from './setup-del-paquete'
 import { aplicarPlan, sondasDeDisco } from './aplicar-setup'
 import { decidirBase, pathDeBasePropia } from './base-para-el-paquete'
@@ -68,6 +73,21 @@ usarAbridorDeLecturaPorDefecto(abrirBaseSoloLectura)
 /** Lo que se escribe en la configuración de los editores — ver `comoLanzarElServidor`. */
 const COMO_LANZARME = comoLanzarElServidor(process.platform)
 
+const e = crearEstilo(decidirColor(process.env, process.stdout.isTTY === true))
+
+/** HOME dentro de un panel de Nest apunta a la carpeta de la cuenta: se acortan los dos. */
+const corto = (path: string) => acortarHome(path, [homedir(), userInfo().homedir])
+
+/** La versión del paquete publicado; `undefined` corriendo desde el repo. */
+function versionDelPaquete(): string | undefined {
+  try {
+    const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as { name?: string; version?: string }
+    return pkg.name === NOMBRE_DEL_PAQUETE ? pkg.version : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function salir(codigo: number): never {
   process.exit(codigo)
 }
@@ -83,27 +103,53 @@ function comandoSetup(opts: { soloEditores: string[] | null; deshacer: boolean; 
     ? planDeDeshacer(destinos, sondas)
     : planDeSetup(destinos, sondas, COMO_LANZARME)
 
+  const nombreDe = new Map(pasos.map((p) => [p.destino.path, p.destino.nombre]))
+  console.log('')
+  console.log(`  ${marca(e, opts.deshacer ? 'setup --undo' : 'setup')}`)
+
   if (opts.simulado) {
-    console.log(opts.deshacer ? `Would remove ${NOMBRE_DEL_PAQUETE} from:` : 'Would configure:')
+    console.log(`  ${e.tenue('Dry run — nothing is written.')}`)
+    console.log('')
     for (const p of pasos) {
-      const que = p.accion === 'ausente' ? 'not installed'
-        : p.accion === 'ya-esta' ? 'already done'
-        : p.accion === 'crear' ? 'create' : 'update'
-      console.log(`  ${p.destino.nombre.padEnd(12)} ${que.padEnd(14)} ${p.destino.path}`)
+      const [m, que] = p.accion === 'ausente' ? [marcas.nada(e), 'not installed']
+        : p.accion === 'ya-esta' ? [marcas.ok(e), opts.deshacer ? 'nothing to remove' : 'already set up']
+        : [marcas.pendiente(e), opts.deshacer ? 'would remove' : p.accion === 'crear' ? 'would create' : 'would update']
+      console.log(fila(m, p.destino.nombre, `${que.padEnd(18)} ${e.tenue(corto(p.destino.path))}`))
     }
-    console.log('\nNothing was written (--dry-run).')
+    console.log('')
     return
   }
 
+  if (!opts.deshacer) console.log(`  ${e.tenue('One memory for every agent on this machine.')}`)
+  console.log('')
   const r = aplicarPlan(pasos)
-  for (const path of r.escritos) console.log(`  ${opts.deshacer ? 'cleaned' : 'configured'}  ${path}`)
-  for (const path of r.yaEstaban) console.log(`  unchanged   ${path}`)
-  for (const f of r.fallados) console.error(`  FAILED      ${f.path}: ${f.error}`)
-
-  const tocados = r.escritos.length + r.yaEstaban.length
-  if (tocados === 0 && r.fallados.length === 0) {
-    console.log('No editors found on this machine. Install one and run this again.')
+  for (const path of r.escritos) {
+    console.log(fila(marcas.ok(e), nombreDe.get(path) ?? path, `${e.ok((opts.deshacer ? 'removed' : 'configured').padEnd(14))} ${e.tenue(corto(path))}`))
   }
+  for (const path of r.yaEstaban) {
+    console.log(fila(marcas.ok(e), nombreDe.get(path) ?? path, `${(opts.deshacer ? 'not set up' : 'already set up').padEnd(14)} ${e.tenue(corto(path))}`))
+  }
+  for (const path of r.saltados) {
+    console.log(e.tenue(fila('·', nombreDe.get(path) ?? path, 'not installed')))
+  }
+  for (const f of r.fallados) {
+    console.error(fila(marcas.falla(e), nombreDe.get(f.path) ?? f.path, e.falla(`failed — ${f.error}`)))
+  }
+  console.log('')
+
+  const conectados = r.escritos.length + r.yaEstaban.length
+  if (opts.deshacer) {
+    console.log(`  ${r.escritos.length === 0 ? 'Nothing to remove.' : `Removed from ${r.escritos.length} ${r.escritos.length === 1 ? 'editor' : 'editors'}.`}`)
+  } else if (conectados === 0 && r.fallados.length === 0) {
+    console.log('  No editors found on this machine. Install one and run this again.')
+  } else if (conectados > 0) {
+    console.log(`  ${e.acento(`${conectados} ${conectados === 1 ? 'editor now uses' : 'editors now share'} one memory.`)}`)
+    if (r.escritos.length > 0) console.log(`  ${e.tenue('Restart them so they pick up the new tools.')}`)
+    console.log('')
+    console.log(`  ${e.tenue('Undo anytime:')} ${comando('setup --undo')}`)
+    console.log(`  ${e.tenue('Next:')}         ${comando('login')}  ${e.tenue('to use it on your other machines')}`)
+  }
+  console.log('')
   // Un fallo parcial no puede salir con 0: quien lo corra desde un script tiene que poder
   // enterarse de que un editor quedó sin configurar.
   if (r.fallados.length > 0) salir(1)
@@ -132,19 +178,40 @@ async function dondeEstaLaBase() {
 
 async function comandoStatus(): Promise<void> {
   const base = await dondeEstaLaBase()
+  console.log('')
+  console.log(`  ${marca(e, 'status')}`)
+  console.log('')
   if (base.modo === 'daemon') {
-    console.log('Nest is open here: it owns this memory and syncs it live.')
+    console.log(fila(marcas.ok(e), 'Nest', 'open here — it owns this memory and syncs it live'))
+    console.log('')
     return
   }
   if (base.modo === 'propia' && base.nueva) {
-    console.log(`No memory on this machine yet. It would live at ${pathDeBasePropia(homedir())}.`)
+    console.log(`  No memory on this machine yet. It will live at ${e.tenue(corto(pathDeBasePropia(homedir())))}`)
+    console.log(`  ${e.tenue('Start with:')} ${comando('setup')}`)
+    console.log('')
     return
   }
   const db = abrirBaseSoloLectura(base.path)
   try {
-    const total = contextObservations(db, null, GLOBAL_PROJECT_KEY, 1000).length
-    console.log(`${total} ${total === 1 ? 'memory' : 'memories'}`)
-    console.log(`from ${base.path}${base.modo === 'nest' ? " (this machine's Nest)" : ''}`)
+    const filas = db.prepare(
+      'SELECT type, scope, COUNT(*) AS c FROM observations WHERE deleted = 0 AND superseded_by IS NULL GROUP BY type, scope'
+    ).all() as Array<{ type: string; scope: string; c: number }>
+    const total = filas.reduce((n, f) => n + f.c, 0)
+    const porGrupo: Partial<Record<GrupoDeTipo, number>> = {}
+    let deEquipo = 0
+    for (const f of filas) {
+      const g = grupoDeTipo(f.type)
+      porGrupo[g] = (porGrupo[g] ?? 0) + f.c
+      if (f.scope === 'team') deEquipo += f.c
+    }
+
+    console.log(`  ${e.negrita(String(total))} ${total === 1 ? 'memory' : 'memories'} ready for your next session`)
+    for (const linea of barraDeGrupos(e, porGrupo)) console.log(linea)
+    console.log('')
+    console.log(`  ${e.tenue('SCOPE'.padEnd(9))}personal ${total - deEquipo}${deEquipo > 0 ? `  ${e.tenue('·')}  team ${deEquipo}` : ''}`)
+    console.log(`  ${e.tenue('STORED'.padEnd(9))}${corto(base.path)}${base.modo === 'nest' ? e.tenue("  (this machine's Nest)") : ''}`)
+
     // La cola, con número y no con un ícono (P-R5 del spec): lo que el usuario necesita saber
     // es si lo que escribió en esta máquina ya está en la nube o todavía no.
     const enCola = (db.prepare(
@@ -153,35 +220,85 @@ async function comandoStatus(): Promise<void> {
     const safe = cifradoDelSistema()
     const credencial = base.modo === 'propia' && safe.isEncryptionAvailable() ? leerCredencial(homedir(), safe) : null
     const hayCredencial = credencial !== null
-    // Review final de rama, A: `status` no decía CON QUÉ servicio habla — sólo si estaba
-    // "conectado" o no. Sólo tiene sentido con base propia: con la base de Nest la sube
-    // Nest, con su credencial, no la de este paquete (ver el comment de `comandoMcp`).
+    // Con la base de Nest la sube Nest, con su credencial: el servicio sólo importa con la propia.
     if (base.modo === 'propia' && hayCredencial) {
-      console.log(`service     ${urlDelServicio(credencial)}`)
+      console.log(`  ${e.tenue('SERVICE'.padEnd(9))}${urlDelServicio(credencial)}`)
       avisarSiElServicioNoCoincide(credencial)
     }
-    // La época que el daemon vio en el último status. Se lee de `meta` y no de la red: es el
-    // mismo dato que arma el gate fail-closed, así que lo que dice esta línea es lo que el
-    // push va a hacer de verdad.
+    console.log('')
+
+    // La época que el daemon vio en el último status: el mismo dato que arma el gate
+    // fail-closed del push.
     let epocaConocida = 0
     try {
       epocaConocida = Number((db.prepare("SELECT value FROM meta WHERE key = 'known_key_epoch'").get() as { value?: string } | undefined)?.value ?? 0)
     } catch { /* una base sin `meta` todavía no vio ningún status */ }
-    const esperandoAutorizacion = hayCredencial && epocaConocida > 0 && !loadKeyMaterial(homedir(), null, safe)?.master
-    console.log(lineaDeSync({ modo: base.modo, enCola, hayCredencial, esperandoAutorizacion }))
-    // Lo que el gate retuvo por falta de clave de equipo: `enCola` no lo cuenta (está
-    // bloqueado), y sin esta línea desaparecía del status.
+    const tieneMaestra = Boolean(loadKeyMaterial(homedir(), null, safe)?.master)
+    const esperandoAutorizacion = hayCredencial && epocaConocida > 0 && !tieneMaestra
+    const marcaDeSync = !hayCredencial && base.modo === 'propia' ? marcas.nada(e)
+      : esperandoAutorizacion ? marcas.aviso(e)
+      : enCola > 0 ? marcas.pendiente(e)
+      : marcas.ok(e)
+    console.log(fila(marcaDeSync, 'Sync', lineaDeSync({ modo: base.modo, enCola, hayCredencial, esperandoAutorizacion })))
+    if (base.modo === 'propia' && hayCredencial && epocaConocida > 0) {
+      console.log(fila(tieneMaestra ? marcas.ok(e) : marcas.aviso(e), 'Encrypted',
+        tieneMaestra ? 'end to end — this machine holds the key' : 'end to end — this machine is not authorized yet'))
+    }
+    // Lo que el gate retuvo por falta de clave de equipo: `enCola` no lo cuenta.
     const retenidas = (db.prepare(
       `SELECT payload FROM mutation_log WHERE pushed_at IS NULL
          AND blocked_reason IN (${TEAM_KEY_HOLD_REASONS.map(() => '?').join(',')})`
     ).all(...TEAM_KEY_HOLD_REASONS) as Array<{ payload: string }>).filter(({ payload }) => {
       try { return (JSON.parse(payload) as { scope?: unknown }).scope === 'team' } catch { return false }
     }).length
-    const deEquipo = lineaDeEquipoRetenido({ modo: base.modo, retenidas })
-    if (deEquipo) console.log(deEquipo)
+    const retenidoDeEquipo = lineaDeEquipoRetenido({ modo: base.modo, retenidas })
+    if (retenidoDeEquipo) console.log(fila(marcas.aviso(e), 'Team', retenidoDeEquipo))
+
+    const recientes = contextObservations(db, null, GLOBAL_PROJECT_KEY, 3)
+    if (recientes.length > 0) {
+      console.log('')
+      console.log(`  ${e.tenue('LATELY')}`)
+      const ahora = Date.now()
+      for (const m of recientes) {
+        const origen = [hace(m.updatedAt, ahora), m.originAi].filter(Boolean).join(' · ')
+        console.log(`  ${etiquetaDeTipo(e, m.type)}  ${recortar(m.title, 50).padEnd(50)}  ${e.tenue(origen)}`)
+      }
+    }
+    console.log('')
   } finally {
     db.close()
   }
+}
+
+interface Resultado {
+  title: string
+  content?: string
+  type?: string
+  updatedAt?: number
+  originAi?: string | null
+  gitBranch?: string | null
+}
+
+function imprimirResultados(consulta: string, hits: Resultado[]): void {
+  console.log('')
+  console.log(`  ${marca(e, 'search', hits.length === 1 ? '1 result' : `${hits.length} results`)}`)
+  console.log('')
+  if (hits.length === 0) {
+    console.log(`  Nothing for "${consulta}".`)
+    console.log('')
+    return
+  }
+  const ahora = Date.now()
+  const sangria = ' '.repeat(16)
+  for (const h of hits) {
+    console.log(`  ${e.deGrupo(grupoDeTipo(h.type ?? ''), '●')} ${etiquetaDeTipo(e, h.type ?? '', 11)} ${e.negrita(recortar(h.title, 60))}`)
+    if (h.content) console.log(`${sangria}${recortar(h.content, 62)}`)
+    const origen = [h.updatedAt ? `${hace(h.updatedAt, ahora)} ago` : null, h.originAi, h.gitBranch].filter(Boolean).join(' · ')
+    if (origen) console.log(`${sangria}${e.tenue(origen)}`)
+    console.log('')
+  }
+  console.log(`  ${e.tenue('Your agents see the same results through')} memory_search${e.tenue('.')}`)
+  console.log('')
 }
 
 async function comandoSearch(consulta: string): Promise<void> {
@@ -189,23 +306,17 @@ async function comandoSearch(consulta: string): Promise<void> {
   if (base.modo === 'daemon') {
     // Con Nest abierto se le pregunta a él: es quien tiene la versión al día, recién bajada.
     const { items } = await new MemoryDaemonClient(base.socket, base.token)
-      .call<{ items: Array<{ title: string }> }>('memory.search', { cwd: process.cwd(), query: consulta, limit: 20 })
-    if (items.length === 0) console.log(`Nothing for "${consulta}".`)
-    for (const h of items) console.log(`  ${h.title}`)
+      .call<{ items: Resultado[] }>('memory.search', { cwd: process.cwd(), query: consulta, limit: 20 })
+    imprimirResultados(consulta, items)
     return
   }
   if (base.modo === 'propia' && base.nueva) {
-    console.log('No memory on this machine yet.')
+    console.log(`  No memory on this machine yet. ${e.tenue('Start with:')} ${comando('setup')}`)
     return
   }
   const db = abrirBaseSoloLectura(base.path)
   try {
-    const hits = searchObservations(db, null, GLOBAL_PROJECT_KEY, consulta, 20)
-    if (hits.length === 0) {
-      console.log(`Nothing for "${consulta}".`)
-      return
-    }
-    for (const h of hits) console.log(`  ${h.title}`)
+    imprimirResultados(consulta, searchObservations(db, null, GLOBAL_PROJECT_KEY, consulta, 20))
   } finally {
     db.close()
   }
@@ -217,29 +328,48 @@ async function comandoSearch(consulta: string): Promise<void> {
  */
 async function comandoDoctor(): Promise<void> {
   const base = await dondeEstaLaBase()
-  console.log(`node        ${process.version}${NODE_MINIMO_OK ? '' : `  (needs >= ${NODE_MINIMO}, node:sqlite is not in older ones)`}`)
-  console.log(`home        ${homedir()}`)
+  console.log('')
+  console.log(`  ${marca(e, 'doctor')}`)
+  console.log('')
+
+  let problemas = 0
+  let avisos = 0
+  const ok = () => marcas.ok(e)
+  const aviso = () => { avisos++; return marcas.aviso(e) }
+  const falla = () => { problemas++; return marcas.falla(e) }
+
+  console.log(NODE_MINIMO_OK
+    ? fila(ok(), 'Node', process.version)
+    : fila(falla(), 'Node', `${process.version} — needs ${NODE_MINIMO} or newer (node:sqlite)`))
+  console.log(fila(marcas.nada(e), 'Home', e.tenue(acortarHome(homedir(), [userInfo().homedir]))))
 
   const puntero = readActivePointer(ravenHome())
-  console.log(`nest        ${base.modo === 'daemon' ? 'open — memory goes through it' : puntero ? `closed — ${puntero.storePath}` : 'not installed for this user'}`)
+  if (base.modo === 'daemon') console.log(fila(ok(), 'Nest', 'open — memory goes through it'))
+  else if (puntero) console.log(fila(aviso(), 'Nest', 'closed — changes wait until it opens'))
+  else console.log(fila(marcas.nada(e), 'Nest', e.tenue('not installed for this user')))
 
-  const dondeMira =
-    base.modo === 'daemon' ? 'talking to Nest over its socket'
-    : base.modo === 'nest' ? base.path
-    : `${base.path}${base.nueva ? '  (does not exist yet)' : ''}`
-  console.log(`memory      ${dondeMira}`)
+  if (base.modo === 'daemon') console.log(fila(ok(), 'Memory', "through Nest's socket"))
+  else if (base.modo === 'propia' && base.nueva) console.log(fila(marcas.nada(e), 'Memory', `${corto(base.path)} ${e.tenue('(created on first use)')}`))
+  else console.log(fila(ok(), 'Memory', corto(base.path)))
 
   const llavero = llaveroPorPlataforma(process.platform, correrComando)
-  console.log(`keyring     ${llavero.disponible() ? 'available' : 'not available — encrypted cloud memory stays closed'}`)
+  console.log(llavero.disponible()
+    ? fila(ok(), 'Keyring', 'available')
+    : fila(aviso(), 'Keyring', 'not available — encrypted cloud memory stays closed'))
 
-  // El aviso que explica el caso más confuso, y el que este comando existe para desarmar:
-  // adentro de un panel de Nest el HOME está redirigido a la carpeta de la cuenta, así que
-  // el paquete busca la base en un lugar donde no está y parece que no hubiera memoria.
+  // Adentro de un panel de Nest el HOME está redirigido a la carpeta de la cuenta: el paquete
+  // busca la base donde no está y parece que no hubiera memoria.
   if (!puntero && homedir().includes('.raven-nest')) {
     console.log('')
-    console.log('This HOME looks like a Nest account folder. Nest redirects HOME inside its')
-    console.log('panes, so the memory you are looking for probably lives under your real home.')
+    console.log(`  ${e.aviso('This HOME looks like a Nest account folder.')} Nest redirects HOME inside its`)
+    console.log('  panes, so the memory you are looking for probably lives under your real home.')
   }
+
+  console.log('')
+  const resumen = [problemas && `${problemas} ${problemas === 1 ? 'problem' : 'problems'}`, avisos && `${avisos} ${avisos === 1 ? 'warning' : 'warnings'}`].filter(Boolean).join(', ')
+  console.log(`  ${resumen ? e.negrita(`${resumen}.`) : e.acento('All good.')}`)
+  console.log('')
+  if (problemas > 0) salir(1)
 }
 
 const NODE_MINIMO = '22.5.0'
@@ -332,13 +462,16 @@ function exigirLlavero(): ReturnType<typeof cifradoDelSistema> {
 /** `login`: conectar esta máquina a tu cuenta, sin abrir un navegador acá. */
 async function comandoLogin(): Promise<void> {
   const safe = exigirLlavero()
+  console.log('')
+  console.log(`  ${marca(e, 'login')}`)
+  console.log('')
 
   // Reusar la credencial conserva el deviceId que otra máquina está autorizando: pedir
   // otro código crearía otro dispositivo y dejaría la autorización anterior sin destinatario.
   const existente = leerCredencial(homedir(), safe)
   const base = urlDelServicio(existente)
   if (existente) {
-    console.log('Already connected. Checking encryption access.')
+    console.log(fila(marcas.ok(e), 'Connected', 'checking encryption access'))
     avisarSiElServicioNoCoincide(existente)
     // Review final de rama, MINOR: una credencial sin `baseUrl` (de antes de 5dc84c5)
     // resolvía el servicio DE NUEVO cada corrida — env actual, si no el default — sin
@@ -369,8 +502,7 @@ async function comandoLogin(): Promise<void> {
     salir(1)
   }
 
-  console.log('')
-  console.log(`  Your code:  ${arranque.user_code}`)
+  console.log(`  Your code:  ${e.acento(arranque.user_code)}`)
   console.log('')
   console.log('  Open Nest on a machine where you are signed in, go to Memories, and type it')
   console.log('  into Memory settings → "Add a machine that has no browser".')
@@ -398,7 +530,7 @@ async function comandoLogin(): Promise<void> {
 
     if (paso.accion === 'listo') {
       guardarCredencial(homedir(), safe, { token: paso.token, deviceId: paso.deviceId, baseUrl: base })
-      console.log('\n\n  Connected. Your credential is saved.')
+      console.log(`\n\n${fila(marcas.ok(e), 'Connected', 'your credential is saved in the system keyring')}`)
       for (const linea of mensajeDeEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
         baseUrl: base, token: paso.token, deviceId: paso.deviceId,
       }))) console.log(linea)
@@ -408,7 +540,7 @@ async function comandoLogin(): Promise<void> {
       const porque = paso.motivo === 'vencido'
         ? 'the code expired — run login again to get a new one'
         : `the service refused this machine: ${paso.detalle ?? 'no reason given'}`
-      console.error(`\n\n  Could not connect: ${porque}`)
+      console.error(`\n\n${fila(marcas.falla(e), 'Not connected', porque)}`)
       salir(1)
     }
     process.stdout.write('.')
@@ -431,9 +563,12 @@ async function comandoRecover(): Promise<void> {
   }
   const base = urlDelServicio(credencial)
 
-  console.log('Paste your recovery code and press enter.')
-  console.log('Using it spends your one emergency copy — if another machine is available,')
-  console.log('authorizing from there is the better path.')
+  console.log('')
+  console.log(`  ${marca(e, 'recover')}`)
+  console.log('')
+  console.log('  Paste your recovery code and press enter.')
+  console.log(`  ${e.tenue('Using it spends your one emergency copy — if another machine is available,')}`)
+  console.log(`  ${e.tenue('authorizing from there is the better path.')}`)
   const tipeado = (await leerUnaLinea()).trim()
   if (!tipeado) {
     console.error('No code given.')
@@ -448,12 +583,12 @@ async function comandoRecover(): Promise<void> {
       normalizeRecoveryCode(tipeado),
     )
     saveKeyMaterial(homedir(), null, safe, { ...material, master: r.master, keyEpoch: r.keyEpoch })
-    console.log('Recovered. This machine can read your encrypted memory now.')
+    console.log(fila(marcas.ok(e), 'Recovered', 'this machine can read your encrypted memory now'))
   } catch (err) {
     // El motivo va tal cual: «código equivocado» y «no hay copia de recuperación en esta
     // cuenta» piden cosas distintas, y colapsarlos en "no se pudo" deja al usuario probando
     // el mismo código otra vez.
-    console.error(`Could not recover: ${err instanceof Error ? err.message : String(err)}`)
+    console.error(fila(marcas.falla(e), 'Not recovered', err instanceof Error ? err.message : String(err)))
     salir(1)
   }
 }
@@ -488,7 +623,7 @@ function correrAsync(p: Promise<void>): void {
 export function correr(argv: string[]): void {
   const cmd = parsearArgumentos(argv)
   switch (cmd.comando) {
-    case 'ayuda': console.log(AYUDA); return
+    case 'ayuda': console.log(textoDeAyuda(e, versionDelPaquete())); return
     case 'setup': comandoSetup(cmd); return
     case 'status': correrAsync(comandoStatus()); return
     case 'search': correrAsync(comandoSearch(cmd.consulta)); return

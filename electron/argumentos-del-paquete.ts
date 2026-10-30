@@ -8,7 +8,8 @@
 // obvia del archivo y la que más importa: un `setup --dry-runn` que se traga la opción
 // desconocida escribe los configs de verdad mientras el usuario cree que está simulando. Lo
 // mismo con un comando mal tipeado — «no pasó nada» es una respuesta peor que «eso no existe».
-import { NOMBRE_DEL_PAQUETE, comando } from './nombre-del-paquete'
+import { comando } from './nombre-del-paquete'
+import { crearEstilo, marca, type Estilo } from './estilo-del-paquete'
 
 export type ComandoDelPaquete =
   | { comando: 'ayuda' }
@@ -27,30 +28,54 @@ const EDITORES = ['claude', 'codex', 'gemini', 'qwen', 'opencode', 'cursor', 'vs
 
 const SIN_ARGUMENTOS = ['login', 'status', 'doctor', 'recover', 'mcp'] as const
 
-/** Cada línea de la ayuda: el subcomando tal como lo escribe el usuario y qué hace. */
-const LINEAS_DE_AYUDA: Array<[string, string]> = [
-  ['setup', 'Detect your editors and configure them all'],
-  ['setup --cursor', `Only one (${EDITORES.join(', ')})`],
-  ['setup --dry-run', 'Show what it would write, write nothing'],
-  ['setup --undo', 'Remove what setup added'],
-  ['login', 'Connect this machine to your account'],
-  ['status', 'What it sees, where from, and whether it can decrypt'],
-  ['search <words>', 'Read your memory without going through an agent'],
-  ['doctor', 'Why it is not working'],
-  ['recover', 'Use your recovery code to read encrypted memory'],
-  ['mcp', 'Run the MCP server (editors launch this, not you)'],
+const COMANDOS_DIARIOS: Array<[string, string]> = [
+  ['status', 'what it sees, and whether it can decrypt'],
+  ['search <words>', 'read your memory without an agent'],
+  ['doctor', "why something isn't working"],
+  ['recover', 'unlock encrypted memory with your recovery code'],
+  ['mcp', 'the server your editors launch, not you'],
 ]
 
-// El ancho de columna se calcula y no se tipea a mano: así una línea no queda desalineada el
-// día que `comando(...)` cambie de largo —como pasó al mudar de `nest-memory` a
-// `@nestmux/memory`— sin que nadie tenga que volver a contar espacios.
-const ANCHO_DE_COLUMNA = Math.max(...LINEAS_DE_AYUDA.map(([sub]) => comando(sub).length)) + 2
+/** La bienvenida de `npx @nestmux/memory` sin argumentos: qué es, para qué sirve y cómo empezar. */
+export function textoDeAyuda(e: Estilo, version?: string): string {
+  const titulo = marca(e)
+  const conVersion = version ? `${titulo}${' '.repeat(Math.max(2, 60 - '> nest memory_'.length))}${e.tenue(`v${version}`)}` : titulo
+  const flecha = (s: string) => e.tenue(s)
+  const ancho = Math.max(...COMANDOS_DIARIOS.map(([c]) => c.length)) + 2
+  return [
+    '',
+    `  ${conVersion}`,
+    `  Your next session starts with what you already learned.`,
+    '',
+    `  ${e.tenue('SESSION 01 · Claude Code')}          ${e.tenue('SESSION 02 · Cursor')}`,
+    `  decision saved  ${flecha('─────────────────▶')}  decision remembered`,
+    '',
+    `  ${flecha('Claude Code ─┐')}`,
+    `  ${flecha('Cursor ──────┤')}`,
+    `  ${flecha('Codex ───────┼──▶')}  ${e.acento('● one memory')}   ${e.tenue('local first · end-to-end encrypted sync')}`,
+    `  ${flecha('Gemini CLI ──┤')}`,
+    `  ${flecha('OpenCode ────┘')}`,
+    '',
+    `  ${e.tenue('GET STARTED')}`,
+    `   ${e.acento('1')}  ${e.negrita('setup'.padEnd(14))}  connect every editor on this machine`,
+    `   ${e.acento('2')}  ${e.negrita('login'.padEnd(14))}  sync across your machines ${e.tenue('(optional)')}`,
+    `   ${e.acento('3')}  ${e.negrita('just work'.padEnd(14))}  your agents save and recall on their own`,
+    '',
+    `  ${e.tenue('EVERYDAY')}`,
+    ...COMANDOS_DIARIOS.map(([c, d]) => `      ${c.padEnd(ancho)}${d}`),
+    '',
+    `  ${e.tenue('SETUP OPTIONS')}`,
+    `      --dry-run       show what it would write, write nothing`,
+    `      --undo          remove what setup added`,
+    `      --<editor>      only one: ${EDITORES.join(', ')}`,
+    '',
+    `  ${e.tenue('Next:')} ${comando('setup')}`,
+    '',
+  ].join('\n')
+}
 
-export const AYUDA = `${NOMBRE_DEL_PAQUETE} — your memory, on any machine
-
-Usage:
-${LINEAS_DE_AYUDA.map(([sub, descripcion]) => `  ${comando(sub).padEnd(ANCHO_DE_COLUMNA)}${descripcion}`).join('\n')}
-`
+/** La bienvenida sin color, para los tests y para una salida que no es una terminal. */
+export const AYUDA = textoDeAyuda(crearEstilo(false))
 
 function parsearSetup(resto: string[]): ComandoDelPaquete {
   const soloEditores: string[] = []
