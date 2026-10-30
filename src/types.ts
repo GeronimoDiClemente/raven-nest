@@ -1303,12 +1303,14 @@ declare global {
     __e2e_setFakePaneAITypes?: (byPath: Record<string, AIType[]>) => void
     windowControls: {
       send: (action: 'minimize' | 'maximize' | 'close') => void
-      onShown: (callback: () => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onShown: (callback: () => void) => () => void
       /** La ventana pasó a pantalla completa (o volvió). En macOS ahí se esconden los semáforos. */
-      onFullScreen?: (cb: (full: boolean) => void) => void
+      onFullScreen?: (cb: (full: boolean) => void) => () => void
     }
     updater: {
-      onStatus: (cb: (status: 'downloading' | 'ready' | 'error', msg?: string) => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onStatus: (cb: (status: 'downloading' | 'ready' | 'error', msg?: string) => void) => () => void
       install: () => void
       checkForUpdates: () => Promise<'up-to-date' | 'update-found' | 'error'>
     }
@@ -1323,7 +1325,8 @@ declare global {
     }
     electronShell: {
       openExternal: (url: string) => void
-      onDeepLink: (cb: (url: string) => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onDeepLink: (cb: (url: string) => void) => () => void
       // Cold-launch pull: consumes any deep-link URL buffered before the
       // renderer was ready (see electron/preload.ts's deeplink:consume call).
       consumePendingDeepLink: () => Promise<string | null>
@@ -1382,21 +1385,25 @@ declare global {
     speech: {
       check: () => Promise<boolean>
       transcribe: (audio: Uint8Array, language?: string) => Promise<string>
-      onStatus: (cb: (status: 'loading' | 'ready') => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onStatus: (cb: (status: 'loading' | 'ready') => void) => () => void
+      /** @deprecated Borra los oyentes de TODAS las instancias: usá la baja de `onStatus`. */
       removeStatusListener: () => void
     }
     github: {
       openOAuth: () => Promise<void>
-      onOAuthCode: (cb: (code: string) => void) => void
+      onOAuthCode: (cb: (code: string) => void) => () => void
       removeOAuthListener: () => void
     }
     gitlab: {
       openOAuth: () => Promise<void>
-      onOAuthCode: (cb: (code: string) => void) => void
+      onOAuthCode: (cb: (code: string) => void) => () => void
       removeOAuthListener: () => void
     }
     keybinds: {
-      onTabCycle: (cb: (shift: boolean) => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onTabCycle: (cb: (shift: boolean) => void) => () => void
+      /** @deprecated Borra TODOS los oyentes del canal: usá la baja de `onTabCycle`. */
       removeTabCycleListener: () => void
     }
     pathUtils: {
@@ -1444,8 +1451,10 @@ declare global {
       delete: (repoPath: string, presetId: string) => Promise<void>
       apply: (worktreePath: string, presetId: string) => Promise<void>
       cancel: (worktreePath: string) => Promise<void>
-      onSetupProgress: (cb: (worktreePath: string, line: string) => void) => void
-      onSetupState: (cb: (worktreePath: string, state: WorktreeMeta['setupState']) => void) => void
+      /** Cada uno devuelve su propia baja, que saca sólo ese oyente. */
+      onSetupProgress: (cb: (worktreePath: string, line: string) => void) => () => void
+      onSetupState: (cb: (worktreePath: string, state: WorktreeMeta['setupState']) => void) => () => void
+      /** @deprecated Borra los oyentes de TODAS las secciones: usá la baja de cada `on*`. */
       removeListeners: () => void
     }
     port: {
@@ -1494,8 +1503,10 @@ declare global {
       start: (worktreePath: string) => Promise<void>
       stop: () => Promise<void>
       status: () => Promise<{ active: boolean; worktreePath?: string; events?: number; errors?: number }>
-      onStatus: (cb: (status: { active: boolean; worktreePath?: string; events?: number }) => void) => void
-      onWarning: (cb: (msg: string) => void) => void
+      /** Cada uno devuelve su propia baja, que saca sólo ese oyente. */
+      onStatus: (cb: (status: { active: boolean; worktreePath?: string; events?: number }) => void) => () => void
+      onWarning: (cb: (msg: string) => void) => () => void
+      /** @deprecated Borra los oyentes de TODAS las secciones: usá la baja de cada `on*`. */
       removeListeners: () => void
     }
     benchmark: {

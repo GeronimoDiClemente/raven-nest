@@ -145,11 +145,12 @@ function Root() {
     }
 
     // Push: handle deep links arriving while app is running
-    if (window.electronShell?.onDeepLink) {
-      window.electronShell.onDeepLink(handleDeepLinkUrl)
-    }
+    const offDeepLink = window.electronShell?.onDeepLink?.(handleDeepLinkUrl)
 
-    return () => subscription.unsubscribe()
+    return () => {
+      subscription.unsubscribe()
+      offDeepLink?.()
+    }
   }, [])
 
   if (session === null) return (

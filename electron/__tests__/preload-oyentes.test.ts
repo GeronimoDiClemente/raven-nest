@@ -48,3 +48,58 @@ describe('preload · browser.onNavigated', () => {
     expect(ipc.emitter.listenerCount('browser:navigated')).toBe(0)
   })
 })
+
+// Cada `on*` con baja propia: [api, método, canal, args que manda main, args que llegan al cb].
+const CON_BAJA_PROPIA: Array<[string, string, string, unknown[], unknown[]]> = [
+  ['windowControls', 'onShown', 'window:shown', [], []],
+  ['windowControls', 'onFullScreen', 'window:fullscreen', [true], [true]],
+  ['updater', 'onStatus', 'updater:status', ['error', 'boom'], ['error', 'boom']],
+  ['speech', 'onStatus', 'speech:status', ['ready'], ['ready']],
+  ['electronShell', 'onDeepLink', 'auth:deeplink', ['nest://x'], ['nest://x']],
+  ['keybinds', 'onTabCycle', 'keybind:tab-cycle', [{ shift: true }], [true]],
+  ['spotlight', 'onStatus', 'spotlight:status', [{ active: true }], [{ active: true }]],
+  ['spotlight', 'onWarning', 'spotlight:warning', ['ojo'], ['ojo']],
+  ['preset', 'onSetupProgress', 'preset:setupProgress', ['/wt', 'línea'], ['/wt', 'línea']],
+  ['preset', 'onSetupState', 'preset:setupState', ['/wt', 'done'], ['/wt', 'done']],
+  ['memory', 'onStatus', 'memory:status', ['idle'], ['idle']],
+  ['memory', 'onChanged', 'memory:changed', [], []],
+  ['github', 'onOAuthCode', 'github-oauth-code', ['c'], ['c']],
+  ['gitlab', 'onOAuthCode', 'gitlab-oauth-code', ['c'], ['c']],
+  ['slack', 'onOAuthCode', 'slack-oauth-code', ['c'], ['c']],
+]
+
+describe.each(CON_BAJA_PROPIA)('preload · %s.%s', (api, metodo, canal, enviados, recibidos) => {
+  it('suscribirse no saca a otro oyente, y la baja de uno deja al otro escuchando', () => {
+    const a = vi.fn()
+    const b = vi.fn()
+    const offA = exposed[api][metodo](a) as () => void
+    const offB = exposed[api][metodo](b) as () => void
+    expect(typeof offA).toBe('function')
+
+    ipc.emitter.emit(canal, {}, ...enviados)
+    expect(a).toHaveBeenCalledWith(...recibidos)
+    expect(b).toHaveBeenCalledWith(...recibidos)
+
+    offA()
+    ipc.emitter.emit(canal, {}, ...enviados)
+    expect(a).toHaveBeenCalledTimes(1)
+    expect(b).toHaveBeenCalledTimes(2)
+
+    offB()
+    expect(ipc.emitter.listenerCount(canal)).toBe(0)
+  })
+})
+
+describe('preload · pty', () => {
+  it('onData tiene un solo dueño: suscribir de nuevo reemplaza al anterior', () => {
+    const viejo = vi.fn()
+    const nuevo = vi.fn()
+    exposed.pty.onData(viejo)
+    exposed.pty.onData(nuevo)
+    ipc.emitter.emit('pty:data', {}, 'p1', 'hola')
+    expect(viejo).not.toHaveBeenCalled()
+    expect(nuevo).toHaveBeenCalledWith('p1', 'hola')
+    exposed.pty.removeAllListeners()
+    expect(ipc.emitter.listenerCount('pty:data')).toBe(0)
+  })
+})

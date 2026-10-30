@@ -71,10 +71,10 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
       if (s.active && s.worktreePath) setSpotlightPath(s.worktreePath)
       else setSpotlightPath(null)
     })
-    bridge.spotlight.onStatus((s) => {
+    // Su propia baja, no `removeListeners()`: ésa saca a cualquier otro oyente del canal.
+    return bridge.spotlight.onStatus((s) => {
       setSpotlightPath(s.active && s.worktreePath ? s.worktreePath : null)
     })
-    return () => bridge.spotlight.removeListeners()
   }, [bridge])
 
   useEffect(() => {
@@ -102,8 +102,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
         )
       )
     }
-    bridge.preset.onSetupState(onState)
-    return () => bridge.preset.removeListeners()
+    return bridge.preset.onSetupState(onState)
   }, [repoPath, bridge])
 
   // Fetch diff stats for all non-root worktrees in parallel. Each result drops

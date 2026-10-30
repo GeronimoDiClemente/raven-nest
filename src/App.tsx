@@ -330,7 +330,7 @@ export default function App() {
   // Auto-updater listener
   useEffect(() => {
     if (!window.updater) return
-    window.updater.onStatus((status, msg) => setUpdateStatus({ type: status, msg }))
+    return window.updater.onStatus((status, msg) => setUpdateStatus({ type: status, msg }))
   }, [])
 
   const sensors = useSensors(
@@ -1121,10 +1121,7 @@ export default function App() {
 
   // Ctrl+Tab is reserved on Windows and never reaches the renderer keydown
   // listener; main intercepts before-input-event and forwards via IPC.
-  useEffect(() => {
-    window.keybinds?.onTabCycle((shift) => cycleTab(shift))
-    return () => window.keybinds?.removeTabCycleListener()
-  }, [cycleTab])
+  useEffect(() => window.keybinds?.onTabCycle((shift) => cycleTab(shift)), [cycleTab])
 
   const closeTab = useCallback((id: string) => {
     const currentTabs = tabsRef.current
@@ -1239,12 +1236,10 @@ export default function App() {
   // (e.g. Cmd+Q on macOS hides instead of quitting). main.ts emits 'window:shown'
   // on every BrowserWindow 'show' event — more reliable than the 'focus' DOM event
   // which Electron doesn't always fire after win.hide()/win.show().
-  useEffect(() => {
-    window.windowControls?.onShown(() => {
-      const id = focusedPaneIdRef.current
-      if (id) focusTerminal(id)
-    })
-  }, [])
+  useEffect(() => window.windowControls?.onShown(() => {
+    const id = focusedPaneIdRef.current
+    if (id) focusTerminal(id)
+  }), [])
 
   /**
    * En pantalla completa macOS esconde los semáforos, y la barra de pestañas les reserva
@@ -1252,9 +1247,7 @@ export default function App() {
    * esto— así que lo avisa el proceso principal.
    */
   const [pantallaCompleta, setPantallaCompleta] = useState(false)
-  useEffect(() => {
-    window.windowControls?.onFullScreen?.((full) => setPantallaCompleta(full))
-  }, [])
+  useEffect(() => window.windowControls?.onFullScreen?.((full) => setPantallaCompleta(full)), [])
 
   // Open the new-pane dialog (engine handles slot placement)
   const addNextPane = useCallback(() => {
