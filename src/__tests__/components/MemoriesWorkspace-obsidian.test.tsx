@@ -602,6 +602,31 @@ describe('MemoriesWorkspace estilo Obsidian', () => {
       expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
     })
 
+    it('salir del overlay con una New memory a medio escribir pregunta; sin nada escrito sale directo', async () => {
+      setMemoryApi(apiBasica())
+      const onClose = vi.fn()
+      render(<MemoriesWorkspace {...props()} onClose={onClose} />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
+      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+
+      fireEvent.click(await explorer().findByRole('button', { name: 'New memory' }))
+      await screen.findByRole('tab', { name: /New memory/, selected: true })
+      fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'A medio escribir' } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+      expect(await screen.findByRole('alertdialog', { name: 'Leave without saving?' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveValue('A medio escribir')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Discard and leave' }))
+      expect(onClose).toHaveBeenCalledTimes(2)
+    })
+
     it('F4: una New memory sin nada escrito cierra directo', async () => {
       setMemoryApi(apiBasica())
       render(<MemoriesWorkspace {...props()} />)

@@ -353,6 +353,24 @@ export default function MemoriesWorkspace({
   }
 
   /**
+   * Salir del overlay (Back, Plan & billing) desmonta todas las pestañas: con alguna New
+   * memory a medio escribir también pregunta. Las notas no: se guardan solas al desmontar.
+   */
+  const [salidaPendiente, setSalidaPendiente] = useState<(() => void) | null>(null)
+  const salir = useCallback((accion: () => void) => {
+    if (nuevasSucias.current.size > 0) { setSalidaPendiente(() => accion); return }
+    accion()
+  }, [])
+  const confirmarSalida = () => {
+    const accion = salidaPendiente
+    setSalidaPendiente(null)
+    if (!accion) return
+    nuevasSucias.current.clear()
+    accion()
+  }
+  const alPlanYFacturacion = onPlanYFacturacion ? () => salir(onPlanYFacturacion) : undefined
+
+  /**
    * Foco: Ctrl/Cmd+W y Esc se escuchan en la raíz, así que el foco tiene que estar adentro.
    * Un click en el canvas no lo mueve (d3-zoom cancela el mousedown) y cerrar una pestaña
    * desmonta el elemento que lo tenía: en los dos casos el siguiente Ctrl+W iría a la
@@ -507,7 +525,7 @@ export default function MemoriesWorkspace({
       }}
     >
       <div className="teams-workspace-header">
-        <button className="tw-back-btn" onClick={onClose}>
+        <button className="tw-back-btn" onClick={() => salir(onClose)}>
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 5 }}>
             <path d="M8 2L4 6.5L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
@@ -615,7 +633,7 @@ export default function MemoriesWorkspace({
                         prefsCargadas={prefsMem.cargadas}
                         onPrefs={prefsMem.actualizar}
                         onResetGraph={restablecerGrafo}
-                        onPlanYFacturacion={onPlanYFacturacion}
+                        onPlanYFacturacion={alPlanYFacturacion}
                       />
                     </div>
                   )}
@@ -711,6 +729,19 @@ export default function MemoriesWorkspace({
           <AlertDialogFooter>
             <AlertDialogCancel>Keep editing</AlertDialogCancel>
             <AlertDialogAction onClick={confirmarDescarte}>Discard</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={salidaPendiente !== null} onOpenChange={(o) => { if (!o) setSalidaPendiente(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>A new memory you started has not been saved.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmarSalida}>Discard and leave</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
