@@ -70,9 +70,12 @@ El 29-10 el servicio `sync` tenía `BETA_LINK_SECRET`, `DATABASE_URL`, `SUPABASE
      La `DATABASE_URL` de los dos servicios es referencia y tomó la nueva sola.
   3. `railway redeploy --service sync`. `/health` respondió 200 tras migrar.
 - [ ] Renovar el token del CLI de Railway y revisar los accesos de GitHub.
-- [ ] Al deployar el código nuevo, cargar `R2_*` (hoy prod **no hace backups**) y `PLAN_SYNC_SECRET`.
-  Después, probar un restore con `server/scripts/restore-check.mjs`.
-- [ ] Activar los backups de volumen y el PITR de Railway en el Postgres. **Es por dashboard**: el CLI no tiene comandos de backup.
+- [x] `R2_*` cargadas (29-10). Bucket `nest-memory-backups` en Cloudflare, con regla de ciclo de vida
+  `30-dias` y un token de cuenta con Object Read & Write sólo sobre ese bucket. El primer backup salió
+  al arrancar (`nest-memory/2026-10-30T01-36-22-004Z.dump`) y el restore se verificó con
+  `npx tsx scripts/restore-check.mjs --from-r2` adentro del contenedor: OK.
+- [ ] `PLAN_SYNC_SECRET`: va con el deploy del código nuevo (2b-2).
+- [ ] Backups y PITR de Railway: **requieren el plan Pro** (USD 20/mes). Postergado: mientras tanto alcanza con R2, que además queda fuera de Railway.
 - [ ] Releer el informe final de Railway. Si confirma acceso a código o a volúmenes, reabrir la mudanza.
 
 La validación completa (alternativas, costos y disparadores) está en `docs/railway-validacion-2026-10-29.md`.
