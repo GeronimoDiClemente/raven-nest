@@ -1,8 +1,8 @@
-// Spec §5.1 — el punto de color de la fila Memories, y su texto corto.
+// El punto de color de la fila Memories, y su texto corto.
 //
 // El orden de prioridad NO es arbitrario: un estado tapa al siguiente solo si le importa
 // mas al usuario. `silent` va primero porque es el unico donde esta perdiendo trabajo sin
-// enterarse (§2.2); `blocked` antes que `conflicts` porque es lo que no esta llegando a la
+// enterarse; `blocked` antes que `conflicts` porque es lo que no esta llegando a la
 // nube; `disconnected` al final porque en un plan Free es lo normal, no una falla.
 
 import { tieneTope } from './proyectos-en-la-nube'
@@ -56,11 +56,9 @@ export function relativeTime(at: number | null): string {
 }
 
 /**
- * Spec 2026-09-11 §2 — "los pane-ids se van". `App.tsx`'s `generateId()` produce
- * `pane-<n>-<timestamp-en-ms>` (p.ej. `pane-3-1789095333962`); el timestamp no le dice
- * a nadie cuál terminal cerrar, que es justo lo que el comentario original de
- * MemoriesStatusRow decía que quería lograr. Se muestra solo el número de pane — la
- * CLI que corre adentro (aiType) la agrega el caller al lado.
+ * `App.tsx`'s `generateId()` produce `pane-<n>-<timestamp-en-ms>` (p.ej.
+ * `pane-3-1789095333962`); el timestamp no le dice a nadie cuál terminal cerrar. Se muestra
+ * solo el número de pane — la CLI que corre adentro (aiType) la agrega el caller al lado.
  *
  * Un paneId que no matchea el formato esperado (origen viejo, otro subsistema, o un
  * mock de test) se muestra tal cual: mejor un id crudo y reconocible que inventar un
@@ -72,23 +70,23 @@ export function paneDisplayLabel(paneId: string): string {
 }
 
 /**
- * Spec 2b-1 §4.5: el motivo con el que el servidor retiene lo que pasa el tope de proyectos del
- * plan. Mismo literal que `MOTIVO_TOPE_DE_PROYECTOS` de electron/memory-daemon.ts (el renderer
- * no importa de electron/, D13).
+ * El motivo con el que el servidor retiene lo que pasa el tope de proyectos del plan. Mismo
+ * literal que `MOTIVO_TOPE_DE_PROYECTOS` de electron/memory-daemon.ts (el renderer no importa
+ * de electron/).
  */
 export const MOTIVO_TOPE_DE_PLAN = 'project_limit_reached'
 
-/** Las bloqueadas que son una FALLA: todas menos las del tope del plan (D7). Es lo que va al
+/** Las bloqueadas que son una FALLA: todas menos las del tope del plan. Es lo que va al
  *  punto ámbar y al «N blocked» de `summarizeMemories`. */
 export function bloqueadasPorFalla(groups: ReadonlyArray<{ reason: string; count: number }>): number {
   return groups.reduce((total, g) => (g.reason === MOTIVO_TOPE_DE_PLAN ? total : total + g.count), 0)
 }
 
-/** El badge de la fila de estado para lo retenido por el tope (spec 2b-1 §4.7). */
+/** El badge de la fila de estado para lo retenido por el tope. */
 export function textoDeTopeDePlan(n: number, max: number | null): string {
   const queda = `${n} ${n === 1 ? 'memory stays' : 'memories stay'} on this machine`
-  // D6: sin tope informado no se inventa cuántos proyectos sincroniza el plan. D4: un plan
-  // sin tope (Cloud) tampoco: decirle «your plan syncs 100 projects» a quien ya paga es
+  // Sin tope informado no se inventa cuántos proyectos sincroniza el plan. Con un plan sin
+  // tope (Cloud) tampoco: decirle «your plan syncs 100 projects» a quien ya paga es
   // ofrecerle un límite que no tiene.
   if (!tieneTope(max)) return queda
   return `${queda} — your plan syncs ${max === 1 ? 'one project' : `${max} projects`}`

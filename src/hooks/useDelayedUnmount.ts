@@ -14,7 +14,7 @@ export interface DelayedUnmountState {
  * <Overlay/>}` unmounts in the same tick `open` goes false and the exit
  * keyframes never get a frame to render.
  *
- * Failure modes this guards against (workspace-shell-design spec, part A):
+ * Failure modes this guards against:
  * - **A second close mid-animation is a no-op.** `open` is already `false`;
  *   React bails out of the effect before scheduling a second timer.
  * - **A pending timer never leaves the app stuck.** Even if something kept

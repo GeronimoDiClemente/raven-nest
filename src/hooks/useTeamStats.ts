@@ -296,12 +296,12 @@ export function medianReviewLatencyHours(events: GitHubEvent[], windowDays = 7):
 }
 
 // ── GitHub GraphQL → GitHubEvent adapter ─────────────────────────────────────
-// The REST Events API (/repos/:o/:r/events) stopped returning the fields these
+// The REST Events API (/repos/:o/:r/events) doesn't return the fields these
 // metrics need: its PushEvent payload has no `commits` array and its
 // PullRequestEvent carries only {base,head,id,number,url} — no merged flag,
-// timestamps, or additions/deletions. So every metric read back 0/—. GraphQL
+// timestamps, or additions/deletions, so every metric would read 0/—. GraphQL
 // DOES return them, so we fetch there and synthesize the same GitHubEvent shape
-// the metric functions above already parse — the aggregation logic is unchanged.
+// the metric functions above parse.
 
 export interface GqlCommit {
   oid: string
@@ -536,7 +536,7 @@ export function useTeamStats(
       const fetchCommits = async (owner: string, name: string): Promise<GqlCommit[]> => {
         const out: GqlCommit[] = []
         let after: string | null = null
-        // Cap at 3 pages (300 commits) within the window — matches the old fetch's cap.
+        // Cap at 3 pages (300 commits) within the window.
         for (let page = 0; page < 3; page++) {
           const data = (await graphql(COMMITS_QUERY, { owner, name, since, after })) as CommitsResponse
           if (!data.repository) throw new Error('no repo access')
@@ -559,10 +559,10 @@ export function useTeamStats(
           out.push(...prs.nodes)
           if (!prs.pageInfo.hasNextPage) break
           // PRs come ordered by UPDATED_AT desc, so the early-break must read
-          // updatedAt — the actual sort key. Breaking on mergedAt let a stale
+          // updatedAt — the actual sort key. Breaking on mergedAt lets a stale
           // merge with a RECENT update (e.g. a new comment on an old PR) sit
           // last on the page and cut pagination while in-window merges still
-          // existed on later pages (undercounted totals/cycle time).
+          // exist on later pages (undercounted totals/cycle time).
           // mergedAt <= updatedAt always, so once the page's oldest updatedAt
           // is past the window, no later page can hold an in-window merge.
           const oldest = prs.nodes[prs.nodes.length - 1]?.updatedAt

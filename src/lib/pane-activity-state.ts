@@ -10,12 +10,11 @@
  *
  * Importa porque el que llama no llama una vez: `TerminalPane` avisa que está ocupado en CADA
  * chunk que le llega del PTY, o sea ~20 veces por segundo por pane con un agente escribiendo.
- * De esos 20, **uno** es un cambio real (el paso de quieto a ocupado); los otros 19 repetían
- * el mismo conjunto con identidad nueva y re-renderizaban la app entera para nada.
+ * De esos 20, **uno** es un cambio real (el paso de quieto a ocupado); los otros 19
+ * repetirían el mismo conjunto con identidad nueva y re-renderizarían la app entera para nada.
  *
  * La regla, entonces: **si el conjunto no cambia, se devuelve el MISMO objeto.** El mismo
- * criterio que ya tenía el auto-clear de actividad de `App` — que llegó a esta conclusión
- * antes, para su propio timer, y es de donde salió la idea.
+ * criterio que usa el auto-clear de actividad de `App` para su propio timer.
  */
 
 /** El pane arrancó o dejó de sacar texto. Devuelve `prev` si eso ya se sabía. */

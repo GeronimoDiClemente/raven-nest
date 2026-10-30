@@ -18,7 +18,7 @@ export type LayoutId =
 
 export const MAX_PANES = 12
 
-/** Spec 2b-3: una máquina de la cuenta de sync. `lastSeenAt` en ms. */
+/** Una máquina de la cuenta de sync. `lastSeenAt` en ms. */
 export interface MaquinaDeLaCuenta {
   id: string
   name: string
@@ -109,7 +109,7 @@ export interface TicketsBridge {
   tracked: () => Promise<Array<{ branch: string; ticketKey: string }>>
 }
 
-// === Worktree signals (H4 Motor 3) — espejo de WorktreeSignal de
+// === Worktree signals — espejo de WorktreeSignal de
 // electron/integrations/worktree-signals.ts (src/ nunca importa de electron/) ===
 export interface WorktreeSignalDTO {
   repoPath: string
@@ -223,7 +223,7 @@ export interface ActivityBridge {
   onAppend: (cb: (entry: ActivityEntry) => void) => () => void
 }
 
-// === Recipes tab (H8/Plan 5 Task 1) — espejo de RecipeDescriptor de
+// === Recipes tab — espejo de RecipeDescriptor de
 // electron/integrations/recipes.ts (src/ nunca importa de electron/). Read-only:
 // "when event → commands" display for the built-in/stored bus recipes. ===
 export interface RecipeDescriptor {
@@ -236,7 +236,7 @@ export interface RecipesBridge {
   list: () => Promise<RecipeDescriptor[]>
 }
 
-// === Automations tab (epic C/H11) — mirror of Automation in
+// === Automations tab — mirror of Automation in
 // electron/integrations/scheduler.ts (src/ nunca importa de electron/, same
 // convention as RecipeDescriptor above). `nextRunAt`/`scheduleLabel` are NOT
 // part of the persisted model — the main process computes them fresh on every
@@ -306,7 +306,7 @@ export interface TeamThreadBranch {
 
 /** Espejo de `TeamThreadSettings` de electron/integrations/team-thread-config.ts.
  *  `includedTypes` queda `string[]` aca (no `ObservationType[]`) porque ese tipo no esta
- *  espejado en src/ todavia y el panel (Task 10) no edita esta lista, solo lee `enabled`. */
+ *  espejado en src/ todavia y el panel no edita esta lista, solo lee `enabled`. */
 export interface TeamThreadSettings {
   enabled: boolean
   includedTypes: string[]
@@ -402,8 +402,8 @@ export interface MemoryObservationDetail {
 }
 
 /** Espejo de los tipos de `crossProjectMemories()` en electron/memory-store.ts (src/ nunca
- *  importa de electron/) — spec 2026-09-11, pantalla de Memories legible: el listado de
- *  memorias de TODOS los proyectos juntas, más reciente primero. */
+ *  importa de electron/): el listado de memorias de TODOS los proyectos juntas, más reciente
+ *  primero. */
 export interface CrossProjectMemoryQuery {
   /** FTS5. Vacío/ausente = listado plano por fecha. */
   query?: string
@@ -434,7 +434,7 @@ export interface CrossProjectMemoryPage {
   nextCursor: string | null
 }
 
-// === @Nest desde Slack (H7 Motor 5) — espejo de SlackMention/SlackAction de
+// === @Nest desde Slack — espejo de SlackMention/SlackAction de
 // electron/integrations/slack-envelopes.ts (src/ nunca importa de electron/) ===
 export interface SlackMentionDTO {
   channel: string
@@ -460,7 +460,7 @@ export interface SlackMentionsBridge {
   postThread: (args: { channel: string; threadTs: string; text: string }) => Promise<{ ok: boolean }>
 }
 
-// === Notion spec→worktree (H5 Motor 2) ===
+// === Notion spec→worktree ===
 export interface NotionBridge {
   /** Baja la página como markdown, la escribe en <worktree>/.nest/spec.md y
    *  devuelve el markdown para inyectarlo como prompt inicial del agente. */
@@ -468,7 +468,7 @@ export interface NotionBridge {
     Promise<{ ok: true; prompt: string } | { ok: false; error: string }>
 }
 
-// === Google Calendar (H6 Motor 4) — espejo de GcalEvent de
+// === Google Calendar — espejo de GcalEvent de
 // electron/integrations/gcal.ts (src/ nunca importa de electron/) ===
 export interface GcalEventDTO {
   id: string
@@ -637,7 +637,7 @@ export interface WorkerStep {
   instructions?: string
   role?: string
   /** Saved CLI account to launch this step with (bypasses the account picker
-   *  at run time). Unset = ask at launch, same as before this field existed. */
+   *  at run time). Unset = ask at launch. */
   account?: string
 }
 export interface WorkerSpec {
@@ -792,11 +792,8 @@ export const AI_CONFIG: Record<AIType, {
   // grok, terminal), dos azules (gemini, deepseek) y dos violetas (copilot,
   // qwen). Los mas usados quedan en la primera fila.
   //
-  // browser y terminal (mas abajo) tambien son acromaticos, pero eso paso
-  // DESPUES de que este orden se fijo (Task 12) — no los cuento en el
-  // parrafo de arriba porque tocar el orden para acomodarlos es una
-  // discusion aparte (ver task-12-brief.md), no algo que se resuelva solo
-  // por cambiarles el color.
+  // browser y terminal (mas abajo) tambien son acromaticos; el criterio de
+  // arriba no los tiene en cuenta.
   claude:   { label: 'Claude',   color: '#E07B54', bg: '#2a1a14', cmd: 'claude',     modelFlag: '--model', models: ['opus', 'sonnet', 'haiku'], effortFlag: '--effort' },
   gemini:   { label: 'Gemini',   color: '#4F9EFF', bg: '#0d1f35', cmd: 'gemini',     modelFlag: '--model', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
   codex:    { label: 'Codex',    color: '#aaaaaa', bg: '#1c1c1c', cmd: 'codex',      modelFlag: '--model' },
@@ -806,12 +803,9 @@ export const AI_CONFIG: Record<AIType, {
   qwen:     { label: 'Qwen',     color: '#6950EF', bg: '#14103a', cmd: 'qwen',         noAccount: true },
   cursor:   { label: 'Cursor',   color: '#D4D4D4', bg: '#181818', cmd: 'cursor-agent', noAccount: true },
   grok:     { label: 'Grok',     color: '#E8E8E8', bg: '#141414', cmd: 'grok',         noAccount: true },
-  // browser y terminal NO son marca de nadie: el azul de browser era el
-  // acento viejo de Nest (#0066FF, el mismo que se saco de otros 68 lugares
-  // en esta migracion), y terminal ya vivia en gris de hecho sin que nadie
-  // lo hubiera decidido. La excepcion que protege el color de Claude/Gemini/etc.
-  // (marca de tercero) no cubre a ninguno de los dos, asi que van acromaticos
-  // como cualquier otro estado de la app — ver task-12-brief.md.
+  // browser y terminal NO son marca de nadie: la excepcion que protege el
+  // color de Claude/Gemini/etc. (marca de tercero) no cubre a ninguno de los
+  // dos, asi que van acromaticos como cualquier otro estado de la app.
   browser:  { label: 'Browser',  color: 'var(--muted-foreground)', bg: '#0a1428', cmd: '',           noAccount: true },
   terminal: { label: 'Terminal', color: 'var(--muted-foreground)', bg: '#1a1a1a', cmd: '',           noAccount: true },
   custom:   { label: 'Custom',   color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
@@ -828,7 +822,7 @@ export const PICKER_AI_TYPES: AIType[] = (Object.keys(AI_CONFIG) as AIType[]).fi
 
 export interface SessionPane {
   // Persistido para que hubPanes (que referencia ids) sobreviva el restart:
-  // regenerar ids en el restore dejaba el Hub restaurado vacío. Los
+  // regenerar ids en el restore dejaría el Hub restaurado vacío. Los
   // workspaces GUARDADOS (plantillas re-cargables) siguen regenerando id al
   // cargar — ver loadWorkspace.
   id?: string
@@ -844,7 +838,7 @@ export interface SessionPane {
   shellId?: string
   url?: string  // browser only: last navigated URL, restored on session load
   pinned?: boolean  // Hub pin — survives session restore
-  // editor only: sin estos dos, un pane de editor restauraba como cascarón
+  // editor only: sin estos dos, un pane de editor restauraría como cascarón
   // sin tabs — negro y sin affordance de cierre (el × vive por-tab).
   editorTabs?: EditorTab[]
   activeEditorTabPath?: string
@@ -967,15 +961,15 @@ declare global {
       /**
        * Declara qué cuenta de Nest está usando el store. Sella el autor de cada escritura y
        * acota el push a esa cuenta. Opcional: un preload viejo no lo expone.
-       * `opts.adopt: false` (Task 2) sigue adelante con el swap pero sin reclamar lo que
+       * `opts.adopt: false` sigue adelante con el swap pero sin reclamar lo que
        * haya en `_local` — el usuario contestó "no son mías" en MemoryAdoptionDialog.
        */
       setUser?: (userId: string | null, opts?: { adopt?: boolean }) => Promise<unknown>
       /**
-       * Task 2 (adopción con aviso): antes de llamar a setUser() con una cuenta que todavía
-       * no tiene base propia, chequea si `_local` tiene memorias sin dueño para preguntar en
-       * vez de adoptarlas en silencio. Opcional: un preload viejo no lo expone — en ese caso
-       * el hook cae directo a setUser(), igual que se comportaba antes de la Task 2.
+       * Antes de llamar a setUser() con una cuenta que todavía no tiene base propia, chequea
+       * si `_local` tiene memorias sin dueño para preguntar en vez de adoptarlas en silencio.
+       * Opcional: un preload viejo no lo expone — en ese caso el hook cae directo a
+       * setUser(), sin preguntar.
        */
       checkPendingAdoption?: (userId: string | null) => Promise<{ hasPending: boolean; count: number; projects: string[] }>
       /**
@@ -988,7 +982,7 @@ declare global {
       /**
        * Cifrado de equipo (spec 2026-10-14-cifrado-de-equipo) — mismo patrón que las de
        * `encryption*` personal, pero por `teamId`: cada equipo tiene su propia maestra.
-       * Opcionales por lo mismo que todo lo de esta fase: un preload viejo no los expone.
+       * Opcionales: un preload viejo no los expone.
        */
       teamEncryptionStatus?: (teamId: string) => Promise<{
         activated: boolean
@@ -998,24 +992,24 @@ declare global {
         estadoRemotoLeido?: boolean
         huellaPropia?: string | null
         huellasPorDevice?: Record<string, string>
-        /** Spec §2: el cifrado de equipo exige el personal activo en este device. */
+        /** El cifrado de equipo exige el personal activo en este device. */
         hasPersonalKey?: boolean
         /** Filas de equipo que el servidor todavía tiene en claro (sólo leader con clave). */
         recryptPending?: number | null
-        /** La envoltura de esta máquina abre una maestra que no es la del equipo (C2). */
+        /** La envoltura de esta máquina abre una maestra que no es la del equipo. */
         keyMismatch?: boolean
         /** Memorias de este equipo retenidas en esta máquina por falta de clave de equipo. */
         heldCount?: number
-        /** Task 15b (Minor 3): si este usuario es leader del equipo, según el servidor. */
+        /** Si este usuario es leader del equipo, según el servidor. */
         isLeader?: boolean
       }>
       teamEncryptionActivate?: (teamId: string) => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
       teamEncryptionAdopt?: (teamId: string) => Promise<{ ok: true; adoptada: boolean } | { ok: false; error: string }>
-      /** `fingerprint`: la huella que la tarjeta MOSTRÓ (I4). Si la pública que main.ts vuelve
+      /** `fingerprint`: la huella que la tarjeta MOSTRÓ. Si la pública que main.ts vuelve
        * a pedir no da esa huella, no se envuelve nada. */
       teamEncryptionAuthorize?: (teamId: string, deviceId: string, fingerprint: string) => Promise<{ ok: boolean; error?: string }>
       teamEncryptionRecover?: (teamId: string, code: string) => Promise<{ ok: boolean; error?: string }>
-      /** La migración retroactiva (Task 15): `remaining` es lo que el SERVIDOR sigue teniendo en
+      /** La migración retroactiva: `remaining` es lo que el SERVIDOR sigue teniendo en
        * claro al terminar (lo rechazado como `stale` vuelve en la próxima corrida). */
       teamEncryptionRecrypt?: (teamId: string) => Promise<{
         total: number; applied: number; rejected: number; remaining: number; error?: string
@@ -1056,7 +1050,7 @@ declare global {
          *
          * Existe porque un mismo `daemonStatus` puede tener motivos distintos que la UI
          * tiene que distinguir: `paused` es "sin red" O "otra instancia tiene el candado
-         * de sincronización" (§6.3), y decirle "estás offline" al segundo caso es mentirle.
+         * de sincronización", y decirle "estás offline" al segundo caso es mentirle.
          */
         daemonStatusDetail?: string
         /** Pista de UI: si esta cuenta puede compartir memoria con otras personas. El que
@@ -1068,13 +1062,13 @@ declare global {
          * limites de nube los hace cumplir el servicio y el cliente los muestra.
          */
         quota?: { used_bytes: number; max_bytes: number }
-        /** Spec 2b-1 §4.2: el tope de proyectos del plan. Ausente hasta el primer status. */
+        /** El tope de proyectos del plan. Ausente hasta el primer status. */
         limits?: { max_projects: number }
-        /** Spec 2b-1 §4.4: los proyectos que ocupan lugar en la nube, con nombre local. */
+        /** Los proyectos que ocupan lugar en la nube, con nombre local. */
         cloudProjects?: Array<{ projectKey: string; name: string }>
-        /** Spec 2b-2 §4.7: el proyecto elegido al bajar de plan, o null. */
+        /** El proyecto elegido al bajar de plan, o null. */
         keptProjectKey?: string | null
-        /** Spec 2b-2 §4.7: más proyectos en la nube que los que el plan sincroniza. */
+        /** Más proyectos en la nube que los que el plan sincroniza. */
         overLimit?: boolean
         /**
          * True when main's memory subsystem never initialized. The preload exposes
@@ -1090,7 +1084,7 @@ declare global {
       /** Un agente escribió una memoria. Devuelve la baja de la suscripción. */
       onChanged?: (cb: () => void) => () => void
       /**
-       * Para la pantalla de reconocimiento del hub (Task 7): local-first, funciona sin
+       * Para la pantalla de reconocimiento del hub: local-first, funciona sin
        * login. `projectCount` excluye `__global__` (no es un proyecto reconocible).
        */
       hubStats: () => Promise<{ itemCount: number; projectCount: number }>
@@ -1120,21 +1114,19 @@ declare global {
       /** Toma la envoltura que otra máquina ya publicó para ésta. `adoptada: false` cuando
        *  todavía no hay ninguna — el caso normal hasta que el usuario autorice desde la otra. */
       encryptionAdopt?: () => Promise<{ ok: boolean; adoptada?: boolean; error?: string }>
-      /** `fingerprint`: la huella que la tarjeta MOSTRÓ (I4). */
+      /** `fingerprint`: la huella que la tarjeta MOSTRÓ. */
       encryptionAuthorize?: (deviceId: string, fingerprint: string) => Promise<{ ok: boolean; error?: string }>
       encryptionRecover?: (code: string) => Promise<{ ok: boolean; error?: string }>
       encryptionReencrypt?: () => Promise<{ total: number; queued: number }>
       /**
        * Puente de datos del grafo navegable de memorias (estilo Obsidian) — ver
-       * electron/memory-graph.ts. Optional: un preload viejo no lo expone, y todavía no
-       * hay UI que lo consuma (ese es un trabajo posterior; este método es el contrato).
+       * electron/memory-graph.ts. Optional: un preload viejo no lo expone.
        */
       graph?: (query?: Partial<MemoryGraphQuery>) => Promise<MemoryGraph>
       /**
-       * Spec 2026-09-11 (pantalla de Memories legible) — el listado de memorias de TODOS
-       * los proyectos juntas, paginado por cursor. Ver electron/memory-store.ts's
-       * crossProjectMemories(). Optional: un preload viejo no lo expone, y todavía no hay
-       * UI que lo consuma (ese es un trabajo posterior; este método es el contrato).
+       * El listado de memorias de TODOS los proyectos juntas, paginado por cursor. Ver
+       * electron/memory-store.ts's crossProjectMemories(). Optional: un preload viejo no lo
+       * expone.
        */
       crossProject?: (query?: Partial<CrossProjectMemoryQuery>) => Promise<CrossProjectMemoryPage>
       /** Una memoria entera por id, con su `content`. `null` si no existe o esta borrada. */
@@ -1174,26 +1166,23 @@ declare global {
        *  otras máquinas, y una fila que simplemente desaparece vuelve a bajar en el pull. */
       deleteFromUi?: (syncId: string) => Promise<{ ok: boolean; error?: string }>
       /**
-       * Team Memory Layer 1, Parte 8: comparte un proyecto LOCAL con un equipo — pega
-       * contra POST /v1/projects/share (server/src/share.ts), la única forma de que
-       * `projects.team_id` quede seteado. Opcional: un preload viejo no lo expone. Sin UI
-       * todavía (fuera de alcance de este paso) — se llama a mano desde devtools o un test.
+       * Comparte un proyecto LOCAL con un equipo — pega contra POST /v1/projects/share
+       * (server/src/share.ts), la única forma de que `projects.team_id` quede seteado.
+       * Opcional: un preload viejo no lo expone.
        */
       shareProjectWithTeam?: (projectKey: string, teamId: string) => Promise<{ ok: boolean; error?: string }>
-      /** Spec 2b-2 §4.8: elegir el proyecto que sigue sincronizando (POST /v1/projects/keep).
+      /** Elegir el proyecto que sigue sincronizando (POST /v1/projects/keep).
        *  Opcional: un preload viejo no lo expone. */
       keepProject?: (projectKey: string) => Promise<{ ok: boolean; error?: string }>
-      /** Spec 2b-3: máquinas de la cuenta (GET /v1/devices). Opcional como el resto. */
+      /** Máquinas de la cuenta (GET /v1/devices). Opcional como el resto. */
       devices?: () => Promise<{ ok: true; devices: MaquinaDeLaCuenta[] } | { ok: false; error: string }>
-      /** Spec 2b-3: revocar otra máquina de la cuenta por id (POST /v1/devices/revoke). */
+      /** Revocar otra máquina de la cuenta por id (POST /v1/devices/revoke). */
       revokeDevice?: (deviceId: string) => Promise<{ ok: true } | { ok: false; error: string }>
-      /** Spec 2b-2 §4.8: pedirle al daemon un status nuevo (al cambiar el plan). */
+      /** Pedirle al daemon un status nuevo (al cambiar el plan). */
       refreshStatus?: () => Promise<{ ok: boolean }>
       /**
-       * Task 5 (plan de memoria por cuenta multi-dispositivo) — el vault, proyección
-       * Markdown de la memoria de la cuenta activa a `.raven-nest/memory-vault/<userId>/`.
-       * Sin panel en Settings todavía (fuera de alcance de esta pasada) — optional, un
-       * preload viejo no los expone.
+       * El vault, proyección Markdown de la memoria de la cuenta activa a
+       * `.raven-nest/memory-vault/<userId>/`. Optional: un preload viejo no los expone.
        */
       vaultGetSettings?: () => Promise<{
         ok: boolean
@@ -1221,9 +1210,9 @@ declare global {
       }>
       vaultReveal?: () => Promise<{ ok: boolean; error?: string }>
       /**
-       * Spec 2026-09-09 §2.2 — el fallo mudo. Una sesion con `health: 'silent'` es una
-       * terminal que Nest lanzo con memoria y que nunca llego al bridge: esta corriendo sin
-       * memoria y hoy el usuario no tiene forma de enterarse.
+       * El fallo mudo. Una sesion con `health: 'silent'` es una terminal que Nest lanzo con
+       * memoria y que nunca llego al bridge: esta corriendo sin memoria y, sin esto, el
+       * usuario no tiene forma de enterarse.
        */
       sessions?: () => Promise<{
         ok: boolean
@@ -1237,15 +1226,15 @@ declare global {
         }>
         silentCount: number
       }>
-      /** Spec §7.1 — lo que esta bloqueado y por que, agrupado por razon. */
+      /** Lo que esta bloqueado y por que, agrupado por razon. */
       doctor?: () => Promise<{
         ok: boolean
         blockedTotal: number
         groups: Array<{ reason: string; count: number; oldestAt: number; reversible: boolean }>
-        /** Spec 2b-1 §4.3: los repos que quedaron sólo en esta máquina por el tope del plan. */
+        /** Los repos que quedaron sólo en esta máquina por el tope del plan. */
         localOnlyProjects?: Array<{ projectKey: string; name: string; count: number }>
       }>
-      /** Spec §11 riesgo 2 — cuan atrasado esta el vault respecto de la base. */
+      /** Cuan atrasado esta el vault respecto de la base. */
       vaultHealth?: () => Promise<{
         ok: boolean
         enabled: boolean
@@ -1255,7 +1244,7 @@ declare global {
         lastGeneratedAt: number | null
       }>
       /**
-       * Team Memory Layer 2 (Task 7/10) — el hilo de equipo, por worktree. Optional: un
+       * El hilo de equipo, por worktree. Optional: un
        * preload viejo no los expone, mismo motivo que el vault arriba.
        */
       teamThreadGetSettings?: (projectKey: string) => Promise<{ ok: boolean; error?: string; settings?: TeamThreadSettings }>
@@ -1263,16 +1252,16 @@ declare global {
         projectKey: string,
         worktreePath: string,
         patch: Partial<TeamThreadSettings>,
-        /** `message` es texto para el usuario (hoy: el plan no admite compartir, I1);
+        /** `message` es texto para el usuario (p. ej., el plan no admite compartir);
          *  `error` sigue siendo el codigo. El panel muestra `message` si viene. */
       ) => Promise<{ ok: boolean; error?: string; message?: string; warnings?: unknown[]; settings?: TeamThreadSettings }>
       teamThreadRegenerate?: (worktreePath: string, projectKey: string) => Promise<{ ok: boolean; error?: string; warnings?: unknown[] }>
       /**
-       * Task 10 (el panel) — projectKey se resuelve del lado main (mismo camino que
+       * projectKey se resuelve del lado main (mismo camino que
        * `handoff:read` usa para lo mismo); el renderer nunca lo calcula.
        */
       teamThreadProjectKeyForWorktree?: (worktreePath: string) => Promise<{ ok: boolean; error?: string; projectKey?: string }>
-      /** Task 10 — proyeccion de solo lectura del indice, para pintar el grafo. */
+      /** Proyeccion de solo lectura del indice, para pintar el grafo. */
       teamThreadRead?: (worktreePath: string) => Promise<{ ok: boolean; error?: string; branches?: TeamThreadBranch[] }>
     }
     platform: {
@@ -1308,7 +1297,7 @@ declare global {
     // the native OS folder-picker dialog (window.dialog.openFolder), which
     // is not automatable.
     __e2e_linkRepo?: (path: string) => void
-    // Test-only hook (workspace-shell-design §3), same gate as __e2e_linkRepo:
+    // Test-only hook, same gate as __e2e_linkRepo:
     // overrides the derived paneAITypesByPath map so Playwright can see the
     // repo/worktree row logos without spawning real PTYs for every AI type.
     __e2e_setFakePaneAITypes?: (byPath: Record<string, AIType[]>) => void

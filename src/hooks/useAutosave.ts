@@ -1,5 +1,5 @@
 // Autoguardado de una nota de Memories: 1500 ms después del último cambio, sin botón. Lo que
-// importa no perder (Review Focus 2): si la pestaña se cierra dentro de esos 1,5 s, el
+// importa no perder: si la pestaña se cierra dentro de esos 1,5 s, el
 // desmontaje guarda igual, sin esperar la respuesta.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -121,7 +121,7 @@ export function useAutosave(opts: {
       montadoRef.current = false
       limpiarTimer()
       if (!habilitadoRef.current || terminalRef.current) return
-      // Título vacío al cerrar (final review F3): mientras la pestaña vive el cuerpo se
+      // Título vacío al cerrar: mientras la pestaña vive el cuerpo se
       // conserva en ella, pero al desmontar no queda dónde. Se guarda con el último título
       // guardado y el cuerpo de ahora, en vez de perder lo escrito en silencio.
       const ref = referenciaRef.current

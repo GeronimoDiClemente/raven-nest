@@ -1,12 +1,8 @@
 /**
  * El catalogo de temas de terminal.
  *
- * Nest tenia UN tema, escrito a mano adentro de `useXterm.ts`: dieciseis colores que eligio
- * alguien una vez, sin forma de cambiarlos ni de importar los que el usuario ya tiene
- * configurados en su terminal de siempre.
- *
  * **Las paletas NO estan escritas de memoria.** Salen de `mbadolato/iTerm2-Color-Schemes`,
- * que es la coleccion de la que Ghostty y Warp toman las suyas, descargadas el 2026-09-13.
+ * que es la coleccion de la que Ghostty y Warp toman las suyas.
  * Copiarlas a ojo produciria temas que se parecen al que el usuario conoce sin ser ese — que
  * es peor que no ofrecerlos, porque el punto de importar un tema es reconocerlo.
  *
@@ -29,15 +25,14 @@ export interface TemaDeTerminal {
 /**
  * El tema propio, con el contraste arreglado.
  *
- * `brightBlack` —el gris con el que se pintan los comentarios— estaba en `#4c4c4c`, que
- * contra el fondo negro da **2.45:1**. El repo corre un guard de 3:1 sobre la interfaz
- * (`e2e/04-contraste.spec.ts`), asi que nuestro propio terminal no pasaba la vara que le
- * exigimos a todo lo demas. Medido el 2026-09-13 contra los trece temas del catalogo: era el
- * segundo peor de la lista.
+ * `brightBlack` —el gris con el que se pintan los comentarios— en el `#4c4c4c` original da
+ * **2.45:1** contra el fondo negro. El repo corre un guard de 3:1 sobre la interfaz
+ * (`e2e/04-contraste.spec.ts`), y nuestro propio terminal tiene que pasar la vara que le
+ * exigimos a todo lo demas.
  *
  * `#646464` da **3.55:1**: margen real sobre el minimo, y sigue estando muy por debajo del
  * texto normal (17.14:1), asi que la jerarquia —un comentario se lee como secundario— no se
- * pierde. `#5c5c5c` ya pasaba con 3.14, pero raspando: un tema no deberia quedar a
+ * pierde. `#5c5c5c` pasa con 3.14, pero raspando: un tema no deberia quedar a
  * 0.14 de fallar su propio chequeo.
  *
  * `black` (`#1a1a1a`) se deja como esta a proposito: el ANSI negro es un color de FONDO, no
@@ -227,8 +222,8 @@ export function peorContraste(tema: TemaDeTerminal): number {
 /**
  * Sube un color hasta que alcance el minimo contra el fondo, **conservando su tono**.
  *
- * Es lo que vuelve ofrecible el catalogo y no un adorno. Medido el 2026-09-13: ocho de los
- * trece temas tienen algun color por debajo de 3:1 contra su propio fondo — TokyoNight deja
+ * Es lo que vuelve ofrecible el catalogo y no un adorno: ocho de los trece temas del catalogo
+ * tienen algun color por debajo de 3:1 contra su propio fondo — TokyoNight deja
  * los comentarios en 1.91. Sin esto, un usuario importa su tema de siempre, no lee la mitad,
  * y le echa la culpa a Nest en vez de al tema.
  *
@@ -242,13 +237,13 @@ export function peorContraste(tema: TemaDeTerminal): number {
 /**
  * Sube UN color hasta que alcance el minimo contra UN fondo dado, conservando su tono.
  *
- * Extraida de `ajustarContraste` (review final de rama, IMPORTANT #8): esa funcion mide
- * siempre contra `tema.background` — el fondo de LA TERMINAL — pero el swatch de tipo de
- * memoria (`memory-type-legend.ts`) se dibuja sobre `--card` (#141414), que es una
- * superficie DISTINTA y mas clara que el `background` de varios temas bundleados. Medido:
- * el indice 8 (config/preference/session) da 2.06:1 en Tokyo Night contra `--card`, muy por
- * debajo del piso de 3:1 — un numero que `ajustarContraste(tema)` nunca ve, porque mide
- * contra el fondo de la terminal, no el de la tarjeta.
+ * Separada de `ajustarContraste`: esa funcion mide siempre contra `tema.background` — el
+ * fondo de LA TERMINAL — pero el swatch de tipo de memoria (`memory-type-legend.ts`) se
+ * dibuja sobre `--card` (#141414), que es una superficie DISTINTA y mas clara que el
+ * `background` de varios temas bundleados: el indice 8 (config/preference/session) da 2.06:1
+ * en Tokyo Night contra `--card`, muy por debajo del piso de 3:1 — un numero que
+ * `ajustarContraste(tema)` nunca ve, porque mide contra el fondo de la terminal, no el de la
+ * tarjeta.
  */
 export function subirContraste(color: string, fondo: string, minimo = CONTRASTE_MINIMO): string {
   if (contraste(color, fondo) >= minimo) return color
@@ -329,8 +324,6 @@ export function aXterm(tema: TemaDeTerminal): Record<string, string> {
  * Los seis cromaticos y sus brillantes: rojo, verde, amarillo, azul, magenta y cyan. Quedan
  * afuera el negro, el blanco y sus brillantes (0, 7, 8, 15) — son grises, y un gris no
  * identifica nada de un vistazo, que es lo unico que este color tiene que hacer.
- *
- * Son doce, igual que la paleta fija que habia antes: el usuario no pierde opciones.
  */
 const CANDIDATOS_DE_IDENTIDAD = [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14]
 
@@ -373,10 +366,10 @@ export function distanciaDeColor(a: string, b: string): number {
  * negro, blanco y sus brillantes, que son grises y no identifican nada de un vistazo— pero se
  * descarta todo el que se parezca demasiado a uno ya elegido.
  *
- * **Por que no son doce siempre.** Medido sobre los trece temas del catalogo el 2026-09-13:
- * SIETE definen los brillantes identicos a los normales (distancia 0 — TokyoNight, One Half
- * Dark, Rose Pine, GitHub Dark y Monokai entre ellos), y 43 de los 78 pares estan por debajo
- * de 10. O sea que un selector de doce muestras le mostraba al usuario el MISMO color dos
+ * **Por que no son doce siempre.** De los trece temas del catalogo, SIETE definen los
+ * brillantes identicos a los normales (distancia 0 — TokyoNight, One Half Dark, Rose Pine,
+ * GitHub Dark y Monokai entre ellos), y 43 de los 78 pares estan por debajo
+ * de 10. O sea que un selector de doce muestras le mostraria al usuario el MISMO color dos
  * veces en la mayoria de los temas, y elegir entre dos circulitos iguales no es elegir.
  *
  * Everforest da doce porque de verdad tiene doce colores distintos; TokyoNight da seis porque
@@ -422,9 +415,9 @@ export function colorDeTema(indiceAnsi: number): string {
 /**
  * El color real con el que pintar el borde de un pane.
  *
- * Guardar un hex suelto ataba el color al momento en que se eligio: alguien elegia un azul
- * electrico, despues importaba Gruvbox —una paleta tierra— y ese azul quedaba encima
- * desentonando, porque no pertenecia a ninguna parte. Guardar el INDICE hace que el color
+ * Guardar un hex suelto ata el color al momento en que se eligio: alguien elige un azul
+ * electrico, despues importa Gruvbox —una paleta tierra— y ese azul queda encima
+ * desentonando, porque no pertenece a ninguna parte. Guardar el INDICE hace que el color
  * siga al tema: sigue siendo "el rojo" de ese pane, pero es el rojo DE TU TEMA, y cuando
  * cambias de tema se reasigna solo y sigue armonizando.
  *
@@ -435,7 +428,7 @@ export function resolverColorDePane(valor: string | undefined | null, tema: Tema
   if (!valor) return 'transparent'
   if (!valor.startsWith(PREFIJO_ANSI)) return valor
   const crudo = valor.slice(PREFIJO_ANSI.length)
-  // `/^\d+$/` y no `Number()`: `Number('')` da 0, asi que un `ansi:` sin indice resolvia al
+  // `/^\d+$/` y no `Number()`: `Number('')` da 0, asi que un `ansi:` sin indice resolveria al
   // negro ANSI — un borde casi invisible sobre un fondo oscuro, que se lee como "se rompio el
   // color" y no como "no hay color". Apagar es honesto; pintar negro es un bug silencioso.
   if (!/^\d+$/.test(crudo)) return 'transparent'

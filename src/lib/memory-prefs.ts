@@ -1,13 +1,13 @@
-// Preferencias de Memories (spec "Memory settings como pestaña" §6). Viven en AppSettings y se
-// guardan con window.settings: por máquina, sobreviven al reinicio. Puro: el hook
-// useMemoryPrefs es el único que habla con el preload.
+// Preferencias de Memories. Viven en AppSettings y se guardan con window.settings: por
+// máquina, sobreviven al reinicio. Puro: el hook useMemoryPrefs es el único que habla con el
+// preload.
 import type { ColorBy } from './memory-graph-visuals'
 
 export type EtiquetasDelGrafo = 'always' | 'zoom' | 'hover'
 
 export interface PrefsDelEditor { livePreview: boolean; readableWidth: boolean; spellcheck: boolean; fontSize: number }
 
-/** Lo que "Remember graph filters" guarda (decisión D14): el foco no, es navegación. */
+/** Lo que "Remember graph filters" guarda: el foco no, es navegación. */
 export interface FiltrosGuardados {
   colorBy: ColorBy
   hideOrphans: boolean
@@ -24,7 +24,7 @@ export interface MemoryPrefs { editor: PrefsDelEditor; graph: PrefsDelGrafo }
 export const TAMANOS_DE_LETRA = [12, 13, 14, 15, 16, 17, 18] as const
 
 export const DEFAULT_MEMORY_PREFS: MemoryPrefs = {
-  // 13 = --fs, el cuerpo de la UI: el tamaño que el editor tenía antes de esta preferencia.
+  // 13 = --fs, el cuerpo de la UI.
   editor: { livePreview: true, readableWidth: true, spellcheck: false, fontSize: 13 },
   graph: { remember: true, labels: 'zoom', animate: true },
 }

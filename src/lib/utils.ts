@@ -4,14 +4,10 @@ import { extendTailwindMerge } from 'tailwind-merge'
 /**
  * `text-fs-*` (nuestra escala tipográfica — ver `@theme` en tailwind.css) usa el mismo
  * prefijo `text-` que un color de texto, y tailwind-merge por default la clasifica como
- * COLOR, no como font-size — confirmado: `twMerge('text-fs', 'text-muted-foreground')`
- * devolvía `'text-muted-foreground'`, comiéndose el tamaño en silencio porque dos
- * "colores" (uno de ellos en realidad un tamaño) entran en conflicto y tailwind-merge se
- * queda con el último. Encontrado en la review de la Task 8 (2026-09-10), con daño ya
- * vivo en TRES migraciones aprobadas: `TabBar.tsx:85` perdía `text-fs-sm`,
- * `Sidebar.tsx:377` perdía `text-fs`, y `ResourceBar.tsx:62` perdía `text-fs-sm` (este
- * último lo encontró el barrido del paso 5 de Task 8b, no la review original) — los
- * tres silenciosos porque nada mide el className final contra el fuente.
+ * COLOR, no como font-size: `twMerge('text-fs', 'text-muted-foreground')` devuelve
+ * `'text-muted-foreground'`, comiéndose el tamaño en silencio porque dos "colores" (uno de
+ * ellos en realidad un tamaño) entran en conflicto y tailwind-merge se queda con el último.
+ * Es silencioso porque nada mide el className final contra el fuente.
  *
  * El fix: registrar los siete escalones de `--fs-*` en el grupo real de tailwind-merge
  * (`font-size`, la misma clave que ya usa `text-base`/`text-sm`/etc.), así que

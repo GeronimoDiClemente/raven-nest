@@ -21,7 +21,7 @@ interface Window {
   }
   slack: {
     openOAuth(): Promise<void>
-    // Devuelve un unsubscribe (fix Hito 2+ F1: antes apilaba listeners).
+    // Devuelve un unsubscribe, para no apilar listeners.
     onOAuthCode(cb: (code: string) => void): () => void
     removeOAuthListener(): void
     exchangeCode(code: string): Promise<{ ok: boolean; error?: string }>

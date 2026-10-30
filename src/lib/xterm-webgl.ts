@@ -2,10 +2,9 @@
  * Engancha el renderer WebGL de xterm.js, con vuelta al DOM si no se puede.
  *
  * Sin addon, xterm cae a su renderer DOM: reescribe spans y rehace layout+paint en cada
- * refresh. Medido el 2026-09-17 con un redibujo tipo TUI de 40 líneas a 20 Hz —o sea, lo
- * que hace Claude Code, no un spinner de un carácter— el renderer pasa de **18-26% de CPU
- * a 4.8%**. Eso es la batería de la app en Mac: el Nest real marca 18-22% de renderer
- * mientras una sesión trabaja, y ~4% cuando no pasa nada.
+ * refresh. Con un redibujo tipo TUI de 40 líneas a 20 Hz —o sea, lo que hace Claude Code,
+ * no un spinner de un carácter— el renderer pasa de **18-26% de CPU a 4.8%** con WebGL. Eso
+ * es la batería de la app en Mac.
  *
  * Por qué hay fallback en vez de confiar en WebGL: Chromium limita los contextos WebGL
  * activos (~16) y al pasarse tira context loss — con muchos panes abiertos eso pasa solo.

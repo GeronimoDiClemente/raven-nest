@@ -77,14 +77,11 @@ class TerminalShareService {
       window.pty.write(paneId, data)
     })
 
-    // El PTY lo redimensiona SOLO su dueno. Antes el invitado dictaba su tamano
-    // ("the viewer dictates its size") y el host terminaba con las columnas del
-    // otro mientras su propio xterm seguia en las suyas: doble wrap, scroll
-    // descontrolado y, como hostCols nunca se poblaba en el flujo normal, el
-    // tamano NO se restauraba al irse el invitado. Encima no estaba gateado por
-    // la aprobacion, asi que alguien recien rechazado ya te habia roto la
-    // terminal. Ahora el invitado adopta el tamano del host (evento 'size') y
-    // escala; este mensaje queda ignorado por compatibilidad con clientes viejos.
+    // El PTY lo redimensiona SOLO su dueno. Si el invitado dictara su tamano, el
+    // host terminaria con las columnas del otro mientras su propio xterm sigue en
+    // las suyas: doble wrap y scroll descontrolado. El invitado adopta el tamano
+    // del host (evento 'size') y escala; este mensaje queda ignorado por
+    // compatibilidad con clientes viejos.
     ch.on('broadcast', { event: 'resize' }, () => { /* ignorado a proposito */ })
 
     ch.subscribe((status) => {
@@ -154,9 +151,9 @@ class TerminalShareService {
       queue: [],
       ready: false,
       dead: false,
-      // Se poblaba SOLO desde broadcastSize, que en el flujo normal (abrir Share
-      // no cambia el tamano del contenedor) nunca corria: quedaba en 0 y la
-      // restauracion del tamano del host era codigo muerto.
+      // Se inicializa aca y no sólo desde broadcastSize, que en el flujo normal
+      // (abrir Share no cambia el tamano del contenedor) nunca corre: quedaria en
+      // 0 y la restauracion del tamano del host seria codigo muerto.
       hostCols: getTerminal(paneId)?.cols ?? 0,
       hostRows: getTerminal(paneId)?.rows ?? 0,
       retryCount: 0,

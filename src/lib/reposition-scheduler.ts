@@ -2,7 +2,7 @@
 //
 // Vive afuera de BrowserCell.tsx por una razón concreta: la lógica de CUÁNDO medir
 // es lo que decide el costo de batería de la app entera, y dentro del componente no
-// se podía testear sin montar un DndContext y todo el IPC de window.browser.
+// se puede testear sin montar un DndContext y todo el IPC de window.browser.
 //
 // El WebContentsView es una capa nativa: no está en el DOM y no se mueve con él, así
 // que alguien tiene que decirle dónde pararse. Un ResizeObserver no alcanza — no ve
@@ -42,13 +42,12 @@ export function startRepositionScheduler(deps: RepositionSchedulerDeps): Reposit
 
   // El punto de todo este módulo: en reposo se agenda un TIMER, no un frame.
   //
-  // Antes el tick se re-armaba con requestAnimationFrame en cada frame y sólo
-  // throttleaba el TRABAJO a 10 Hz. Eso arregla la mitad del problema: el
-  // getBoundingClientRect deja de correr 60 veces por segundo, pero el callback de
-  // frame sigue vivo, y un rAF vivo le dice al compositor "esta página está
-  // animando". El compositor entonces produce frames sin parar aunque no haya nada
-  // que pintar, y eso despierta a la GPU y al WindowServer. Medido con un reloj
-  // falso: 63 frames por segundo pedidos con el pane quieto.
+  // Re-armar el tick con requestAnimationFrame en cada frame y sólo throttlear el
+  // TRABAJO a 10 Hz arregla la mitad del problema: el getBoundingClientRect deja de
+  // correr 60 veces por segundo, pero el callback de frame sigue vivo, y un rAF vivo
+  // le dice al compositor "esta página está animando". El compositor entonces produce
+  // frames sin parar aunque no haya nada que pintar (~63 por segundo con el pane
+  // quieto), y eso despierta a la GPU y al WindowServer.
   const agendar = () => {
     if (stopped) return
     if (moving) rafId = deps.raf(alFrame)

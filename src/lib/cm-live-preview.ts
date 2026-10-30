@@ -3,8 +3,8 @@
 // marcas (`**`, `#`, `` ` ``, `[[`/`]]`); en la línea del cursor se muestran para editar.
 //
 // Seguridad: todo es `Decoration.mark/line/replace` con clases y atributos fijos. Ningún
-// pedazo del contenido llega al DOM como HTML (misma regla que tenía MemoryMarkdown: una
-// memoria la puede escribir cualquier agente o venir de otra máquina del equipo).
+// pedazo del contenido llega al DOM como HTML: una memoria la puede escribir cualquier agente
+// o venir de otra máquina del equipo.
 import { syntaxTree } from '@codemirror/language'
 import { RangeSetBuilder, StateEffect, type EditorState, type Extension } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view'
@@ -67,7 +67,7 @@ export function marcasDeLivePreview(state: EditorState, resolver: Resolver, enfo
       }
       if (n.name === 'FencedCode') lineas(n.from, n.to, 'cm-lp-codeblock')
       if (n.name === 'Blockquote') lineas(n.from, n.to, 'cm-lp-quote')
-      // Listas (spec §5): la marca (`-`, `*`, `1.`) queda a la vista pero atenuada, como en
+      // Listas: la marca (`-`, `*`, `1.`) queda a la vista pero atenuada, como en
       // Obsidian — es lo que dice que es una lista, y editarla no pide entrar a la línea.
       if (n.name === 'ListMark') marcas.push({ from: n.from, to: n.to, ocultar: false, clase: 'cm-lp-listmark' })
       // Citas: el `>` se oculta fuera de la línea activa; el borde izquierdo ya dice que es
@@ -136,7 +136,7 @@ export function decorar(state: EditorState, resolver: Resolver, enfocado = true)
 }
 
 /** Decoraciones + clic en los links. El tema va aparte (`temaDelEditor`): con Live preview
- *  apagado el editor lo sigue usando (D11). */
+ *  apagado el editor lo sigue usando. */
 export function livePreview(opts: { resolver: () => Resolver; onWikilink: (nombre: string, background: boolean) => void }): Extension {
   const plugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet
@@ -194,7 +194,7 @@ export const temaDelEditor: Extension = EditorView.theme({
     overflow: 'hidden',
   },
   // Con `.cm-tooltip` delante: el tema base de autocomplete pone `monospace` con ese mismo
-  // selector, y con menos especificidad el nuestro perdía.
+  // selector, y con menos especificidad el nuestro pierde.
   '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-ui)', maxHeight: '16em' },
   '.cm-tooltip-autocomplete > ul > li': { padding: '3px 8px', color: 'var(--popover-foreground)' },
   '.cm-tooltip-autocomplete > ul > li[aria-selected]': {

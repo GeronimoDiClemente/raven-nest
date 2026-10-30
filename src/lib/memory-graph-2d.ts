@@ -30,9 +30,9 @@ export function subgrafoLocal(data: GraphData, foco: string, saltos: 1 | 2): Gra
     for (const id of frontera) for (const v of vecinos(data.links, id)) if (!dentro.has(v)) { dentro.add(v); nueva.add(v) }
     frontera = nueva
   }
-  // Copias, no los mismos objetos del global (final review F6): react-force-graph escribe
-  // x/y/fx/fy en el nodo y cambia source/target por objetos, así que compartirlos hacía que un
-  // nodo fijado en el grafo local apareciera fijado en el global.
+  // Copias, no los mismos objetos del global: react-force-graph escribe x/y/fx/fy en el nodo y
+  // cambia source/target por objetos, así que compartirlos haría que un nodo fijado en el
+  // grafo local apareciera fijado en el global.
   return {
     nodes: data.nodes.filter((n) => dentro.has(n.id)).map(copiaDeNodo),
     links: data.links
@@ -63,9 +63,9 @@ export function claveDeDibujo(data: GraphData): string {
 }
 
 /**
- * Datos nuevos con las posiciones de los anteriores (final review F6). Cada `onChanged` —también
- * el eco del autoguardado— vuelve a pedir el grafo y `toGraphData` arma objetos nuevos: sin
- * esto, la simulación arrancaba de posiciones al azar cada 1,5 s mientras escribías. Devuelve
+ * Datos nuevos con las posiciones de los anteriores. Cada `onChanged` —también el eco del
+ * autoguardado— vuelve a pedir el grafo y `toGraphData` arma objetos nuevos: sin esto, la
+ * simulación arrancaría de posiciones al azar cada 1,5 s mientras escribís. Devuelve
  * COPIAS (nodos y aristas con ids en texto): lo que la librería muta nunca es lo del caller.
  */
 export function conPosicionesDe(anterior: GraphData | null, nuevo: GraphData): GraphData {
@@ -92,9 +92,9 @@ export function opacidadDeNodo(id: string, hover: string | null, vecinosDelHover
 }
 
 /**
- * El encuadre del grafo LOCAL (final review V3): `zoomToFit` deja el mismo margen de los cuatro
- * lados y mide sólo los puntos, así que en una caja de ~280 × 180 px las etiquetas (debajo del
- * punto, hasta 24 letras) se cortaban contra los bordes. Acá el margen es en px de pantalla:
+ * El encuadre del grafo LOCAL: `zoomToFit` deja el mismo margen de los cuatro lados y mide
+ * sólo los puntos, así que en una caja de ~280 × 180 px las etiquetas (debajo del punto, hasta
+ * 24 letras) se cortarían contra los bordes. Acá el margen es en px de pantalla:
  * a los costados media etiqueta, arriba el punto y abajo punto + etiqueta. Devuelve el centro
  * (en unidades del grafo) y el zoom; `tope` evita que uno o dos nodos queden gigantes.
  */
@@ -119,11 +119,11 @@ export function encuadreLocal(
   return { x: (x0 + x1) / 2, y: (y0 + y1) / 2 - corrimientoY, k }
 }
 
-/** Las etiquetas del global aparecen al acercarse esto respecto del encuadre (spec §4 del 20-10). */
+/** Las etiquetas del global aparecen al acercarse esto respecto del encuadre. */
 export const ZOOM_RELATIVO_DE_ETIQUETAS = 1.5
 
-/** ¿Se dibuja el nombre de este nodo? (preferencia «Labels», spec 2026-10-21 §5). El local
- *  siempre lleva nombres (D13); el nodo bajo el mouse o enfocado también. */
+/** ¿Se dibuja el nombre de este nodo? (preferencia «Labels»). El local siempre lleva nombres;
+ *  el nodo bajo el mouse o enfocado también. */
 export function muestraEtiqueta(o: {
   modo: 'global' | 'local'; etiquetas: EtiquetasDelGrafo; escala: number; zoomDeEncuadre: number | null; destacado: boolean
 }): boolean {
@@ -133,7 +133,7 @@ export function muestraEtiqueta(o: {
   return o.zoomDeEncuadre !== null && o.escala >= o.zoomDeEncuadre * ZOOM_RELATIVO_DE_ETIQUETAS
 }
 
-/** «Animate graph» (D13): apagado, el global corre la simulación sin dibujar y aparece quieto. */
+/** «Animate graph»: apagado, el global corre la simulación sin dibujar y aparece quieto. */
 export function ticksDelMotor(o: { modo: 'global' | 'local'; sinAcomodo: boolean; animar: boolean }): { warmupTicks: number; cooldownTicks: number } {
   if (o.modo === 'global' && !o.animar) return { warmupTicks: o.sinAcomodo ? 300 : 120, cooldownTicks: 0 }
   return { warmupTicks: o.sinAcomodo ? (o.modo === 'local' ? 40 : 80) : 0, cooldownTicks: o.modo === 'local' ? 60 : 150 }

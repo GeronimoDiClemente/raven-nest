@@ -56,7 +56,7 @@ export function workspaceAcceptsDrag(types: readonly string[]): boolean {
  * ORIGEN ('move' en tabs, 'copy' en archivos/worktrees) o Chromium invalida
  * el drop en silencio. Única fuente del pareo: el dragover del workspace
  * burbujea después del de cada pane y PISA su dropEffect — si divergen, la
- * mudanza de tabs muere (regresión real del 2026-08-18).
+ * mudanza de tabs muere.
  */
 export function workspaceDropEffect(types: readonly string[]): 'move' | 'copy' {
   return types.includes(EDITOR_TAB_DRAG_MIME) ? 'move' : 'copy'

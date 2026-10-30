@@ -28,8 +28,7 @@ export function useUserRepos() {
     // Override E2E (RAVEN_E2E_REPOS): gateado DOBLE al bypass, igual que
     // e2ePlan en useProfile — en una sesion real e2eBypass es false y esto
     // nunca corre. Existe porque My Repos no se puede ver renderizado sin una
-    // cuenta GitHub conectada, y esa ceguera ya produjo una "excepcion" de
-    // escala documentada en global.css que era falsa.
+    // cuenta GitHub conectada.
     const seed = window.appFlags?.e2eBypass ? window.appFlags.e2eRepos : null
     if (seed) {
       try {

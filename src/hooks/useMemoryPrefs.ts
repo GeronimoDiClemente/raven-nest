@@ -1,4 +1,4 @@
-// Lee y escribe las preferencias de Memories (spec §6). Lo usa MemoriesWorkspace y las
+// Lee y escribe las preferencias de Memories. Lo usa MemoriesWorkspace y las
 // reparte por props: nada de components/memories/ importa este hook (requisito del plugin).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEFAULT_MEMORY_PREFS, normalizarMemoryPrefs, type MemoryPrefs } from '../lib/memory-prefs'
@@ -13,7 +13,7 @@ function puente(): PuenteDeSettings | null {
 
 // Caché de sesión, como las pestañas: reabrir el overlay no espera al preload ni dibuja un
 // cuadro con los defaults antes de lo guardado. Sólo se llena con una lectura que salió bien:
-// mientras es null, nada se escribe (final review M4), porque se guardarían los defaults más el
+// mientras es null, nada se escribe, porque se guardarían los defaults más el
 // cambio encima de lo que hay en disco.
 let cache: MemoryPrefs | null = null
 
@@ -21,7 +21,7 @@ async function persistir(next: MemoryPrefs): Promise<void> {
   const api = puente()
   if (!api) return
   try {
-    // Read-modify-write (D15): sólo memoryPrefs, sobre lo que está guardado AHORA.
+    // Read-modify-write: sólo memoryPrefs, sobre lo que está guardado AHORA.
     const actual = ((await api.get()) ?? {}) as Record<string, unknown>
     await api.set({ ...actual, memoryPrefs: next })
   } catch (err) {

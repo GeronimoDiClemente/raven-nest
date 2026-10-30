@@ -1,5 +1,5 @@
 // Ramas -> nodos, aristas y COORDENADAS. Puro y deterministico, para que el layout se
-// testee con vectores fijos en vez de snapshots de pixeles (spec §7.4).
+// testee con vectores fijos en vez de snapshots de pixeles.
 //
 // Vive en src/ y no en electron/ porque es puramente presentacional: el proceso main nunca
 // construye un grafo. Y src/ nunca importa de electron/ (ver src/types.ts).
@@ -8,7 +8,7 @@
 // anillos alcanza para el tamano que esta feature tiene por diseno.
 import type { TeamThreadBranch, TeamThreadEstado } from '../types'
 
-/** Arriba de esto la evidencia es unanime: se convierte en una bola de pelo (spec §7.3). */
+/** Arriba de esto el grafo se convierte en una bola de pelo. */
 export const GRAPH_NODE_CAP = 200
 
 const RADIO_ANILLO = 120
@@ -43,7 +43,7 @@ export interface BuildGraphInput {
   /** Slug de la rama del worktree actual, o null. */
   focus: string | null
   ahora: number
-  /** false = grafo local (foco + vecinos), que es el default (spec §7.3). */
+  /** false = grafo local (foco + vecinos), que es el default. */
   global: boolean
 }
 

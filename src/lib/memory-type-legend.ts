@@ -1,7 +1,6 @@
-// Spec 2026-10-19 (memories vista y settings) §5: el color de un tipo ya no es un hex
-// fijo — sale del tema de terminal del usuario, por ÍNDICE ANSI. Memories se ve como sus
-// terminales, en vez de traer una paleta propia que puede chocar o no combinar con la que
-// el usuario ya eligió. Sigue siendo la misma excepción justificada a "el color es estado"
+// El color de un tipo no es un hex fijo — sale del tema de terminal del usuario, por ÍNDICE
+// ANSI. Memories se ve como sus terminales, en vez de traer una paleta propia que puede
+// chocar o no combinar con la que el usuario ya eligió. Sigue siendo la misma excepción justificada a "el color es estado"
 // (RECETA-MIGRACION-UI.md): es leyenda categórica de 9 valores fijos, nunca ciclada — el
 // orden en sí es el mecanismo de seguridad CVD (ver `MEMORY_TYPES_IN_LEGEND_ORDER`).
 //
@@ -70,7 +69,7 @@ export const MEMORY_TYPES_IN_LEGEND_ORDER: KnownMemoryType[] = [
  * inventado.
  *
  * `ansi` es la paleta de 16 colores del tema de terminal activo. Sin ella, o con una que
- * no trae los 16 (una paleta rota, o un caller viejo que no la pasa todavía), cae al tema
+ * no trae los 16 (una paleta rota, o un caller que no la pasa), cae al tema
  * Nest — nunca a un hex suelto.
  */
 export function memoryTypeSwatch(type: string, ansi?: readonly string[]): MemoryTypeSwatch | null {
@@ -78,7 +77,7 @@ export function memoryTypeSwatch(type: string, ansi?: readonly string[]): Memory
   const k = type as KnownMemoryType
   const paleta = ansi && ansi.length >= 16 ? ansi : TEMA_NEST.ansi
   const crudo = paleta[MEMORY_TYPE_ANSI[k]]
-  // Review final de rama, IMPORTANT #8: el color crudo del tema puede no alcanzar 3:1
+  // El color crudo del tema puede no alcanzar 3:1
   // contra `--card` (el indice 8 — config/preference/session — falla en 4 temas
   // bundleados: Solarized 2.79, GitHub dark 2.18, Tokyo Night 2.06, Monokai 2.83). Subirlo
   // acá, en el único choke point que usan la lista Y el grafo, en vez de en cada caller.

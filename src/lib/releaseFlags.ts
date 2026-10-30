@@ -4,9 +4,8 @@
 // decidir qué compilar.
 //
 // Integrations y Orchestration (el board de graph orchestration) no salen en
-// esta release — decisión del usuario, 2026-09-10. El hito 1 de integrations ya
-// está terminado y commiteado (docs/INTEGRATIONS_ORCA_BACKLOG.md tiene el resto
-// del plan); esto no borra nada, solo apaga el punto de entrada en la sidebar.
+// esta release (docs/INTEGRATIONS_ORCA_BACKLOG.md tiene lo que falta); esto no
+// borra nada, solo apaga el punto de entrada en la sidebar.
 //
 // Para prenderlo: poner esta constante en `true` y rebuildear.
 export const ENABLE_INTEGRATIONS_ORCHESTRATION = false

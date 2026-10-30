@@ -81,7 +81,7 @@ export function useUserPreferences() {
     updatePrefs({
       ui_settings: {
         ...prefs.ui_settings,
-        // mergeEditorPreferences (Task 1), NOT a plain spread: a plain
+        // mergeEditorPreferences, NOT a plain spread: a plain
         // {...old, ...new} would replace nested groups (minimap, guides,
         // bracketPairColorization, stickyScroll) wholesale instead of merging
         // their sub-fields, silently dropping old sub-fields the new import

@@ -2,12 +2,12 @@ import { useCallback, useEffect, useReducer, useState } from 'react'
 import { ESTADO_INICIAL, tabsReducer, type MemoryTab, type SeccionDeSettings, type TabsState } from '../lib/memory-tabs'
 
 // Vive mientras la app está abierta: cerrar y reabrir el overlay vuelve a las mismas
-// pestañas; reiniciar la app vuelve a sólo Graph (spec §3).
+// pestañas; reiniciar la app vuelve a sólo Graph.
 let ultimo: TabsState = ESTADO_INICIAL
-// El último pedido de Settings atendido (decisión D5): App cuenta los pedidos de Account →
+// El último pedido de Settings atendido: App cuenta los pedidos de Account →
 // "Memory settings"; cada uno abre Settings UNA vez, aunque el overlay se cierre y se reabra.
 let pedidoAtendido = 0
-// Lo mismo para el pedido del grafo: App lo sube al arrancar el tour de Memories (final review I2).
+// Lo mismo para el pedido del grafo: App lo sube al arrancar el tour de Memories.
 let grafoAtendido = 0
 
 /**

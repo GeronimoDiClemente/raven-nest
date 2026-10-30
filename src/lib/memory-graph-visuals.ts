@@ -1,20 +1,17 @@
 // Cómo se ve el grafo de memorias, y por qué.
 //
-// El modelo está copiado de Obsidian a propósito, después de verificar qué hace de verdad
-// (obsidian.md/help/plugins/graph, 2026-09-11). Las cuatro cosas que le tomamos prestadas,
-// cada una resolviendo un problema concreto que este grafo tenía con datos reales:
+// El modelo está copiado de Obsidian a propósito (obsidian.md/help/plugins/graph). Las cuatro
+// cosas que le tomamos prestadas, cada una resolviendo un problema concreto con datos reales:
 //
 // 1. **El filtro de huérfanas** (Obsidian: "Orphans — toggles whether to show notes without
-//    any links"). Medido con la base real del usuario: de ~200 memorias, casi ninguna tiene
-//    `topic_key` ni rama compartida, así que el grafo era una nube de puntos sin una sola
-//    línea. Acá va **apagado por default**, al revés que Obsidian, porque en Obsidian las
-//    notas se enlazan a mano y acá las relaciones se infieren: lo normal es tener muchas
-//    sueltas.
+//    any links"). Con datos reales casi ninguna memoria tiene `topic_key` ni rama
+//    compartida, así que sin el filtro el grafo es una nube de puntos sin una sola línea.
+//    Acá va **apagado por default**, al revés que Obsidian, porque en Obsidian las notas
+//    se enlazan a mano y acá las relaciones se infieren: lo normal es tener muchas sueltas.
 // 2. **Los grupos son color** (Obsidian: un grupo por consulta de búsqueda). Nuestro
 //    equivalente natural es un grupo por PROYECTO, armado solo.
 // 3. **El tamaño del nodo escala con las conexiones** ("the more nodes that reference a
-//    given node, the bigger it gets"). Antes el tamaño sólo decía si estaba reemplazada,
-//    que es casi nada.
+//    given node, the bigger it gets").
 // 4. **Las aristas se distinguen por forma**, no por color — eso no es de Obsidian, es
 //    nuestro: `revision` es dirigida (el linaje de una idea), `topic` y `branch` son
 //    agrupamientos, y `similar` es inferencia, no un hecho afirmado. Mezclar las cuatro en
@@ -215,7 +212,7 @@ export const EDGE_STYLES: Record<MemoryEdgeKind, EdgeStyle> = {
   },
   // La hermana de `cross-topic`: tambien cruza repos, pero por TAG. Existe porque el topic
   // lo elige el agente al guardar y casi nunca coincide entre dos repos, asi que sin esta la
-  // promesa de "trabajo en conjunto entre repos" era cierta en el codigo y falsa en la
+  // promesa de "trabajo en conjunto entre repos" seria cierta en el codigo y falsa en la
   // pantalla. Mismo sentido de curva que cross-topic --las dos son "otro repo"-- y mas fina:
   // el tag dice que el trabajo es sobre lo mismo, el topic dice que la memoria es sobre lo
   // mismo, y la segunda es una afirmacion mas fuerte.
@@ -268,7 +265,7 @@ export interface ToGraphDataOptions {
   /** La paleta ANSI del tema de terminal activo. Sin ella, `memoryTypeSwatch` cae al tema
    *  Nest — ver `memory-type-legend.ts`. */
   ansi?: readonly string[]
-  /** Los tipos que los chips de la leyenda apagaron (spec §2): sus nodos, y las aristas
+  /** Los tipos que los chips de la leyenda apagaron: sus nodos, y las aristas
    *  que los tocan, no llegan al grafo — ni siquiera a contar para el grado de un vecino. */
   tiposOcultos?: ReadonlySet<string>
 }

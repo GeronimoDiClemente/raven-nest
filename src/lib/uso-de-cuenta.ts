@@ -1,4 +1,4 @@
-// Spec 2b-3 §3.2: las líneas de Usage de Settings › Account. Puro: lo dibuja AccountPlanSection.
+// Las líneas de Usage de Settings › Account. Puro: lo dibuja AccountPlanSection.
 import { descripcionDeProyectosEnLaNube, soloLocales, tieneTope, type ProyectoEnLaNube } from './proyectos-en-la-nube'
 
 export type EstadoDeUso =
@@ -32,7 +32,7 @@ export function estadoDeUso(m: {
   if (!conectada) return { tipo: 'apagado' }
   const enLaNube = m.cloudProjects ?? []
   let k = soloLocales(m.localOnly, enLaNube).length
-  // Sobre el tope (2b-2 §4.7) los que pasan del tope están en la nube pero ya no suben:
+  // Sobre el tope, los que pasan del tope están en la nube pero ya no suben:
   // lo nuevo de esos se queda en esta máquina, igual que un local only.
   if (m.overLimit && tieneTope(m.maxProjects)) k += Math.max(0, enLaNube.length - m.maxProjects)
   return {

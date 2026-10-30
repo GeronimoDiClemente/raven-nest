@@ -1,7 +1,6 @@
-// Task 2 (mirar vs. configurar): el estado del hilo de equipo (projectKey + enabled),
-// compartido entre TeamThreadPanel (que ademas lee ramas para el grafo) y TeamThreadToggle
-// (que vive solo). Antes esto estaba repetido dentro de TeamThreadPanel.load/handleToggle;
-// se mueve tal cual, mismos textos de error, para que el toggle no tenga que reimplementarlo.
+// El estado del hilo de equipo (projectKey + enabled), compartido entre TeamThreadPanel (que
+// ademas lee ramas para el grafo) y TeamThreadToggle (que vive solo), con los mismos textos de
+// error en los dos.
 import { useCallback, useEffect, useState } from 'react'
 
 const LOAD_ERROR = "Couldn't load the team thread. Try again in a moment."
@@ -66,8 +65,8 @@ export function useTeamThreadSettings(activeRepoPath: string | null): UseTeamThr
     if (!activeRepoPath || !projectKey) return
     try {
       const res = await window.memory?.teamThreadSetSettings?.(projectKey, activeRepoPath, { enabled: next })
-      // `message` viene cuando main tiene algo accionable que decir — hoy, que el plan de
-      // la cuenta no admite compartir con el equipo (I1). Un codigo de error crudo no se
+      // `message` viene cuando main tiene algo accionable que decir — p. ej., que el plan de
+      // la cuenta no admite compartir con el equipo. Un codigo de error crudo no se
       // muestra nunca: para eso esta el texto generico.
       if (!res?.ok) { setError(res?.message ?? TOGGLE_ERROR); return }
       setError(null)

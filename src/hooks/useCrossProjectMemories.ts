@@ -1,9 +1,8 @@
-// Spec 2026-09-11 §1 (pantalla de Memories legible) — el data-fetching detrás de la
-// lista cross-project. window.memory.crossProject() ya existe (electron/memory-store.ts's
-// crossProjectMemories(), commit 4fadd02): ordena por updated_at DESC, pagina por
+// El data-fetching detrás de la lista cross-project. window.memory.crossProject()
+// (electron/memory-store.ts's crossProjectMemories()) ordena por updated_at DESC, pagina por
 // cursor, excluye borradas y reemplazadas por default. Este hook es el único que sabe
-// de paginado incremental y debounce de búsqueda. Desde el 20-10 sólo lo usa la búsqueda
-// del explorer de Memories (MemoriesWorkspace): decide qué ids se ven y se resaltan.
+// de paginado incremental y debounce de búsqueda. Lo usa la búsqueda del explorer de
+// Memories (MemoriesWorkspace): decide qué ids se ven y se resaltan.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CrossProjectObservation } from '../types'
 
@@ -20,11 +19,11 @@ export interface CrossProjectMemoriesState {
   setQuery: (query: string) => void
   /** Vuelve a pedir la primera página con la búsqueda vigente. Lo llama quien sabe que la
    *  base cambió —guardar, conectar, borrar, un agente escribiendo—, porque remontar la
-   *  lista ya no alcanza: el estado vive en el workspace, no en ella. */
+   *  lista no alcanza: el estado vive en el workspace, no en ella. */
   refresh: () => void
 }
 
-/** Tamaño de página. La lista puede tener miles de filas (spec: "no se traen todas") —
+/** Tamaño de página. La lista puede tener miles de filas —
  *  100 balancea pocos viajes de IPC contra no traer de más en la primera pintura. */
 const PAGE_SIZE = 100
 

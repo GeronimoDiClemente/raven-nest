@@ -2,10 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 // Nest Memory Connect card state machine — docs/nest-memory-architecture.md §8.1.
-// `migrating` covers both the connect-time import (§5.4) and the brief window before the
-// first status poll resolves; Phase 1 shows a single spinner rather than the full
-// per-source checklist UI (§5.4's line-by-line progress), which is a Phase 3 dashboard
-// refinement, not a Phase 1 acceptance requirement.
+// `migrating` covers both the connect-time import and the brief window before the first
+// status poll resolves; it shows a single spinner, not per-source progress.
 export type MemoryCardState =
   | 'unavailable'
   | 'disconnected'
@@ -14,7 +12,7 @@ export type MemoryCardState =
   | 'connected'
   | 'paused'
   | 'error'
-  // spec §9.3: the token is valid but the account's plan doesn't include cloud sync — a
+  // The token is valid but the account's plan doesn't include cloud sync — a
   // 403 plan_required, not a credential problem. Distinct from 'error' so SettingsPanel
   // can hang an Upgrade affordance off it (reusing the existing free-plan Upgrade button
   // path, see setMemoryUpgradeOpen) instead of showing a generic "couldn't sync" message.
@@ -33,20 +31,20 @@ interface MemoryHookState {
   statusDetail: string | null
   /** Lo que reporto el servidor. `null` mientras no reporto nada. */
   quota: { used_bytes: number; max_bytes: number } | null
-  /** Spec 2b-1 §4.2: el tope de proyectos que informó el servidor. `null` mientras no informó. */
+  /** El tope de proyectos que informó el servidor. `null` mientras no informó. */
   limits: { max_projects: number } | null
-  /** Spec 2b-1 §4.4: el roster de la nube (sin __global__), con nombres locales. `null` = el
+  /** El roster de la nube (sin __global__), con nombres locales. `null` = el
    *  daemon todavía no recibió un status: la fila no se muestra. */
   cloudProjects: Array<{ projectKey: string; name: string }> | null
-  /** Spec 2b-1 §4.3: los repos que quedaron sólo en esta máquina por el tope (del doctor). */
+  /** Los repos que quedaron sólo en esta máquina por el tope (del doctor). */
   localOnlyProjects: Array<{ projectKey: string; name: string; count: number }>
-  /** Spec 2b-2 §4.7: el proyecto elegido para seguir sincronizando, o null. */
+  /** El proyecto elegido para seguir sincronizando, o null. */
   keptProjectKey: string | null
-  /** Spec 2b-2 §4.7: más proyectos en la nube que los que el plan sincroniza. */
+  /** Más proyectos en la nube que los que el plan sincroniza. */
   overLimit: boolean
 }
 
-/** Task 2 (adopción con aviso): lo que MemoryAdoptionDialog necesita para preguntar. */
+/** Lo que MemoryAdoptionDialog necesita para preguntar. */
 export interface PendingAdoption {
   userId: string
   count: number
@@ -56,12 +54,9 @@ export interface PendingAdoption {
 /**
  * `window.memory` may not be exposed at all — not in a real build (preload.ts exposes it
  * unconditionally; the "memory is dead" signal there is `status().unavailable`, handled in
- * refresh()), but in tests and anywhere the renderer runs outside Electron. This hook was
- * the only piece that assumed the API is always there, so mounting `SettingsPanel` without
- * it threw `Cannot read properties of undefined (reading 'onStatus')` and took down the
- * whole tree containing it. That is bug 3.4 in docs/MEMORY_INTEGRATIONS_CONTRACT.md: it
- * only shows up when this branch meets the integrations branch, because neither one mounts
- * the panel without the API on its own.
+ * refresh()), but in tests and anywhere the renderer runs outside Electron. Assuming the
+ * API is always there makes mounting `SettingsPanel` without it throw `Cannot read
+ * properties of undefined (reading 'onStatus')`, taking down the whole tree containing it.
  */
 function memoryApi(): typeof window.memory | undefined {
   return typeof window === 'undefined' ? undefined : window.memory
@@ -87,11 +82,11 @@ export function useMemory() {
   const connectingRef = useRef(false)
   // Sube con cada intento de connect. Un refresh que arrancó ANTES de un connect es viejo
   // aunque termine después de que el connect falló (connectingRef ya en false): sin esto
-  // pisaba el 'error' del connect con el 'connected' que había leído antes. Con el doctor
-  // en paralelo el status tarda un tick más y la carrera dejó de ser teórica.
+  // pisaría el 'error' del connect con el 'connected' que había leído antes. Con el doctor
+  // en paralelo el status tarda un tick más, así que la carrera es real.
   // También sube cuando el connect TERMINA (éxito o falla): un refresh que arrancó DURANTE el
   // connect —main emite `memory:status` mientras conecta— captura la generación ya subida, y
-  // si resuelve después de la falla pisaba el 'error' (p. ej. `not_in_beta`).
+  // si resuelve después de la falla pisaría el 'error' (p. ej. `not_in_beta`).
   const connectGenRef = useRef(0)
 
   const refresh = useCallback(async () => {
@@ -112,10 +107,9 @@ export function useMemory() {
       // unconditionally, with no knowledge of whether main's subsystem came up, so in a
       // real build `window.memory` always exists. main.ts's memory:status handler returns
       // `{ connected: false, daemonStatus: 'error', unavailable: true }` when the
-      // subsystem is null, and this hook used to discard that flag: `!status.connected`
-      // matched first, the card rendered 'disconnected', and SettingsPanel told a free
-      // user "Local memory active — cloud sync is a Cloud feature" on a machine where
-      // memory was completely dead.
+      // subsystem is null. If `!status.connected` matched first, the card would render
+      // 'disconnected' and SettingsPanel would tell a free user "Local memory active —
+      // cloud sync is a Cloud feature" on a machine where memory is completely dead.
       state: status.unavailable
         ? 'unavailable'
         : !status.connected
@@ -138,11 +132,11 @@ export function useMemory() {
       // cuota significa "no vino", no "el usuario se quedo sin nube".
       quota: status.quota ?? s.quota,
       // A diferencia de la cuota, NO se conserva: el daemon ya guarda el último tope conocido
-      // de la cuenta y lo vacía al cambiar de cuenta (D10). Conservarlo acá arrastraba el tope
+      // de la cuenta y lo vacía al cambiar de cuenta. Conservarlo acá arrastraría el tope
       // de la cuenta anterior, y el tope decide si se ofrece Upgrade.
       limits: status.limits ?? null,
       // El roster NO se conserva: main lo manda siempre que el daemon lo tiene, y tras un cambio
-      // de cuenta vuelve a undefined a propósito (D10).
+      // de cuenta vuelve a undefined a propósito.
       cloudProjects: status.cloudProjects ?? null,
       localOnlyProjects: doc?.ok ? doc.localOnlyProjects ?? [] : [],
       // Como el roster: no se conservan, el daemon los vacía al cambiar de cuenta.
@@ -151,10 +145,9 @@ export function useMemory() {
     }))
   }, [])
 
-  // Task 2 (adopción con aviso): `_local` puede tener memorias sin dueño de antes de que
-  // existiera cuenta. Antes de reclamarlas EN SILENCIO (el comportamiento de la Task 1),
-  // se pregunta — MemoryAdoptionDialog se muestra cuando esto trae algo, y el efecto de
-  // abajo se detiene hasta que resolveAdoption() conteste.
+  // `_local` puede tener memorias sin dueño de antes de que existiera cuenta. En vez de
+  // reclamarlas EN SILENCIO, se pregunta — MemoryAdoptionDialog se muestra cuando esto trae
+  // algo, y el efecto de abajo se detiene hasta que resolveAdoption() conteste.
   const [pendingAdoption, setPendingAdoption] = useState<PendingAdoption | null>(null)
 
   const applyUser = useCallback(async (userId: string | null) => {
@@ -166,7 +159,7 @@ export function useMemory() {
       return
     }
     // `checkPendingAdoption` es opcional (preload viejo): si no está, cae directo a
-    // setUser(), igual que se comportaba antes de la Task 2.
+    // setUser(), sin preguntar.
     const pending = await api.checkPendingAdoption?.(userId)
     if (pending?.hasPending) {
       setPendingAdoption({ userId, count: pending.count, projects: pending.projects })
@@ -213,9 +206,9 @@ export function useMemory() {
   useEffect(() => {
     const api = memoryApi()
     if (!api) {
-      // C7: without this the card sits at 'disconnected', which is indistinguishable from
-      // "all good, you just haven't connected" — with the subsystem down the UI disguised
-      // itself as healthy.
+      // Without this the card sits at 'disconnected', which is indistinguishable from
+      // "all good, you just haven't connected" — with the subsystem down the UI would look
+      // healthy.
       setState((s) => ({ ...s, state: 'unavailable' }))
       return
     }
@@ -230,11 +223,8 @@ export function useMemory() {
   }, [refresh])
 
   /**
-   * C7: the single-account beta issues no credentials (spec §9.1) — the token is generated
-   * with `openssl rand`, pasted here, and the service stores only its sha256. This replaces
-   * the previous `supabase.functions.invoke('memory-token')`, which additionally called an
-   * edge function that was never deployed to production: pressing Connect returned a 404
-   * dressed up as "Couldn't sync".
+   * The single-account beta issues no credentials (spec §9.1) — the token is generated
+   * with `openssl rand`, pasted here, and the service stores only its sha256.
    */
   const connectWithToken = useCallback(async (token: string) => {
     connectingRef.current = true
@@ -258,11 +248,10 @@ export function useMemory() {
   }, [refresh])
 
   /**
-   * §9.2 — Connect contra el login. Reemplaza al token pegado a mano de C7 para el usuario
-   * final: el renderer saca el JWT de la sesión de Supabase, main lo postea a
-   * `POST /v1/devices` del servicio de sync, y el servicio devuelve el token del device una
-   * sola vez. `connectWithToken` se queda igual: sigue siendo el camino del beta de una
-   * cuenta y el escape cuando el emisor está caído.
+   * §9.2 — Connect contra el login, el camino del usuario final: el renderer saca el JWT de
+   * la sesión de Supabase, main lo postea a `POST /v1/devices` del servicio de sync, y el
+   * servicio devuelve el token del device una sola vez. `connectWithToken` sigue siendo el
+   * camino del beta de una cuenta y el escape cuando el emisor está caído.
    */
   const connectWithLogin = useCallback(async () => {
     connectingRef.current = true
@@ -298,22 +287,21 @@ export function useMemory() {
 
   const disconnect = useCallback(async (deleteCloud = false) => {
     try {
-      // §7.5 / §6.6 "Right to delete" — best-effort; local data is never touched by this.
+      // "Right to delete" — best-effort; local data is never touched by this.
       // Ordering matters: window.memory.disconnect() authenticates its delete-cloud-data
-      // call with the locally stored nmk_ token, so it MUST run before we revoke that same
-      // token below. Revoking first (the old order) made the server reject the delete
-      // request with 401 revoked_token, silently leaving all cloud data intact.
+      // call with the locally stored nmk_ token, so it MUST run before that same token is
+      // revoked. Revoking first makes the server reject the delete request with 401
+      // revoked_token, silently leaving all cloud data intact.
       const api = memoryApi()
       if (!api) throw new Error('Memory is not available in this build')
       const disconnectResult = await api.disconnect({ deleteCloud })
-      // El revoke ya no vive acá. Lo hace main contra `POST /v1/devices/revoke` del servicio,
+      // El revoke no vive acá. Lo hace main contra `POST /v1/devices/revoke` del servicio,
       // en el mismo handler que borra la nube y que es el único que todavía tiene el token.
-      // Antes esto llamaba a la edge function `memory-token` — la misma que C7 sacó del
-      // camino de Connect PORQUE NUNCA SE DEPLOYÓ a producción. O sea que el token seguía
-      // valido en el servidor para siempre, y el renderer reportaba un revoke exitoso.
+      // La edge function `memory-token` no sirve para esto: nunca se deployó a producción, y
+      // el token quedaría válido en el servidor mientras el renderer reporta un revoke exitoso.
       await refresh()
       // Local disconnect still proceeds regardless of a cloud-delete failure (best-effort
-      // semantics, unchanged) — only surface it so the UI can tell the user the cloud copy
+      // semantics) — only surface it so the UI can tell the user the cloud copy
       // may still exist. Set after refresh() so refresh's own setState (which never
       // touches `error`) can't clobber this.
       if (disconnectResult.cloudDeleteFailed) {
@@ -329,8 +317,8 @@ export function useMemory() {
   }, [refresh])
 
   /**
-   * Spec 2b-2 §4.8: elegir el proyecto que sigue sincronizando. Refresca pase lo que pase, y un
-   * IPC que rechaza vuelve como `{ ok: false }`: la fila muestra el error (Ruling P8).
+   * Elegir el proyecto que sigue sincronizando. Refresca pase lo que pase, y un IPC que
+   * rechaza vuelve como `{ ok: false }`: la fila muestra el error.
    */
   const keepProject = useCallback(async (projectKey: string): Promise<{ ok: boolean; error?: string }> => {
     const api = memoryApi()

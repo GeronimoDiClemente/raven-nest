@@ -18,9 +18,9 @@ export type AgentStatus = 'todo' | 'working' | 'needs_you' | 'done'
  * Board status per task. Precedence: a red signal (changes requested / CI
  * failure) always surfaces as `needs_you`; then ticket `done`; then an active
  * worktree is `working`; a todo ticket with no worktree is `todo`; anything
- * else in flight is `working`. `idle`/`needs_input` are epic B, not here.
+ * else in flight is `working`. `idle`/`needs_input` are not derived here.
  * Note: `failed`/`cancelled`/`orphaned` setup states currently fall through to
- * `working`; epic B will distinguish them.
+ * `working`.
  */
 export function deriveStatus(
   ticketState: TicketState,

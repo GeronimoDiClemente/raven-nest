@@ -4,11 +4,8 @@
 // (esconder huérfanas, enfocar un proyecto, colorear por proyecto o por tipo) son
 // transformaciones puras sobre estos mismos datos, y hacerlas acá obligaría a volver a
 // consultar la base cada vez que alguien toca un toggle. La única opción que SÍ viaja a la
-// consulta es `includeSimilar`, porque esas aristas se calculan en SQL.
-//
-// El puente de datos ya existía (electron/memory-graph.ts, commits 1c7b948 y 4440f0f) y
-// nunca se había consumido desde la UI: lo que se veía en Memories era TeamThreadGraph, que
-// es el grafo de RAMAS de git, otra cosa.
+// consulta es `includeSimilar`, porque esas aristas se calculan en SQL. El puente de datos
+// vive en electron/memory-graph.ts.
 import { useCallback, useEffect, useState } from 'react'
 import type { MemoryGraph } from '../types'
 
@@ -53,12 +50,12 @@ export function useMemoryGraph(includeSimilar: boolean): MemoryGraphState & { re
     // COMO SE LLEGO hasta acá, y la arista `revision` es justamente el linaje de una idea.
     // Con las reemplazadas afuera, el nodo del otro extremo no existe, la arista se cae por
     // el filtro de puntas huerfanas de toGraphData, y `revision` --una de las cuatro
-    // relaciones que la spec pide distinguir-- no puede aparecer NUNCA. Se dibujan mas
+    // relaciones que el grafo distingue-- no puede aparecer NUNCA. Se dibujan mas
     // chicas (ver valorPorGrado) para que se lean como lo que son: historia, no vigencia.
     //
     // `limit` alto: el filtro de huerfanas se aplica DESPUES, en el renderer, asi que con
-    // el limite bajo se corria el riesgo de que las 300 que llegan sean justo las sueltas y
-    // el grafo se viera vacio aunque haya estructura mas atras.
+    // un limite bajo se corre el riesgo de que las que llegan sean justo las sueltas y el
+    // grafo se vea vacio aunque haya estructura mas atras.
     leer({ projectKey: null, includeSuperseded: true, includeSimilar, limit: 1500 })
       .then((graph: MemoryGraph) => {
         if (!alive) return

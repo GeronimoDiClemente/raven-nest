@@ -10,9 +10,9 @@ export interface DragCaptureSpec {
 // fantasma), así que mostramos su foto congelada EN SU LUGAR en vez de un
 // hueco negro. Captura nativa ('browser'), siempre anda.
 //
-// El pane ARRASTRADO no se fotografía. Se intentaba con kind 'dom' (captura de
-// la ventana + crop), pero para entonces React ya pintó el DragOverlay encima
-// del pane origen: la "foto" era el propio fantasma opaco, un rectángulo gris.
+// El pane ARRASTRADO no se fotografía: con kind 'dom' (captura de la ventana +
+// crop), para entonces React ya pintó el DragOverlay encima del pane origen y
+// la "foto" sería el propio fantasma opaco, un rectángulo gris.
 // El ghost con etiqueta (archivo / dominio / tipo) es lo que se ve igual.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function collectDragCaptures(panes: PaneNode[], _draggingId?: string): DragCaptureSpec[] {

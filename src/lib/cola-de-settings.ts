@@ -1,5 +1,5 @@
-// Una sola fila para todas las escrituras de window.settings del renderer (final review M5).
-// useSettings y useMemoryPrefs escriben read-modify-write (D15): si cada uno tuviera su fila,
+// Una sola fila para todas las escrituras de window.settings del renderer.
+// useSettings y useMemoryPrefs escriben read-modify-write: si cada uno tuviera su fila,
 // get/get/set/set se cruzan y el segundo set borra lo que guardó el primero.
 let cola: Promise<void> = Promise.resolve()
 

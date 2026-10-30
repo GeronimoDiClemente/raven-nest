@@ -3,13 +3,10 @@
  *
  * El catálogo de `terminal-themes.ts` son trece temas que elegimos nosotros. Esto es la otra
  * mitad y la que importa más: **el usuario ya tiene su tema elegido**, configurado hace meses
- * en la terminal que usa todos los días, y lo único que le pide a Nest es reconocerlo. Orca
- * hace exactamente esto —importa de Ghostty y de Warp— y no inventó un lenguaje visual
- * propio: adoptó el que la gente ya tiene.
+ * en la terminal que usa todos los días, y lo único que le pide a Nest es reconocerlo.
  *
  * Los dos formatos salen de archivos REALES, no de la documentación: un tema de Ghostty y uno
- * de Warp, descargados el 2026-09-13 de `mbadolato/iTerm2-Color-Schemes` y de
- * `warpdotdev/themes`. Parsear contra lo que un formato *dice* ser es como se llega a un
+ * de Warp, de `mbadolato/iTerm2-Color-Schemes` y de `warpdotdev/themes`. Parsear contra lo que un formato *dice* ser es como se llega a un
  * importador que anda con el ejemplo del README y con nada más.
  *
  * Es un parser puro: sin `fs`, sin Electron. Quien lee el archivo es el llamador.

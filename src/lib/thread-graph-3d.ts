@@ -1,7 +1,7 @@
 // Del grafo del hilo de equipo a los nodos y líneas que sabe dibujar `Graph3D`.
 //
-// Está acá, separado del componente, por una razón concreta: desde que el grafo se dibuja en
-// WebGL, el render deja de ser inspeccionable desde un test —un canvas no tiene nodos que
+// Está acá, separado del componente, por una razón concreta: como el grafo se dibuja en
+// WebGL, el render no es inspeccionable desde un test —un canvas no tiene nodos que
 // buscar— así que lo que se puede verificar de verdad es esta traducción. Y es justo donde
 // viven las decisiones: qué color le toca a cada rama, cuál se dibuja más grande, y qué dice
 // la etiqueta.
@@ -18,7 +18,7 @@ export const ID_INDICE = '_index'
  *
  * Hay que resolverlos a un color REAL antes de dibujar: three pinta sobre WebGL y no sabe
  * nada de variables CSS. Un `var(--tt-fresh-hoy)` le llega como color inválido y pinta
- * negro, que es exactamente el bug que el panel arrastraba por otro camino.
+ * negro.
  */
 export const FALLBACK_FRESCURA: Record<string, string> = {
   hoy: '#22c55e',
@@ -35,7 +35,7 @@ const VAR_FRESCURA: Record<string, string> = {
 }
 
 /** Gris del nodo central. NO blanco: es de donde cuelgan las demás, no la más importante —
- *  en blanco puro se llevaba toda la atención de la pantalla. */
+ *  en blanco puro se lleva toda la atención de la pantalla. */
 export const COLOR_INDICE = '#7a7a7a'
 
 const NEUTRO = '#8a8a8a'

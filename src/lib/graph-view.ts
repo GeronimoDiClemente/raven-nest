@@ -5,7 +5,7 @@
 // Flow (the eventual consumer) reads `position` + `data`; the pure layout is a
 // longest-path rank (columns) + index-within-rank (rows), deterministic given
 // the input order. A heavier engine (dagre/elkjs) can replace this later
-// without touching callers — see the spec's open questions.
+// without touching callers.
 
 export type FlowNodeState =
   | 'queued' | 'running' | 'needs_input' | 'blocked' | 'done' | 'failed' | 'skipped'

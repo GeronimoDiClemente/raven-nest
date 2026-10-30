@@ -1,5 +1,4 @@
 // Estado de los filtros del grafo de Memories y el `GraphData` que sale de aplicarlos.
-// Reemplaza la lógica que vivía dentro del cuadro del grafo viejo (borrado el 20-10).
 import { useCallback, useMemo, useState } from 'react'
 import { toGraphData, type ColorBy, type Foco, type GraphData } from '../lib/memory-graph-visuals'
 import { esInferida } from '../lib/memory-graph-2d'
@@ -18,14 +17,14 @@ export interface GraphFilters {
 const VACIO: GraphData = { nodes: [], links: [], orphansHidden: 0 }
 
 /**
- * `conInferidas: false` (final review F7) saca TODAS las aristas inferidas —same branch, same
+ * `conInferidas: false` saca TODAS las aristas inferidas —same branch, same
  * topic y similar—, no sólo `similar`: el tour dice "las punteadas son suposiciones" y el
  * botón las apaga a todas. `similar` además deja de pedirse a main (lo decide el workspace).
  */
 export function useGraphFilters(
   graph: MemoryGraph | null, ansi?: readonly string[], conInferidas = true, inicial?: FiltrosGuardados | null,
 ) {
-  // `inicial` (lo recordado, D14) se lee sólo al montar.
+  // `inicial` (lo recordado) se lee sólo al montar.
   const ini = inicial ?? FILTROS_POR_DEFECTO
   const [colorBy, setColorBy] = useState<ColorBy>(ini.colorBy)
   const [foco, setFoco] = useState<Foco>(null)
@@ -71,9 +70,9 @@ export function useGraphFilters(
   }, [visible, colorEfectivo, hideOrphans, foco, ansi, tiposOcultos])
 
   /**
-   * El grafo de donde sale el LOCAL de cada nota (final review F5): sin huérfanas ocultas, sin
-   * foco y sin tipos apagados — esos filtros son de la pestaña Graph. Con ellos, una memoria
-   * recién escrita (siempre suelta) o una de otro proyecto no tenía grafo local. Mismo color
+   * El grafo de donde sale el LOCAL de cada nota: sin huérfanas ocultas, sin foco y sin tipos
+   * apagados — esos filtros son de la pestaña Graph. Con ellos, una memoria recién escrita
+   * (siempre suelta) o una de otro proyecto no tendría grafo local. Mismo color
    * y mismas aristas que el global.
    */
   const dataCompleta = useMemo<GraphData>(() => {
@@ -95,7 +94,7 @@ export function useGraphFilters(
     [colorBy, foco, hideOrphans, tiposOcultos, escalaDeNodo, distanciaDeLinks],
   )
 
-  /** «Reset graph to defaults» (spec §5): filtros y fuerzas al arranque, y sin foco. */
+  /** «Reset graph to defaults»: filtros y fuerzas al arranque, y sin foco. */
   const restablecer = useCallback(() => {
     setColorBy(FILTROS_POR_DEFECTO.colorBy)
     setFoco(null)

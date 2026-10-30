@@ -10,14 +10,13 @@ interface Profile {
   isTrialActive: boolean
   trialDaysLeft: number
   /**
-   * El plan tal cual está en `profiles`, sin el trial encima. Spec 2b-2 §4.8 (Ruling P3): el
-   * aviso de Cloud activo compara éste, porque durante el trial el efectivo es `team` y el
-   * paso de free a cloud no se vería.
+   * El plan tal cual está en `profiles`, sin el trial encima. El aviso de Cloud activo compara
+   * éste, porque durante el trial el efectivo es `team` y el paso de free a cloud no se vería.
    */
   rawPlan: string
-  /** El usuario de la última lectura; null = sin sesión (Ruling P4: otra cuenta, otra base). */
+  /** El usuario de la última lectura; null = sin sesión (otra cuenta, otra base). */
   userId: string | null
-  /** Período de facturación (Task 1: lo escribe el webhook). null = sin suscripción o sin dato. */
+  /** Período de facturación (lo escribe el webhook). null = sin suscripción o sin dato. */
   billingInterval: 'monthly' | 'annual' | null
   currentPeriodEnd: string | null
   cancelAtPeriodEnd: boolean
@@ -67,12 +66,11 @@ function computeEffectivePlan(rawPlan: string, trialStartedAt: string | null): {
   return { plan: 'free', isTrialActive: false, trialDaysLeft: 0 }
 }
 
-// Una sola lectura compartida. Hasta el 2026-10-29 cada uno de los siete componentes que
-// llaman a `useProfile` tenía su copia del estado y su propio oyente de `focus`, así que cada
-// vuelta a la ventana eran siete `getUser` + siete selects de `profiles` idénticos, y dos
-// componentes podían mostrar planes distintos durante un instante. Ahora el estado vive acá y
-// los hooks se suscriben. Al montar, cada uno pide una lectura igual que antes (lo que se abre
-// después de pagar ve el plan fresco), pero `enVuelo` las junta en una.
+// Una sola lectura compartida. Varios componentes llaman a `useProfile`: con una copia del
+// estado y un oyente de `focus` por instancia, cada vuelta a la ventana serían N `getUser` + N
+// selects de `profiles` idénticos, y dos componentes podrían mostrar planes distintos durante
+// un instante. El estado vive acá y los hooks se suscriben. Al montar, cada uno pide una
+// lectura (lo que se abre después de pagar ve el plan fresco), pero `enVuelo` las junta en una.
 
 const recargar = (): void => { void load() }
 
@@ -110,7 +108,7 @@ async function load(): Promise<void> {
   // sesión real appFlags.e2eBypass es false y esto nunca corre. Permite
   // probar features gateadas por plan sin un perfil Supabase.
   // Un plan puesto por el evento 'nest:e2e-plan' gana sobre RAVEN_E2E_PLAN: sin esto el
-  // próximo `focus` lo pisaba (y en Playwright el foco llega solo).
+  // próximo `focus` lo pisaría (y en Playwright el foco llega solo).
   const e2ePlan = window.appFlags?.e2eBypass ? (overridePlan ?? window.appFlags.e2ePlan) : null
   if (e2ePlan && PLANES_CONOCIDOS.includes(e2ePlan)) {
     publicar({ plan: e2ePlan as Plan, loading: false, isTrialActive: false, trialDaysLeft: 0, rawPlan: e2ePlan, userId: null, ...leerE2eBilling(), recargar })
@@ -140,8 +138,8 @@ async function leerPerfil(gen: number): Promise<void> {
     .eq('id', user.id)
     .maybeSingle<Record<string, unknown>>()
   let { data, error } = await consultar('plan, trial_started_at, billing_interval, current_period_end, cancel_at_period_end')
-  // Sin la migración de 2b-3 en la base, PostgREST rechaza el select entero por las
-  // columnas que no existen. Ignorar el error dejaba `data` en null → free para TODOS los
+  // Sin la migración de billing en la base, PostgREST rechaza el select entero por las
+  // columnas que no existen. Ignorar el error dejaría `data` en null → free para TODOS los
   // que pagan. Se reintenta con las de siempre y el período queda vacío.
   if (error) ({ data, error } = await consultar('plan, trial_started_at'))
   if (gen !== generacion) return
@@ -178,9 +176,8 @@ function suscribir(cb: () => void): () => void {
   suscriptores.add(cb)
   if (!soltarOyentes) {
     // Un pago exitoso lo escribe el webhook de Stripe directo en `profiles`, sin
-    // avisarle al cliente. Sin esto el hook leia una sola vez al montar, asi que
-    // el que pagaba seguia viendo su plan viejo hasta reiniciar la app y la
-    // compra parecia no haber funcionado. `profiles` no esta en la publicacion
+    // avisarle al cliente. Leyendo una sola vez al montar, el que paga seguiría
+    // viendo su plan viejo hasta reiniciar la app. `profiles` no esta en la publicacion
     // de realtime, asi que no hay push posible: se re-lee al volver el foco, que
     // es exactamente cuando el usuario vuelve del navegador de pagar.
     const e2e = !!window.appFlags?.e2eBypass
@@ -195,7 +192,7 @@ function suscribir(cb: () => void): () => void {
     suscriptores.delete(cb)
     if (suscriptores.size > 0) return
     // Sin nadie mirando (en la app no pasa: App vive siempre; en los tests, entre uno y
-    // otro) se vuelve al arranque, como hacía cada instancia al desmontarse.
+    // otro) se vuelve al arranque.
     soltarOyentes?.()
     soltarOyentes = null
     generacion++

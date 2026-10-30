@@ -1,14 +1,12 @@
 /**
  * En qué estado está un pane, para el que mira ocho a la vez.
  *
- * Hasta hoy el header sabía una sola cosa: que hubo salida (`onActivity`, con un debounce de
- * 500ms). Eso contesta "¿está vivo?". La pregunta real cuando tenés ocho agentes corriendo es
- * otra: **¿cuál me necesita?** — y son tres situaciones distintas que se veían todas igual.
+ * Que hubo salida (`onActivity`, con un debounce de 500ms) contesta "¿está vivo?". La
+ * pregunta real cuando tenés ocho agentes corriendo es otra: **¿cuál me necesita?** — y son
+ * tres situaciones distintas.
  *
- * Medido contra Orca, que es el único de los productos del rubro que publica esto: sus
- * pestañas muestran "working, waiting for input, completed, o completed-but-unread". El
- * último es el más fino y el que no se me habría ocurrido: *terminó y todavía no lo viste*.
- * Es la diferencia entre un indicador que describe el proceso y uno que sabe algo sobre vos.
+ * El más fino es `unread`: *terminó y todavía no lo viste*. Es la diferencia entre un
+ * indicador que describe el proceso y uno que sabe algo sobre vos.
  */
 
 export type EstadoDePane =
@@ -72,7 +70,7 @@ export function pareceEsperandoInput(texto: string): boolean {
 }
 
 export interface EntradaDeEstado {
-  /** Está saliendo texto ahora (el `isBusy` que ya existía). */
+  /** Está saliendo texto ahora (el `isBusy` del pane). */
   ocupado: boolean
   /** La cola de la salida, sin ANSI. Se ignora si `ocupado`. */
   colaDeSalida: string

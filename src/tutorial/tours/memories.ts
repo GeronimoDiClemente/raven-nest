@@ -1,7 +1,7 @@
 // src/tutorial/tours/memories.ts
 import type { TourDef } from '../types'
 
-// Task 7 (2026-10-19): copia solo en inglés por ahora — `es` repite el mismo
+// Copia solo en inglés — `es` repite el mismo
 // texto en vez de traducirlo, igual que el resto de la UI de Memories.
 const en = (en: string) => ({ en, es: en })
 

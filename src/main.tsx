@@ -4,9 +4,9 @@ import { LucideProvider } from 'lucide-react'
 import App from './App'
 import AuthScreen from './components/AuthScreen'
 import { supabase } from './lib/supabase'
-// Geist empaquetada (spec §3.3): la app se ve igual en Mac, Windows y Linux.
+// Geist empaquetada: la app se ve igual en Mac, Windows y Linux.
 // Van ANTES de global.css para que la @font-face exista cuando el CSS la nombra.
-// Sólo el subset latin (normal + italic; Task 13 item 2) — la app es en
+// Sólo el subset latin (normal + italic) — la app es en
 // inglés, no hace falta cyrillic/cyrillic-ext/vietnamese/latin-ext. Ver
 // styles/geist-latin.css y styles/geist-mono-latin.css.
 import './styles/geist-latin.css'
@@ -168,9 +168,8 @@ function Root() {
 }
 
 // El contrato de los iconos se declara UNA vez, aca, y lo hereda todo el arbol — ver
-// src/lib/icons.ts para por que (28 grosores efectivos distintos antes de esto). Ponerlo en
-// el provider y no en cada call site es lo que hace que un icono agregado manana sin leer
-// nada salga con el peso correcto igual.
+// src/lib/icons.ts para por que. Ponerlo en el provider y no en cada call site es lo que hace
+// que un icono agregado manana sin leer nada salga con el peso correcto igual.
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <LucideProvider size={ICON_SIZE.md} strokeWidth={ICON_STROKE} nonScalingStroke>
     <Root />

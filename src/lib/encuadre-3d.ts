@@ -21,10 +21,10 @@ export interface Caja {
 /**
  * Qué fracción de nodos se deja afuera de CADA punta de cada eje al encuadrar.
  *
- * Medido el 2026-10-01 con las 110 memorias reales: los grupos sueltos y las cadenas de un
- * solo hilo quedaban a varias veces la distancia del cúmulo principal, y como la cámara
- * encuadraba la caja ENTERA, el grafo ocupaba un tercio del ancho y el resto era vacío. Un
- * nodo que queda fuera de cuadro se ve rotando o con un scroll; una caja vacía no se arregla.
+ * Los grupos sueltos y las cadenas de un solo hilo suelen quedar a varias veces la distancia
+ * del cúmulo principal: encuadrando la caja ENTERA, el grafo ocupa un tercio del ancho y el
+ * resto es vacío. Un nodo que queda fuera de cuadro se ve rotando o con un scroll; una caja
+ * vacía no se arregla.
  */
 const RECORTE = 0.05
 

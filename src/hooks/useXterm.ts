@@ -17,10 +17,7 @@ export function useXterm(
   fontSize = 13,
   onResize?: (cols: number, rows: number) => void,
   /**
-   * El tema, por id del catalogo. `undefined` cae al propio.
-   *
-   * Estaba hardcodeado aca adentro: dieciseis colores que eligio alguien una vez, sin forma
-   * de cambiarlos. Ver `src/lib/terminal-themes.ts`.
+   * El tema, por id del catalogo. `undefined` cae al propio. Ver `src/lib/terminal-themes.ts`.
    */
   temaId?: string | null,
   /** Los temas que el usuario importó. Se buscan antes que el catálogo. */
@@ -80,7 +77,7 @@ export function useXterm(
 
     // Despues de open(): el addon necesita el canvas ya montado para crear el contexto.
     // Si no hay WebGL2 —o Chromium no da mas contextos— esto no hace nada y el pane se
-    // queda con el renderer DOM, que es lo que habia hasta ahora. Ver `lib/xterm-webgl.ts`.
+    // queda con el renderer DOM. Ver `lib/xterm-webgl.ts`.
     const webgl = activarWebgl(term, { crearAddon: () => new WebglAddon() })
     webglRef.current = webgl
 
@@ -212,9 +209,9 @@ export function useXterm(
     // movimiento se suprimieron todos, incluidos los degenerados del reflow.
     //
     // "Asentado" no es "un frame despues de soltar": el reflow del grid y la
-    // animacion de zoom siguen corriendo, y medir ahi daba formas imposibles
-    // (21x6, 15x37) que el proceso tomaba como reales — la TUI repintaba y
-    // cortaba las respuestas en curso. Medimos hasta que DOS lecturas
+    // animacion de zoom siguen corriendo, y medir ahi da formas imposibles
+    // (21x6, 15x37) que el proceso toma como reales — la TUI repinta y
+    // corta las respuestas en curso. Medimos hasta que DOS lecturas
     // consecutivas coincidan, y recien ahi mandamos.
     let settleTimer: ReturnType<typeof setTimeout> | null = null
     const offSettled = onResizeSettled(() => {

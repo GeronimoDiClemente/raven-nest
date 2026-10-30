@@ -42,7 +42,7 @@ export interface MemoriesState {
   silentSessions: SessionVerdictLite[]
   blocked: BlockedGroupLite[]
   blockedTotal: number
-  /** Spec 2b-1 §4.5: `limits.max_projects` del servidor; null = todavía no lo informó. */
+  /** `limits.max_projects` del servidor; null = todavía no lo informó. */
   maxProjects: number | null
   vault: VaultLite
   refresh: () => Promise<void>
@@ -53,7 +53,7 @@ const EMPTY_VAULT: VaultLite = {
 }
 
 /**
- * Cada cuanto se relee. El daemon empuja con debounce de 3s (spec §2.1), asi que 5s no
+ * Cada cuanto se relee. El daemon empuja con debounce de 3s, asi que 5s no
  * pierde nada y no pone a la UI a interrogar la base sin parar. `0` desactiva el poll
  * (los tests lo usan asi).
  */
@@ -99,7 +99,7 @@ export function useMemories(pollMs: number = DEFAULT_POLL_MS): MemoriesState {
       setPendingCount(status.pendingCount)
       setConnected(status.connected)
       // No se conserva el anterior: el daemon ya guarda el último tope de la cuenta y lo vacía
-      // al cambiar de cuenta (D10). Arrastrarlo acá mostraba el tope —y el Upgrade— de otra.
+      // al cambiar de cuenta. Arrastrarlo acá mostraría el tope —y el Upgrade— de otra.
       const max = status.limits?.max_projects
       setMaxProjects(typeof max === 'number' ? max : null)
     }
@@ -131,7 +131,7 @@ export function useMemories(pollMs: number = DEFAULT_POLL_MS): MemoriesState {
     connected,
     itemCount,
     pendingCount,
-    // D7: lo retenido por el tope del plan no es una falla — no prende el ámbar ni el «N blocked».
+    // Lo retenido por el tope del plan no es una falla — no prende el ámbar ni el «N blocked».
     blockedTotal: bloqueadasPorFalla(blocked),
     vaultConflicts: vault.conflictCount,
     silentSessions: silentSessions.length,

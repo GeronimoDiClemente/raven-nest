@@ -1,4 +1,4 @@
-// Spec 2b-2 §4.8: el cobro de Cloud desde la app. Las dos edge functions autentican con la
+// El cobro de Cloud desde la app. Las dos edge functions autentican con la
 // sesión de Supabase (supabase-js manda el JWT solo) y devuelven `{ url }` o `{ error: <código> }`.
 import { supabase } from './supabase'
 import type { BillingInterval } from './stripe'
@@ -10,8 +10,8 @@ export const COPY_SIN_SUSCRIPCION = 'No subscription found for this account.'
 export type ResultadoDeCobro = { ok: true } | { ok: false; error: string; code: string | null }
 
 /**
- * El copy de un código de error de las funciones. D8: el portal usa el genérico, salvo
- * `no_subscription` (2b-3), que no es un problema de red y no puede decir "Check your connection".
+ * El copy de un código de error de las funciones. El portal usa el genérico, salvo
+ * `no_subscription`, que no es un problema de red y no puede decir "Check your connection".
  */
 export function textoDeErrorDeCobro(code: string | null): string {
   if (code === 'checkout_unavailable') return COPY_CHECKOUT_NO_DISPONIBLE

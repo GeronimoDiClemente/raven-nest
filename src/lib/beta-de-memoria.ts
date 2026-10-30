@@ -1,4 +1,4 @@
-// La beta cerrada de Memories (2026-10-05): el equipo y unos testers la usan de verdad antes
+// La beta cerrada de Memories: el equipo y unos testers la usan de verdad antes
 // de que salga para todos, y en la beta la nube no se cobra.
 //
 // Por eso, en un build `-beta.N` el PLAN no decide si se ofrece la nube: la mayoría de los

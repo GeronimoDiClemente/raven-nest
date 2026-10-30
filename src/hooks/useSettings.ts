@@ -4,10 +4,10 @@ import { normalizarMemoryPrefs } from '../lib/memory-prefs'
 import { encolarEscrituraDeSettings } from '../lib/cola-de-settings'
 
 /**
- * Escribe SÓLO lo que cambió, sobre lo que está guardado AHORA (decisión D15). App y
+ * Escribe SÓLO lo que cambió, sobre lo que está guardado AHORA. App y
  * SettingsPanel tienen cada uno su instancia de este hook, y useMemoryPrefs escribe
  * `memoryPrefs` por su lado: con el objeto entero del estado local, el próximo `set` de una
- * instancia montada desde el arranque pisaba lo que otra había guardado después. Va por la
+ * instancia montada desde el arranque pisaría lo que otra guardó después. Va por la
  * misma fila que useMemoryPrefs, así el get de uno no se cruza con el set del otro.
  */
 function guardar(patch: Partial<AppSettings>): Promise<void> {
@@ -35,7 +35,7 @@ export function useSettings() {
           hasSeenMemoryHub: s.hasSeenMemoryHub ?? DEFAULT_SETTINGS.hasSeenMemoryHub,
           hasSeenMemoriesWelcome: s.hasSeenMemoriesWelcome ?? DEFAULT_SETTINGS.hasSeenMemoriesWelcome,
           keybindings: { ...DEFAULT_SETTINGS.keybindings, ...s.keybindings },
-          // Spec §6: sin leerlo acá, el estado arrancaba con los defaults y el próximo set lo pisaba.
+          // Sin leerlo acá, el estado arrancaría con los defaults y el próximo set lo pisaría.
           memoryPrefs: normalizarMemoryPrefs(s.memoryPrefs),
         })
       } catch (err) {

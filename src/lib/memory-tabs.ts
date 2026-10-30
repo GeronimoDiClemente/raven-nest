@@ -1,9 +1,9 @@
 // Las pestañas del centro de Memories. Graph es la primera y fija; Team thread, fija, aparece
 // sólo si el repo activo tiene el hilo prendido; Settings, cerrable, es la configuración de
-// Memories (spec 2026-10-21). Puro: el hook sólo lo envuelve.
+// Memories. Puro: el hook sólo lo envuelve.
 export type SeccionDeSettings = 'sync' | 'encryption' | 'editor' | 'project' | 'disk' | 'advanced'
 
-/** Las secciones de la pestaña Settings, en el orden del spec §2.1 (sin números). */
+/** Las secciones de la pestaña Settings, en orden (sin números). */
 export const SECCIONES_DE_SETTINGS: ReadonlyArray<{ id: SeccionDeSettings; titulo: string }> = [
   { id: 'sync', titulo: 'Sync' },
   { id: 'encryption', titulo: 'Encryption' },

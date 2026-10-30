@@ -1,12 +1,12 @@
 // Path de modelo Monaco calificado por worktree.
 //
 // Los modelos de Monaco son GLOBALES (registro por URI) y @monaco-editor/react
-// los keyea por el prop `path`. Usar el relPath pelado hacía que dos panes
-// sobre worktrees DISTINTOS con el mismo archivo compartieran un único modelo:
-// el último read pisaba el buffer del otro y Ctrl+S escribía en disco el
+// los keyea por el prop `path`. Usar el relPath pelado haría que dos panes
+// sobre worktrees DISTINTOS con el mismo archivo compartan un único modelo:
+// el último read pisa el buffer del otro y Ctrl+S escribe en disco el
 // contenido del worktree equivocado. El path calificado hace la identidad
 // worktree+archivo explícita — y de paso habilita matching EXACTO (nada de
-// endsWith, que confundía foo.ts con src/foo.ts).
+// endsWith, que confunde foo.ts con src/foo.ts).
 //
 // El token del worktree es un hash (djb2) y no el path crudo: los paths de
 // Windows traen ":" y "\" que monaco.Uri.parse malinterpreta como scheme.

@@ -1,10 +1,9 @@
 import type { AIType } from '../types'
 
-// workspace-shell-design §3: "los logos de las IAs entran en las filas" de
-// repos y worktrees. No hace falta ningun dato nuevo — SessionPane/PaneNode
-// ya tienen aiType y repoPath; agrupar los panes abiertos por repoPath da,
-// para cada repo o worktree, el conjunto de IAs corriendo ahi. Puro y
-// testeable aparte del componente, por pedido explicito de la spec.
+// Los logos de las IAs en las filas de repos y worktrees. No hace falta ningun
+// dato nuevo — SessionPane/PaneNode ya tienen aiType y repoPath; agrupar los
+// panes abiertos por repoPath da, para cada repo o worktree, el conjunto de IAs
+// corriendo ahi. Puro y testeable aparte del componente.
 
 export const MAX_VISIBLE_AI_LOGOS = 3
 
