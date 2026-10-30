@@ -1524,7 +1524,9 @@ declare global {
       forward: (paneId: string) => Promise<void>
       reload: (paneId: string) => Promise<void>
       destroy: (paneId: string) => Promise<void>
-      onNavigated: (cb: (paneId: string, url: string) => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onNavigated: (cb: (paneId: string, url: string) => void) => () => void
+      /** @deprecated Borra los oyentes de TODAS las celdas: usá la baja de `onNavigated`. */
       removeListeners: () => void
       // Snapshot (dataURL PNG) del contenido de un pane para el fantasma del
       // drag. kind 'browser' captura el WebContentsView nativo; 'dom' captura

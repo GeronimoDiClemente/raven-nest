@@ -664,6 +664,7 @@ contextBridge.exposeInMainWorld('browser', {
     ipcRenderer.on('browser:navigated', handler)
     return () => ipcRenderer.removeListener('browser:navigated', handler)
   },
+  /** @deprecated Borra los oyentes de TODAS las celdas browser: usá la baja de `onNavigated`. */
   removeListeners: () => ipcRenderer.removeAllListeners('browser:navigated'),
 })
 

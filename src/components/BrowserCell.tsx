@@ -170,8 +170,10 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
       setDraftUrl(navUrl)
       onNavigateRef.current?.(navUrl)
     }
-    window.browser.onNavigated(cb)
-    return () => window.browser.removeListeners()
+    // Cada celda saca SÓLO su oyente: `removeListeners()` borra los de todas, y con
+    // dos browsers abiertos cerrar uno dejaba al otro sin enterarse de sus navegaciones.
+    const off = window.browser.onNavigated(cb)
+    return () => off()
   }, [pane.id])
 
   // Auto-navigate to localhost URLs detected in any terminal pane's output —
