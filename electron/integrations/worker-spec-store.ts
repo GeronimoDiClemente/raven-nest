@@ -119,7 +119,7 @@ export function newWorkerSpecId(): string {
   return randomBytes(8).toString('hex')
 }
 
-export function defaultWorkerSpecPath(): string {
+function defaultWorkerSpecPath(): string {
   return join(ravenHome(), '.raven-nest', 'worker-specs.json')
 }
 

@@ -14,7 +14,7 @@ export function esVersionBeta(version: string | undefined | null): boolean {
 }
 
 /** La versión que se horneó en el build (`electron.vite.config.ts`). En los tests no hay. */
-export const ES_BUILD_BETA = esVersionBeta(import.meta.env.VITE_NEST_VERSION)
+const ES_BUILD_BETA = esVersionBeta(import.meta.env.VITE_NEST_VERSION)
 
 /** Si se ofrece conectar la nube de memoria. */
 export function nubeDeMemoriaDisponible(planIncluyeNube: boolean, esBeta: boolean = ES_BUILD_BETA): boolean {

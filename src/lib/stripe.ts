@@ -1,5 +1,3 @@
-export const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
-
 // `pro` sigue en el tipo mientras haya perfiles con ese valor guardado en Supabase. Se
 // borra en la Task 7 del corte comercial, después de migrarlos.
 export type Plan = 'free' | 'cloud' | 'pro' | 'team' | 'enterprise'
@@ -20,10 +18,7 @@ export type BillingInterval = 'monthly' | 'annual'
 export function tieneSuscripcionPropia(plan: string): boolean {
   return plan === 'cloud' || plan === 'pro'
 }
-export const ENTERPRISE_MIN_SEATS = 4
-export const ENTERPRISE_FLOOR_PER_SEAT = 60  // $/seat/mo, annual billing
 export const TEAM_MIN_SEATS = 2
-export const ENTERPRISE_CONTACT_EMAIL = 'bautista@nestmux.com'
 
 // Enterprise is sales-led: the in-app modal links out to a demo booking instead
 // of showing a card.

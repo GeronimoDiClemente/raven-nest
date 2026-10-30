@@ -215,7 +215,7 @@ export class WorktreeSignals {
   }
 }
 
-export function truncateTail(text: string, maxLines: number): string {
+function truncateTail(text: string, maxLines: number): string {
   const lines = text.split('\n')
   return lines.length <= maxLines ? text : lines.slice(-maxLines).join('\n')
 }
@@ -223,7 +223,7 @@ export function truncateTail(text: string, maxLines: number): string {
 // El review que cuenta es el más reciente por autor: un CHANGES_REQUESTED viejo
 // que ya fue re-aprobado no debe marcar el PR. Sólo estados de decisión
 // (APPROVED/CHANGES_REQUESTED) pisan; COMMENTED/DISMISSED se ignoran.
-export function latestReviewIsChangesRequested(
+function latestReviewIsChangesRequested(
   reviews: Array<{ user: { login: string } | null; state: string; submitted_at: string }>,
 ): boolean {
   const byAuthor = new Map<string, string>()

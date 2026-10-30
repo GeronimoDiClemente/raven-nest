@@ -90,7 +90,7 @@ export interface PaneInput {
 // Synthetic commonDir prefix for panes that belong to a tab with no linked
 // repoPath. The renderer detects this prefix to skip rendering disk buckets
 // and the refresh button for these "workspace-only" groups.
-export const SYNTHETIC_WORKSPACE_PREFIX = '__workspace__:'
+const SYNTHETIC_WORKSPACE_PREFIX = '__workspace__:'
 
 interface WorktreeInfo {
   commonDir: string

@@ -226,7 +226,7 @@ export async function migrateTeam(
 
 /** Sólo cuánto falta, para la tarjeta. Sin reintento: un 429 acá es mejor mostrarlo como
  * "desconocido" que demorar el render esperando el Retry-After. */
-export async function countRecryptPending(deps: TeamReencryptDeps, teamId: string): Promise<number> {
+async function countRecryptPending(deps: TeamReencryptDeps, teamId: string): Promise<number> {
   return (await paginaPendiente(deps, teamId, undefined, async () => {}, 0)).total
 }
 

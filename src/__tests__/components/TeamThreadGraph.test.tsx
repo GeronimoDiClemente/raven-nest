@@ -24,7 +24,6 @@ import type { TeamThreadBranch } from '../../types'
 // El doble del render 3D. Pinta un botón por nodo con su etiqueta, que es lo mínimo para
 // poder afirmar sobre cuántos nodos hay y qué pasa al tocarlos.
 vi.mock('../../components/Graph3DLazy', () => ({
-  prefetchGraph3D: vi.fn(),
   LazyGraph3D: ({ nodes, onSelect }: {
     nodes: Array<{ id: string; label: string }>
     onSelect: (id: string | null) => void

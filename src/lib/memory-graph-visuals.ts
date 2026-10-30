@@ -115,7 +115,7 @@ export function tagRanking(nodes: Array<{ tags: string[] }>): string[] {
 }
 
 /** Tag -> color, por posición en el ranking. Estable mientras el ranking no cambie. */
-export function tagColors(ranking: string[]): Map<string, string> {
+function tagColors(ranking: string[]): Map<string, string> {
   const out = new Map<string, string>()
   ranking.forEach((t, i) => out.set(t, PROJECT_PALETTE[i % PROJECT_PALETTE.length]))
   return out

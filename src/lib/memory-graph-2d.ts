@@ -3,7 +3,7 @@ import type { MemoryEdgeKind } from '../types'
 import type { GraphData, GraphLinkDatum } from './memory-graph-visuals'
 import type { EtiquetasDelGrafo } from './memory-prefs'
 
-export const ARISTAS_AFIRMADAS: ReadonlySet<MemoryEdgeKind> = new Set<MemoryEdgeKind>(['manual', 'wikilink', 'revision'])
+const ARISTAS_AFIRMADAS: ReadonlySet<MemoryEdgeKind> = new Set<MemoryEdgeKind>(['manual', 'wikilink', 'revision'])
 
 export function esInferida(kind: MemoryEdgeKind): boolean { return !ARISTAS_AFIRMADAS.has(kind) }
 

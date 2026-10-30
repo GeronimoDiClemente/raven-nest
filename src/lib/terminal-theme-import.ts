@@ -34,7 +34,7 @@ function hex(valor: string | undefined): string | null {
   return ('#' + limpio.replace('#', '')).toLowerCase()
 }
 
-export function slugDeTema(nombre: string): string {
+function slugDeTema(nombre: string): string {
   return nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'importado'
 }
 

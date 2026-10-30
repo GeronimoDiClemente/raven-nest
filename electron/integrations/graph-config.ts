@@ -9,7 +9,7 @@ import type { GraphMode } from './graph-runner'
 export interface GraphConfig { defaultMode: GraphMode; maxReviewRounds: number }
 const DEFAULT: GraphConfig = { defaultMode: 'auto', maxReviewRounds: 2 }
 
-export function defaultGraphConfigPath(): string {
+function defaultGraphConfigPath(): string {
   return join(ravenHome(), '.raven-nest', 'graph-config.json')
 }
 

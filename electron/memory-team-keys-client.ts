@@ -30,7 +30,7 @@ export interface RemoteTeamKeyState {
   isLeader: boolean
 }
 
-export class TeamKeysHttpError extends Error {
+class TeamKeysHttpError extends Error {
   readonly status: number
   constructor(status: number, message: string) {
     super(message)

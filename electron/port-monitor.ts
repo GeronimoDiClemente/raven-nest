@@ -36,7 +36,7 @@ async function pidChildrenPosix(pid: number): Promise<number[]> {
   }
 }
 
-export async function pidTree(rootPid: number, opts?: { depth?: number; treeResolver?: TreeResolver }): Promise<Set<number>> {
+async function pidTree(rootPid: number, opts?: { depth?: number; treeResolver?: TreeResolver }): Promise<Set<number>> {
   if (opts?.treeResolver) {
     try {
       const tree = await opts.treeResolver(rootPid)

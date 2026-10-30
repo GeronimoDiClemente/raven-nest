@@ -175,7 +175,7 @@ export function medianMergeHours(events: GitHubEvent[], windowDays = 7): number 
 }
 
 /** Sums commits and merged PRs in the window [fromDaysAgo, toDaysAgo) (days ago). */
-export function windowTotals(
+function windowTotals(
   events: GitHubEvent[],
   fromDaysAgo: number,
   toDaysAgo: number,

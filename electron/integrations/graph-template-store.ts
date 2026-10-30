@@ -12,7 +12,7 @@ import { defaultGraphTemplates, toGraphTemplate, type GraphTemplate } from './gr
 /** Loads only the user's custom templates from disk (built-ins are code, not
  *  persisted). Missing file → []. Corrupt JSON → warn + []. Invalid entries
  *  dropped individually with a warn. */
-export function loadCustomTemplates(filePath: string): GraphTemplate[] {
+function loadCustomTemplates(filePath: string): GraphTemplate[] {
   let raw: string
   try {
     raw = readFileSync(filePath, 'utf8')
@@ -38,7 +38,7 @@ export function loadCustomTemplates(filePath: string): GraphTemplate[] {
 }
 
 /** Atomic write (tmp + rename): a crash mid-write never corrupts the file. */
-export function saveCustomTemplates(filePath: string, templates: GraphTemplate[]): void {
+function saveCustomTemplates(filePath: string, templates: GraphTemplate[]): void {
   try {
     mkdirSync(dirname(filePath), { recursive: true })
     const tmp = `${filePath}.${randomBytes(6).toString('hex')}.tmp`
@@ -53,7 +53,7 @@ export function newGraphTemplateId(): string {
   return randomBytes(8).toString('hex')
 }
 
-export function defaultGraphTemplatePath(): string {
+function defaultGraphTemplatePath(): string {
   return join(ravenHome(), '.raven-nest', 'graph-templates.json')
 }
 

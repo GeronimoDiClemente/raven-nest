@@ -8,7 +8,7 @@ import { mkdirSync } from 'fs'
 import { dirname } from 'path'
 import type { BaseSqlite, TransaccionSqlite } from './sqlite-forma'
 
-export function adaptarBetterSqlite3(db: Database.Database): BaseSqlite {
+function adaptarBetterSqlite3(db: Database.Database): BaseSqlite {
   return {
     prepare(sql) {
       const st = db.prepare(sql)

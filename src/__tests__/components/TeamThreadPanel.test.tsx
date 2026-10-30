@@ -8,7 +8,6 @@ import type { TeamThreadBranch, TeamThreadSettings } from '../../types'
 // contratos de ESTE archivo (que el panel carga las ramas, que un click abre la nota
 // correcta) se sigan pudiendo verificar. Reemplaza al canvas, no a la logica bajo prueba.
 vi.mock('../../components/Graph3DLazy', () => ({
-  prefetchGraph3D: vi.fn(),
   LazyGraph3D: ({ nodes, onSelect }: {
     nodes: Array<{ id: string; label: string }>
     onSelect: (id: string | null) => void

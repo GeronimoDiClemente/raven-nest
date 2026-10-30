@@ -205,7 +205,7 @@ function toRecipe(x: unknown): Recipe | null {
  * warn de recetas inválidas ya lo hace `loadRecipes` cuando el bus las carga
  * de verdad, así no se duplica el log en cada `recipes:list`).
  */
-export function loadStoredRecipes(filePath: string): StoredRecipe[] {
+function loadStoredRecipes(filePath: string): StoredRecipe[] {
   let raw: string
   try {
     raw = readFileSync(filePath, 'utf8')

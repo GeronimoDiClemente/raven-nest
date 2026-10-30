@@ -95,7 +95,7 @@ export function toSummary(row: ObservationRow, maxContentChars?: number): Observ
  * y el tokenizer parte `memory-reads.ts` en una frase de tres tokens, que es lo que se quiere.
  * Un término sin letras ni dígitos se descarta: entre comillas sería una frase vacía.
  */
-export function consultaFtsPorTerminos(query: string): string | null {
+function consultaFtsPorTerminos(query: string): string | null {
   const terminos = query
     .replace(/["]/g, ' ')
     .split(/\s+/)

@@ -6,10 +6,10 @@ import type { ObservationType } from '../memory-protocol'
 import type { MemoryRecord } from './memory-port'
 import { vaultSlug } from './vault-naming'
 
-export const TEAM_THREAD_VERSION = 1
+const TEAM_THREAD_VERSION = 1
 
 /** Techo del indice: es lo que se inyecta en cada sesion, ver spec §4.3. */
-export const INDEX_MAX_LINES = 200
+const INDEX_MAX_LINES = 200
 
 export type EstadoRama = 'activa' | 'sin-worktree' | 'cerrada'
 
@@ -143,7 +143,7 @@ export interface ThreadGroupingConfig {
 
 /** EL GUARDIA (spec §9, test 1): solo scope team, solo este proyecto, solo tipos del
  *  hilo, sin tombstones ni superseded. Todo lo demas no existe para el hilo de equipo. */
-export function eligibleTeamThreadRecords(records: MemoryRecord[], config: ThreadGroupingConfig): MemoryRecord[] {
+function eligibleTeamThreadRecords(records: MemoryRecord[], config: ThreadGroupingConfig): MemoryRecord[] {
   const tipos = new Set(config.includedTypes)
   return records.filter(
     (r) =>

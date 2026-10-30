@@ -23,9 +23,6 @@ export interface MemorySink {
   save(input: MemorySaveInput): void
 }
 
-/** Default when the memory branch isn't merged / memory is disconnected. */
-export const NULL_SINK: MemorySink = { save: () => {} }
-
 // ── Read side, added for Task 5 (memory vault) ──────────────────────────────
 // Superset of ObservationSummary — the vault's frontmatter needs (near) every column of
 // `observations`, not just what an agent's search/context reply needs. See

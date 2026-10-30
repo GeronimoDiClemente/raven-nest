@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { terminalShareService } from '../lib/terminalShareService'
-import { terminalJoinService } from '../lib/terminalJoinService'
 
 /** Hook that mirrors the singleton state for a specific pane — the session survives component unmount. */
 export function useTerminalShare(paneId: string, onJoinRequest?: () => void) {
@@ -30,42 +29,3 @@ export function useTerminalShare(paneId: string, onJoinRequest?: () => void) {
   return { shareCode, isSharing, startSharing, stopSharing }
 }
 
-/**
- * Hook that mirrors the join singleton state — the session survives component unmount.
- * writeToViewer is passed so the singleton can redirect data to the currently mounted xterm.
- */
-export function useTerminalJoin(writeToViewer: (data: string) => void) {
-  const [joined, setJoined] = useState(() => terminalJoinService.isConnected)
-  const [connecting, setConnecting] = useState(() => terminalJoinService.isConnecting)
-  const [error, setError] = useState<string | null>(() => terminalJoinService.error)
-  const [joinCode, setJoinCode] = useState<string | null>(() => terminalJoinService.code)
-
-  useEffect(() => {
-    // Sync on mount
-    const sync = () => {
-      const connected = terminalJoinService.isConnected
-      setJoined(connected)
-      setConnecting(terminalJoinService.isConnecting)
-      setError(terminalJoinService.error)
-      setJoinCode(terminalJoinService.code)
-      if (connected) terminalJoinService.attachViewer(writeToViewer)
-    }
-    sync()
-
-    const unsub = terminalJoinService.subscribe(sync)
-    return () => {
-      unsub()
-      terminalJoinService.detachViewer()
-    }
-  }, [writeToViewer])
-
-  const joinSession = useCallback((code: string) => {
-    terminalJoinService.join(code)
-  }, [])
-
-  const leaveSession = useCallback(() => {
-    terminalJoinService.leave()
-  }, [])
-
-  return { joined, connecting, error, joinSession, leaveSession, joinCode }
-}

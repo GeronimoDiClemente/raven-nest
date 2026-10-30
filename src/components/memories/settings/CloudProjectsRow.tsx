@@ -11,7 +11,7 @@ import {
 } from '@/lib/proyectos-en-la-nube'
 
 /** Ruling P8 (plan 2b-2): el spec no da copy para cuando el daemon no pudo elegir. */
-export const COPY_NO_SE_PUDO_ELEGIR = "Couldn't change the synced project. Try again."
+const COPY_NO_SE_PUDO_ELEGIR = "Couldn't change the synced project. Try again."
 
 export interface CloudProjectsRowProps {
   /** El roster de la nube, sin `__global__`, con nombres locales, del más viejo al más nuevo. */

@@ -93,7 +93,7 @@ export function hace(ms: number, ahora: number): string {
 
 export type GrupoDeTipo = 'decisions' | 'fixes' | 'conventions' | 'discoveries' | 'sessions'
 
-export const ORDEN_DE_GRUPOS: GrupoDeTipo[] = ['decisions', 'fixes', 'conventions', 'discoveries', 'sessions']
+const ORDEN_DE_GRUPOS: GrupoDeTipo[] = ['decisions', 'fixes', 'conventions', 'discoveries', 'sessions']
 
 const GRUPO_POR_TIPO: Record<ObservationType, GrupoDeTipo> = {
   decision: 'decisions',

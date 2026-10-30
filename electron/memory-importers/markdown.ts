@@ -107,7 +107,7 @@ function listDirs(dir: string): string[] {
  * real y un `/` producen el mismo carácter). Por eso el matcheo se hace slugificando los
  * roots que ya conocemos, nunca parseando el slug.
  */
-export function claudeProjectSlug(rootPath: string): string {
+function claudeProjectSlug(rootPath: string): string {
   return rootPath.replace(/[^A-Za-z0-9]/g, '-')
 }
 

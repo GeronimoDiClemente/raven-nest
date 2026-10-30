@@ -81,7 +81,7 @@ const REQUIRED_COLUMNS = [
  * de SQLite y el usuario ve cero importadas sin saber por que — el mismo fallo mudo del §2.2,
  * y justo en la puerta de entrada de los usuarios que vienen de engram.
  */
-export const ENGRAM_SCHEMA_UNKNOWN = 'engram_schema_unknown'
+const ENGRAM_SCHEMA_UNKNOWN = 'engram_schema_unknown'
 
 function hasReadableSchema(db: Database.Database): boolean {
   const table = db

@@ -90,7 +90,7 @@ function toPersistedGraphRun(x: unknown): PersistedGraphRun | null {
 
 /** Load persisted runs. Missing file → `[]` (first run, no crash). Corrupt JSON
  *  → warn + `[]`. Invalid entries are dropped individually with a warn. */
-export function loadGraphRuns(filePath: string): PersistedGraphRun[] {
+function loadGraphRuns(filePath: string): PersistedGraphRun[] {
   let raw: string
   try {
     raw = readFileSync(filePath, 'utf8')
@@ -117,7 +117,7 @@ export function loadGraphRuns(filePath: string): PersistedGraphRun[] {
 
 /** Atomic write (tmp + rename), same pattern as worker-spec-store. Best-effort:
  *  a disk failure logs a warn instead of throwing into the caller (the tick). */
-export function saveGraphRuns(filePath: string, runs: PersistedGraphRun[]): void {
+function saveGraphRuns(filePath: string, runs: PersistedGraphRun[]): void {
   try {
     mkdirSync(dirname(filePath), { recursive: true })
     const tmp = `${filePath}.${randomBytes(6).toString('hex')}.tmp`
@@ -128,7 +128,7 @@ export function saveGraphRuns(filePath: string, runs: PersistedGraphRun[]): void
   }
 }
 
-export function defaultGraphRunPath(): string {
+function defaultGraphRunPath(): string {
   return join(ravenHome(), '.raven-nest', 'graph-runs.json')
 }
 

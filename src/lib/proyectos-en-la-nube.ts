@@ -2,7 +2,7 @@
 // Sync. Puro: lo usa CloudProjectsRow, que recibe todo por props.
 
 /** Desde este tope el plan se lee como "sin tope": el de Cloud (server/src/limits.ts). */
-export const TOPE_SIN_LIMITE = 100
+const TOPE_SIN_LIMITE = 100
 
 export interface ProyectoEnLaNube {
   projectKey: string
