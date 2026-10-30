@@ -6,12 +6,9 @@
 // justo para que un usuario Free tambien importe), y esconderla detras del paywall
 // contradice el local-first que es la mitad de por que esto le gana a lo hosteado.
 //
-// Se escribe con el MISMO <Button ghost> que PersonalItem, y no con un `<div class="sidebar-item">`.
-// Medido el 2026-09-13: era la unica fila de la barra con un glifo dibujado a mano (viewBox
-// 16 contra el 24 de los ocho Lucide) y con el color base de `.sidebar-item`
-// (`--text-secondary`) en vez del `text-muted-foreground` de sus vecinas — o sea, dos
-// sistemas de front conviviendo en la misma columna. Se notaba: el icono se veia mas pesado
-// y la fila mas apagada que Personal y Settings, que estan pegadas.
+// Se escribe con el MISMO <Button ghost> que PersonalItem, y no con un `<div class="sidebar-item">`:
+// `.sidebar-item` pinta `--text-secondary` en vez del `text-muted-foreground` de sus vecinas,
+// y la fila se veria mas apagada que Personal y Settings, que estan pegadas.
 import { Button } from '@/components/ui/button'
 import { Network } from 'lucide-react'
 import { useMemories } from '../hooks/useMemories'
@@ -37,10 +34,7 @@ export default function MemoriesItem({ expanded, onOpen }: Props) {
         {/* `Network` y no `Waypoints`: los dos dibujan nodos unidos, que es exactamente lo
             que hay del otro lado, pero `Waypoints` ya lo usa la pestaña Worktrees de esta
             MISMA barra. Dos filas con el mismo ícono a la vista obligan a leer el texto para
-            distinguirlas, que es justo lo que un ícono existe para evitar.
-            
-            Antes de los dos era un glifo propio, dibujado a mano y con otra geometría: en una
-            columna de ocho Lucide el único distinto se lee como de otra app. */}
+            distinguirlas, que es justo lo que un ícono existe para evitar. */}
         <Network size={ICON_SIZE.lg} aria-hidden />
         <span
           data-testid="memories-dot"

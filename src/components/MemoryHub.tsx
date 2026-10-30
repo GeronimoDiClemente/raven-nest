@@ -16,9 +16,8 @@ interface HubStats {
 const SCREEN_COUNT = 3
 
 /**
- * The Task 7 hub (docs/superpowers/plans/2026-09-03-memoria-por-cuenta-multi-dispositivo.md):
- * shown once, to every user including Free, on the app's first launch after this feature
- * ships. Three screens — recognition with the user's own numbers, how it works, what Cloud
+ * The memory hub: shown once, to every user including Free, on the first launch of a
+ * version that has it. Three screens — recognition with the user's own numbers, how it works, what Cloud
  * adds — reachable again from Settings without re-triggering the "seen" flag.
  */
 export default function MemoryHub({ onClose, onUpgrade }: Props) {

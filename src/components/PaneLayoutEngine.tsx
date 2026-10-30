@@ -29,11 +29,11 @@ export interface PaneLayoutEngineProps {
  * (su forma es estable). Cada pane se monta una única vez dentro de un div
  * "host" propio vía portal, y lo que se mueve entre slots es ese nodo del DOM.
  *
- * Por qué: keyear los Panel por id del pane evitaba el remount solo entre
+ * Por qué: keyear los Panel por id del pane evita el remount solo entre
  * hermanos del MISMO grupo. React no puede mover un elemento entre padres, así
- * que un swap que cruzaba de PanelGroup (p. ej. en '3M' = h(p0, v(p1, p2)))
- * desmontaba y remontaba ambos panes — Monaco arrancaba vacío/negro y el
- * WebContentsView del browser se destruía y recreaba. Cambiarle el container a
+ * que un swap que cruza de PanelGroup (p. ej. en '3M' = h(p0, v(p1, p2)))
+ * desmontaría y remontaría ambos panes — Monaco arrancaría vacío/negro y el
+ * WebContentsView del browser se destruiría y recrearía. Cambiarle el container a
  * un portal remonta igual; lo único que preserva la instancia es mantener el
  * host fijo y reubicarlo con appendChild.
  */

@@ -1,6 +1,4 @@
-// Advanced → Sync token (spec §5, D7): conectar con un token en vez de con el login. Es el
-// campo que vivía en la tarjeta de Cloud; mismas condiciones para mostrarse y la misma
-// llamada (`connectWithToken`).
+// Advanced → Sync token: conectar con un token (`connectWithToken`) en vez de con el login.
 import { useEffect, useState } from 'react'
 import { useMemory } from '../hooks/useMemory'
 import { useProfile } from '../hooks/useProfile'
@@ -19,7 +17,7 @@ export default function SyncTokenRow() {
   // estado de React sólo lo deja en cada heap snapshot.
   useEffect(() => { if (memory.state === 'connected') setToken('') }, [memory.state])
 
-  // `error` siempre (C7 fix round 1: se llega conectado, con cualquier plan).
+  // `error` siempre: a ese estado se llega conectado, con cualquier plan.
   const visible = (memory.state === 'disconnected' && nubeDisponible) || memory.state === 'error'
   if (!visible) return null
   const pegado = token.trim()

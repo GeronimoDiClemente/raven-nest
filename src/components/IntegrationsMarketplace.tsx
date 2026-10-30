@@ -10,9 +10,8 @@ import type { PluginManifest, ConfigField } from '../types'
 // Duplica la consulta a `profiles.github_token` que hace useGitHub.ts en su
 // fetch inicial: la necesitamos acá para "reusar" el token ya guardado en
 // Supabase justo después de que el flujo OAuth existente termina (useGitHub
-// resetea su propio `githubToken` a null tras conectar, ver useGitHub.ts:50).
-// Una alternativa más limpia sería exponer un `getToken()` en el hook; se
-// deja para no tocar su contrato público en esta task.
+// resetea su propio `githubToken` a null tras conectar).
+// Una alternativa más limpia sería exponer un `getToken()` en el hook.
 async function fetchGithubTokenFromSupabase(): Promise<string | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
@@ -155,8 +154,7 @@ export function ConnectControl({ plugin }: { plugin: PluginManifest }) {
 
 /**
  * Marketplace personal de integraciones (búsqueda, grids de
- * instaladas/disponibles/coming-soon). Se usa embebido dentro de
- * `MyReposPanel` (sección "Integrations").
+ * instaladas/disponibles/coming-soon).
  */
 export function IntegrationsMarketplaceView() {
   const { catalog } = usePluginCatalog()

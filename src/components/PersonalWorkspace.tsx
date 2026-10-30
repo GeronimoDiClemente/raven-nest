@@ -44,7 +44,7 @@ interface PersonalWorkspaceProps {
   /** Pane currently focused in the terminal grid — feeds the "attach terminal output" action of an embedded integration panel. */
   focusedPaneId?: string | null
   /** Opens the add-pane flow on a freshly created worktree (App.tsx setAddingPane).
-   *  El 2º arg (H5) viaja como initialInput del pane: el prompt inicial del agente.
+   *  El 2º arg viaja como initialInput del pane: el prompt inicial del agente.
    *  El 3º arg (worker) viaja cuando el usuario elige "Run with worker": el spec
    *  entero para que App arme el pipeline de Hand-off (steps[0] ya define
    *  initialInput/agent/model, igual que el flujo del board). */
@@ -190,9 +190,9 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
         setOpenTarget(repo)
         return
       }
-      // Verify the remote actually matches the repo — guards against the
-      // wrong-folder bug where a stale localPath points at a different repo.
-      // New IPC shape: { ok: true, url } | { ok: false, reason }. Falls back
+      // Verify the remote actually matches the repo — guards against a stale
+      // localPath that points at a different repo.
+      // IPC shape: { ok: true, url } | { ok: false, reason }. Falls back
       // gracefully if main returns the legacy string|null.
       try {
         const rawResult: unknown = await (window.git as unknown as {
@@ -215,10 +215,10 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
         // means the check above never got to run — and that check is what
         // catches a stale localPath pointing at a DIFFERENT repo. In team
         // scope, where paths are per-device and repos arrive from other
-        // people, the old surface asked instead of guessing: opening the
-        // wrong repo's folder is precisely the failure it exists to prevent.
-        // Personal scope keeps the long-standing permissive fall-through —
-        // it's your own path, and re-linking is one menu away.
+        // people, ask instead of guessing: opening the wrong repo's folder
+        // is precisely the failure the check exists to prevent. Personal
+        // scope falls through permissively — it's your own path, and
+        // re-linking is one menu away.
         if (scope.kind === 'team') {
           setOpenTargetReason(`Could not verify that \`${repo.localPath}\` still points at ${repo.fullName}. Clone it again or link another folder?`)
           setOpenTarget(repo)
@@ -256,10 +256,8 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
 
   const handleOpenTargetLink = async () => {
     if (!openTarget) return
-    // pickRepoFolder accepts an `expectedRemote` arg in preload.ts but is
-    // typed as 0-args in src/types.ts (pre-existing mismatch — see line 83
-    // and TeamsWorkspace for the same call). Cast around the type until
-    // types.ts is updated to match the preload signature.
+    // `expectedRemote` makes the picker verify the folder's remote. The cast
+    // is redundant: src/types.ts already types that argument.
     const folder = await (window.git.pickRepoFolder as unknown as (expected?: string) => Promise<string | null>)(openTarget.url)
     if (folder) {
       await updateLocalPath(openTarget.id, folder)
@@ -328,13 +326,11 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
   // workspace-shell-design §2: only wire a counter where the number is
   // already sitting in memory before the nav ever renders — no fetch of its
   // own. `unreadCount` (GitHub notifications) and `repos` both load eagerly,
-  // independent of `section`; `pendingInvites` is the case the spec names as
-  // already qualifying (`onPendingInvitesChange`), now moved out of the label
-  // text and into the shared trailing badge. `issues` and `standup` do NOT
+  // independent of `section`; so does `pendingInvites`
+  // (`onPendingInvitesChange`). `issues` and `standup` do NOT
   // qualify: neither has a cross-repo aggregate available without picking a
   // repo (issues) or opening the section (standup fetches its own commits on
-  // mount). All counts hide at 0 rather than show a bare zero — same
-  // convention `pendingInvites` already used before this task.
+  // mount). All counts hide at 0 rather than show a bare zero.
   const NAV_ITEMS: { id: Section; label: string; icon: React.ReactNode; count?: number }[] = [
     {
       id: 'activity',
@@ -373,7 +369,6 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
   return (
     <div className={`teams-workspace${closing ? ' closing' : ''}`}>
 
-      {/* Header */}
       <div className="teams-workspace-header">
         <button className="tw-back-btn" onClick={onClose}>
           <ChevronLeft size={ICON_SIZE.lg} aria-hidden />
@@ -381,9 +376,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
         </button>
 
         <div className="tw-header-center">
-          {/* El color y el flex-shrink venian del <svg> a mano que habia aca; se conservan
-              tal cual al migrar el icono. --raven-blue es un alias de --primary (#e8e8e8),
-              no un azul, pese al nombre. */}
+          {/* --raven-blue es un alias de --primary (#e8e8e8), no un azul, pese al nombre. */}
           <Waypoints size={ICON_SIZE.lg} style={{ color: 'var(--raven-blue)', flexShrink: 0 }} aria-hidden />
           <span className="tw-header-title" data-tour-id="myrepos-header">Personal</span>
         </div>
@@ -428,7 +421,6 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
         </div>
       </div>
 
-      {/* Body: sidebar + content */}
       <div className="teams-workspace-body">
         <nav className="teams-workspace-nav" data-tour-id="myrepos-nav">
           <ScopeSelector
@@ -702,7 +694,7 @@ export default function PersonalWorkspace({ onClose, githubToken, githubLogin, o
 
             {/* ISSUES — repo selector */}
             {githubToken && section === 'issues' && issuesView === 'repo-select' && (() => {
-              // H1: GitHub Issues API doesn't apply to GitLab repos — filter them out.
+              // GitHub Issues API doesn't apply to GitLab repos — filter them out.
               // GitLab has its own issues API and a different schema; the IssueList
               // component talks to api.github.com only, so showing GitLab repos here
               // would just produce 404s.

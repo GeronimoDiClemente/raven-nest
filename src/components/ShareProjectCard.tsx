@@ -2,17 +2,16 @@
 //
 // Lo que decide si se puede es el PLAN: compartir con un equipo es del plan Teams (`teamScope`
 // en server/src/limits.ts), y main lo informa como `puedeCompartirMemoria` en el status.
-// (Entre el 2026-09-13 y el 2026-10-15 tampoco se ofrecía porque lo compartido no se cifraba;
-// desde el 15-10 el scope `team` se cifra con una clave por equipo, ver TeamEncryptionCard.)
+// (El scope `team` se cifra con una clave por equipo, ver TeamEncryptionCard.)
 //
 // La card tiene tres caras y el servidor decide cuál:
-//   · no se sabe   -> nada (spec 2026-10-21 §5, D10).
+//   · no se sabe   -> nada.
 //   · sin permiso  -> una fila que dice qué plan falta, con See plans. Sin select ni botón que den 403.
 //   · con permiso  -> el control real; sin equipo, sólo la línea que dice que falta uno.
 //
 // ⚠️ Lee `teams` de useTeam() y NUNCA llama a switchTeam. Elegir un equipo acá es elegir un
-// destino para compartir, no cambiar el equipo activo de la app (decisión 3 de la spec; el
-// acoplamiento que se evita está en PersonalWorkspace.tsx:306).
+// destino para compartir, no cambiar el equipo activo de la app (el acoplamiento que se
+// evita está en PersonalWorkspace.tsx).
 import { useEffect, useState } from 'react'
 import { useTeam } from '../hooks/useTeam'
 import { truncateWithEllipsis } from '../lib/truncate'
@@ -84,11 +83,11 @@ export default function ShareProjectCard({ activeRepoPath, onSeePlans }: Props) 
     }
   }
 
-  // Spec 2026-10-21 §5 (D10): sin saber todavía si la cuenta puede compartir, no se muestra.
+  // Sin saber todavía si la cuenta puede compartir, no se muestra.
   if (puedeCompartir === undefined) return null
 
   // El gate real es de plan (`teamScope` en server/src/limits.ts), no técnico. Sin callejón
-  // sin salida: la fila dice qué falta y lleva a los planes (el modal es de 2b, no se toca).
+  // sin salida: la fila dice qué falta y lleva a los planes.
   if (puedeCompartir === false) {
     return (
       <SettingRow
@@ -119,11 +118,11 @@ export default function ShareProjectCard({ activeRepoPath, onSeePlans }: Props) 
         </>
       )}
     >
-      {/* Ruling 5: sin equipo, las cajas explicarían una acción que no se puede hacer. */}
+      {/* Sin equipo, las cajas explicarían una acción que no se puede hacer. */}
       {teams.length > 0 && <div className="grid grid-cols-2 gap-2 text-fs-sm">
         <div className="rounded-md border border-border p-2 text-foreground">
           <p className="m-0 font-medium">The team will see</p>
-          {/* IMPORTANT #7b: compartir el proyecto no mueve ninguna fila por sí solo; sólo
+          {/* Compartir el proyecto no mueve ninguna fila por sí solo; sólo
               viaja lo que alguien promueve (`promoteToTeam`). */}
           <p className="m-0 mt-1 text-muted-foreground">Only memories someone promotes to the team from here on. Nothing already saved moves on its own.</p>
         </div>

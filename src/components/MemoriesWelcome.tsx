@@ -1,5 +1,4 @@
-// src/components/MemoriesWelcome.tsx
-// Task 7 (2026-10-19, spec §4/§5): lo primero que ve quien abre Memories por primera
+// Spec §4/§5: lo primero que ve quien abre Memories por primera
 // vez (y lo que «How it works» del header vuelve a mostrar a pedido). Una escena concreta
 // de dos agentes dejando y leyendo una memoria, los cuatro alcances en los que importa,
 // y la salida a la acción: el tour (tantos pasos como tenga) o seguir solo. Es el único

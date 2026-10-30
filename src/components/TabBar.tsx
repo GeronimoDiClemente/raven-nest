@@ -137,38 +137,31 @@ const SortableTab = memo(function SortableTab({
           onTabColorChange?.(tab.id, e.target.value)
         }}
       />
-      {/* El boton de cerrar es un ICONO, no un boton con texto. Con size="sm" media 31px
-          --medido en la app, la mitad de lo que medía el nombre de la pestaña (61px)-- y
-          en las pestañas inactivas es invisible pero igual reserva su caja. Entre el punto
-          de color, este boton y los dos gaps se iban 59px de una pestaña de 146: tanto
-          como el nombre entero.
-
-          Se deja del tamaño del glifo y sin padding. El area de click sigue siendo comoda
-          porque toda la pestaña es clickeable y esto esta en su borde.
+      {/* El boton de cerrar es un ICONO del tamaño del glifo y sin padding: con size="sm"
+          mide 31px, la mitad del nombre de una pestaña, y junto al punto de color y los
+          gaps se lleva tanto ancho como el nombre entero. El area de click sigue siendo
+          comoda porque toda la pestaña es clickeable y esto esta en su borde.
 
           En una INACTIVA no ocupa lugar: va en `absolute` y aparece al pasar el mouse.
-          Invisible pero en el flujo, se llevaba 24px (18 de caja y 6 de gap) de cada pestaña —
-          con nueve workspaces en 1400px el nombre se quedaba con 43 y truncaban todas
-          (e2e/17-pestanas.spec.ts).
+          Invisible pero en el flujo se llevaria 24px (18 de caja y 6 de gap) de cada
+          pestaña, y con muchos workspaces truncarian todas (e2e/17-pestanas.spec.ts).
 
           Va a la IZQUIERDA del punto de color, sobre el final del nombre y con el fondo del
-          hover para taparlo, como la cruz de una pestaña de navegador. Encima del punto no:
-          así no había forma de cambiarle el color a una inactiva. `right-[30px]` = 12 de
+          hover para taparlo, como la cruz de una pestaña de navegador. Encima del punto no
+          habria forma de cambiarle el color a una inactiva. `right-[30px]` = 12 de
           padding + 12 del botón del punto + 6 de gap.
 
           Se centra en vertical con `inset-y-0 my-auto` y NO con `-translate-y-1/2`: el
           `active:translate-y-px` del Button reemplaza ese translate al apretar, la cruz salta
-          9px, el mouseup cae en la pestaña y el click nunca llega — la pestaña no se cerraba.
+          9px, el mouseup cae en la pestaña y el click nunca llega.
 
-          La cruz era el caracter "✕", no un icono: ahora es lucide, con el mismo grosor
-          que el resto de la app (src/lib/icons.ts). */}
+          Icono lucide, con el mismo grosor que el resto de la app (src/lib/icons.ts). */}
       <Button
         variant="ghost"
         size="sm"
         className={cn(
           'size-[18px] shrink-0 rounded-sm p-0 text-muted-foreground transition-opacity hover:text-destructive',
-          // Antes .tab-close vivía en opacity:0 y sólo aparecía en :hover/.active
-          // (global.css) — el group-hover reproduce lo mismo sin la clase vieja.
+          // En las inactivas, oculta hasta el hover de la pestaña (group-hover).
           isActive ? 'opacity-100' : 'absolute inset-y-0 right-[30px] z-10 my-auto bg-muted opacity-0 group-hover:opacity-100',
         )}
         onClick={(e) => { e.stopPropagation(); onTabClose(tab.id) }}
@@ -246,20 +239,16 @@ export default function TabBar({
                 />
               )
             })}
-            {/* El "+" vive ADENTRO de .tabbar-tabs, no al lado.
-                Desde que la tira de pestañas se queda con el espacio libre (ver
-                .tabbar-tabs en global.css), un hermano de afuera quedaba empujado
-                al extremo derecho de la ventana cuando habia una sola pestaña —
-                lejisimos de la pestaña a la que pertenece. Adentro sigue siempre
-                pegado a la ultima, que es donde lo espera cualquiera que venga de
-                un navegador o de VS Code. */}
-            {/* size="icon-lg" (36px, ampliacion de alcance de Task 14): .tab mide ~35px
-                (padding 7px + el texto de .tab-name), el `sm` de antes (28px) quedaba
-                chico y desalineado al lado de la pestaña — icon-lg es el escalon del
-                primitivo mas cercano a esa altura real. El glifo tambien era un "+" de
-                texto plano a 12px (perdido dentro de la caja mas grande): se cambia por
-                el mismo SVG de "+" que ya usa el "New Terminal" del sidebar
-                (Sidebar.tsx), para que la familia de iconos sea consistente. */}
+            {/* El "+" vive ADENTRO de .tabbar-tabs, no al lado: la tira de pestañas se
+                queda con el espacio libre (ver .tabbar-tabs en global.css), y un hermano
+                de afuera quedaria empujado al extremo derecho de la ventana con una sola
+                pestaña. Adentro sigue siempre pegado a la ultima, que es donde lo espera
+                cualquiera que venga de un navegador o de VS Code. */}
+            {/* size="icon-lg" (36px): .tab mide ~35px (padding 7px + el texto de .tab-name)
+                y un `sm` (28px) queda chico y desalineado al lado — icon-lg es el escalon
+                del primitivo mas cercano a esa altura real. El glifo es el mismo SVG de "+"
+                que el "New Terminal" del sidebar (Sidebar.tsx), para que la familia de
+                iconos sea consistente. */}
             <Button
               variant="ghost"
               size="icon-lg"

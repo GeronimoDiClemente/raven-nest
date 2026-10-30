@@ -1,8 +1,7 @@
 // Escribir una memoria a mano.
 //
-// Hasta ahora Memories era de SÓLO LECTURA: únicamente los agentes escribían, y algo que vos
-// querías dejar asentado no tenía puerta. Eso convertía la pantalla en un visor de lo que
-// hacen otros en vez de en un lugar donde trabajás.
+// Sin esto sólo escriben los agentes, y algo que vos querés dejar asentado no tiene puerta:
+// la pantalla sería un visor de lo que hacen otros en vez de un lugar donde trabajás.
 //
 // El formulario es corto a propósito. Lo único obligatorio es el título, porque una memoria
 // sin título no se puede encontrar después; todo lo demás son las dos cosas que de verdad la
@@ -14,7 +13,7 @@ import { MEMORY_TYPES_IN_LEGEND_ORDER, memoryTypeSwatch, type KnownMemoryType } 
 
 /**
  * Sólo los 7 tipos que una persona elige a mano. `session` y `handoff` quedan afuera a
- * propósito (ruling del controller, fix round 1 de la tarea 1): los escriben los agentes y
+ * propósito: los escriben los agentes y
  * el flujo de handoff automático, no alguien completando este formulario — ofrecerlos acá
  * sería invitar a un tipo que no tiene sentido fuera de ese camino. Se filtra sobre
  * `MEMORY_TYPES_IN_LEGEND_ORDER` en vez de listar los 7 de nuevo, para no tener dos listas
@@ -35,7 +34,7 @@ interface Props {
   /** El título con el que arranca — «Create this memory» desde un `[[hueco]]` lo trae puesto. */
   tituloInicial?: string
   /** Avisa si hay algo escrito (título o cuerpo), para que cerrar la pestaña pregunte antes
-   *  de tirarlo (final review F4). */
+   *  de tirarlo. */
   onDirtyChange?: (sucio: boolean) => void
 }
 

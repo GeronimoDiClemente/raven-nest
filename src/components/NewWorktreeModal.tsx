@@ -51,8 +51,8 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
 
   const slug = branch.replace(/[\/]/g, '-').replace(/[^a-zA-Z0-9._\-]/g, '')
   // Sibling-directory default (matches what worktree:create uses on the main side).
-  // The previous default pointed inside `.git/worktrees/`, which is git's internal
-  // metadata folder and produces corrupt worktrees.
+  // Never inside `.git/worktrees/`: that's git's internal metadata folder and
+  // produces corrupt worktrees.
   const repoPosix = repoPath.replace(/\\/g, '/').replace(/\/$/, '')
   const lastSlash = repoPosix.lastIndexOf('/')
   const parentDir = lastSlash >= 0 ? repoPosix.slice(0, lastSlash) : ''

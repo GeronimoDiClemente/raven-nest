@@ -99,18 +99,16 @@ interface Props {
   // Lifted from App.tsx (the single shared instance) — see UserPreferencesApi's
   // doc comment for why this must not be a local useUserPreferences() call.
   userPrefs: UserPreferencesApi
-  // Task 10 (team thread panel): same path the file explorer already uses to open a file
-  // in the editor (App.tsx's openFileInEditor, threaded down through Sidebar's onFileOpen).
-  // Optional so existing callers/tests that don't care about the team thread panel keep
-  // compiling unchanged.
+  // Same path the file explorer uses to open a file in the editor (App.tsx's
+  // openFileInEditor, threaded down through Sidebar's onFileOpen). Optional so callers/tests
+  // that don't care about the team thread panel compile unchanged.
   onFileOpen?: (relPath: string) => void
   /**
-   * Spec 2026-09-09 §4: la memoria dejo de vivir en Settings. Queda la puerta.
+   * La memoria no vive en Settings: acá queda sólo la puerta.
    *
-   * Task 3 (plan "memorias vista y settings"): el botón de Account abre la vista de
-   * Memories ya posicionada en `'settings'` — la pestaña que trae CloudMemoryCard (Task 5),
-   * no la de `'memorias'` (el default). El argumento es opcional para no romper otro
-   * llamador que sólo quiera abrir la vista por default.
+   * El botón de Account abre la vista de Memories ya posicionada en `'settings'` — la
+   * pestaña que trae CloudMemoryCard —, no la de `'memorias'` (el default). El argumento es
+   * opcional para el llamador que sólo quiera abrir la vista por default.
    */
   onOpenMemories?: (vista?: 'memorias' | 'settings', seccion?: SeccionDeSettings) => void
   /** Sube cada vez que algo de afuera pide abrir Account (Plan & billing); cada subida, una vez. */
@@ -231,8 +229,8 @@ function Seccion({
    *
    * Con una sola página, todas las secciones montan a la vez — y algunas no son inertes:
    * `BenchmarkDashboard` arranca un `setInterval` de 2s contra el proceso principal. Sin
-   * esto, abrir Settings para cambiar un atajo dejaba corriendo un polling que nadie estaba
-   * mirando. El encabezado y la descripción SÍ se dibujan siempre, que es lo que hace que
+   * esto, abrir Settings para cambiar un atajo dejaría corriendo un polling que nadie mira.
+   * El encabezado y la descripción SÍ se dibujan siempre, que es lo que hace que
    * saltar desde el rail y buscar por título sigan funcionando.
    */
   // Arranca en `true` donde no hay IntersectionObserver (jsdom, y cualquier entorno que no
@@ -280,10 +278,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   /**
    * Una seccion por vez, en vez de las nueve en un scroll.
    *
-   * Eran nueve apiladas y `Account` sola mide 215 lineas — las ultimas cinco juntas suman
-   * menos que ella, asi que para llegar a `Terminal` habia que pasar por todo eso. El rail ya
-   * existia pero sólo hacía `scrollIntoView`: un indice de un documento largo, no una
-   * navegacion.
+   * `Account` sola es más larga que las últimas cinco juntas: apiladas, para llegar a
+   * `Terminal` habría que pasar por todo eso.
    *
    * **El buscador es la excepcion, y es la razon por la que esto no pierde nada.** Mientras
    * hay algo escrito se muestran TODAS las secciones que matchean, cruzando el limite de la
@@ -326,9 +322,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
-  // La nube de memoria (conectar/desconectar, cuota, upgrade) se mudó a CloudMemoryCard
-  // (Task 3). Lo único que se queda acá es `useMemory()` para MemoryAdoptionDialog, que no
-  // depende de `open` y tiene que verse aunque Settings esté cerrado.
+  // La nube de memoria (conectar/desconectar, cuota, upgrade) vive en CloudMemoryCard. Lo
+  // único que se queda acá es `useMemory()` para MemoryAdoptionDialog, que no depende de
+  // `open` y tiene que verse aunque Settings esté cerrado.
   const memory = useMemory()
   const [importPreview, setImportPreview] = useState<{ source: 'vscode' | 'intellij'; options: EditorPreferences; theme?: EditorTheme; unmappedTheme?: string } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -353,8 +349,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   }, [])
 
   useEffect(() => {
-    // Antes esto esperaba a que entraras a la pestaña Editor. Con una sola pagina esa
-    // pestaña no existe: se carga al abrir el panel.
+    // Se carga al abrir el panel, no al llegar a la sección Editor.
     if (open) void refreshInstalledThemes()
   }, [open, refreshInstalledThemes])
 
@@ -420,11 +415,10 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const confirmImportEditorConfig = useCallback(() => {
     if (!importPreview) return
     // unmappedTheme (workbench.colorTheme que no era vs/vs-dark): si matchea
-    // un tema bundled o instalado, se aplica directo — cierra el loop que el
-    // import de config dejaba abierto.
+    // un tema bundled o instalado, se aplica directo.
     // Match EXACTO primero (bundled/instalados); el heurístico vs/vs-dark de
-    // parseVSCodeSettings es solo el fallback — al revés degradaba temas que
-    // SÍ existen ("One Dark Pro" terminaba en vs-dark genérico).
+    // parseVSCodeSettings es solo el fallback — al revés degradaría temas que
+    // SÍ existen ("One Dark Pro" terminaría en vs-dark genérico).
     const exact = importPreview.unmappedTheme
       ? matchThemeName(importPreview.unmappedTheme, [...BUNDLED_THEMES, ...installedThemes])
       : undefined
@@ -465,8 +459,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
     <>
       <button className="titlebar-btn" onClick={() => setOpen(v => !v)} title="Settings" />
 
-      {/* Task 2 (adopción con aviso): no depende de `open` — el login que lo dispara puede
-          pasar con el panel de Settings cerrado, y el usuario tiene que verlo igual. */}
+      {/* No depende de `open`: el login que lo dispara puede pasar con el panel de
+          Settings cerrado, y el usuario tiene que verlo igual. */}
       {memory.pendingAdoption && createPortal(
         <MemoryAdoptionDialog
           count={memory.pendingAdoption.count}
@@ -479,12 +473,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
 
       {open && createPortal(
         <>
-          {/* La MISMA cáscara que Personal, Teams y Memories, no un modal aparte.
-              Settings era lo único que se abría como un flotante sobre la app mientras las
-              otras tres pantallas grandes eran overlays a pantalla completa con su nav a la
-              izquierda — tres cosas que hacen lo mismo, presentadas de tres formas. Con
-              `.teams-workspace` se lleva gratis la animación de entrada y el z-index que las
-              otras ya tenían. */}
+          {/* La MISMA cáscara que Personal, Teams y Memories, no un modal aparte. Con
+              `.teams-workspace` se lleva gratis la animación de entrada y el z-index de
+              las otras. */}
           <div className="teams-workspace settings-workspace">
             <div className="teams-workspace-header">
               <button className="tw-back-btn" onClick={() => setOpen(false)}>
@@ -497,11 +488,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
             </div>
 
             <div className="teams-workspace-body">
-              {/* El rail. Es el mismo componente de fila que usa Personal, no una lista
-                  propia: era justamente lo que hacía que estas pantallas se vieran de
-                  stacks distintos. Tocar una sección la trae a la vista en vez de
-                  esconder las demás — con el buscador ya hay una forma de filtrar. */}
-              {/* El rail es NAVEGACION, no un indice: cada seccion es su propia pantalla. */}
+              {/* El rail usa el mismo componente de fila que Personal, no una lista propia.
+                  Es NAVEGACION, no un indice: cada seccion es su propia pantalla. */}
               <nav className="teams-workspace-nav">
                 {SECCIONES.map((sec) => (
                   <WorkspaceNavButton
@@ -532,8 +520,6 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
               />
             </div>
 
-            {/* Body */}
-
               <Seccion
                 id="account"
                 titulo="Account"
@@ -544,13 +530,12 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                 <div className="sp-section">
                   <p className="sp-email">{userEmail || '—'}</p>
 
-                  {/* Spec 2b-3 §3: Plan, Usage y Machines. */}
                   <AccountPlanSection memory={memory} onOpenMemorySync={() => onOpenMemories?.('settings', 'sync')} />
 
 
                   {/* La memoria no vive en Settings: su configuración es la pestaña
-                      Settings del workspace de Memories (spec 2026-10-21). Esto abre
-                      Memories con esa pestaña activa. */}
+                      Settings del workspace de Memories. Esto abre Memories con esa
+                      pestaña activa. */}
                   {onOpenMemories && (
                     <Button variant="outline" size="sm" onClick={() => onOpenMemories('settings')}>
                       Memory settings
@@ -805,9 +790,6 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     </select>
                   </div>
 
-                  {/* La vista previa muestra los dieciseis colores del tema elegido sobre su
-                      propio fondo. Un nombre de tema no dice nada: "Everforest Dark Hard" no
-                      se parece a nada hasta que lo ves. */}
                   <VistaPreviaDelTema
                     temaId={temaElegido}
                     importados={importados}

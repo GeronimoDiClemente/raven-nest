@@ -39,7 +39,7 @@ export default function MemoriesExplorer(p: MemoriesExplorerProps) {
 
   const alternar = (id: string) => {
     // Con una búsqueda activa todas las carpetas con resultados se ven abiertas: un click no
-    // puede guardar un "cerrada" que la persona no ve (final review, minor de Task 9).
+    // puede guardar un "cerrada" que la persona no ve.
     if (buscando) { p.onSeleccionarCarpeta(id); return }
     const sig = new Set(cerradas)
     if (!sig.delete(id)) sig.add(id)
@@ -81,7 +81,7 @@ export default function MemoriesExplorer(p: MemoriesExplorerProps) {
                   aria-expanded={abierta}
                   onClick={() => alternar(c.id)}
                   className={cn(
-                    // `border-0`: sin preflight, un <button> trae el borde del navegador (final review V1).
+                    // `border-0`: sin preflight, un <button> trae el borde del navegador.
                     'flex w-full cursor-pointer items-center gap-1 rounded-md border-0 px-1.5 py-1 text-left text-fs-sm font-medium text-foreground hover:bg-accent/50',
                     p.carpetaSeleccionada === c.id && 'bg-accent',
                   )}

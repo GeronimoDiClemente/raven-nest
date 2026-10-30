@@ -1,4 +1,4 @@
-// Spec 2b-2 §4.8: el aviso de que Cloud quedó activo. No hay servicio de toasts en la app (D11):
+// El aviso de que Cloud quedó activo. No hay servicio de toasts en la app:
 // componente propio, shadcn + utilidades, por encima de cualquier overlay.
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'

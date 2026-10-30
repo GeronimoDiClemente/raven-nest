@@ -19,16 +19,15 @@ const planLabel = (plan: Plan | null, isTrialActive: boolean, trialDaysLeft: num
   if (plan === 'enterprise') return 'Enterprise'
   if (plan === 'team') return 'Team'
   if (plan === 'cloud') return 'Cloud'
-  // `pro` es el alias heredado de `cloud` (ver PLAN_LIMITS en lib/stripe.ts) hasta que
-  // la Task 6 del corte comercial migre los perfiles. Un usuario en `pro` paga lo mismo
-  // que uno en `cloud` y tiene que verse igual: "Cloud", no "Pro".
+  // `pro` es el alias heredado de `cloud` (ver PLAN_LIMITS en lib/stripe.ts) hasta que se
+  // migren los perfiles. Un usuario en `pro` paga lo mismo que uno en `cloud` y tiene que
+  // verse igual: "Cloud", no "Pro".
   if (plan === 'pro') return 'Cloud'
   return 'Free'
 }
 
-// El nombre de la clase se queda `--pro` aunque la etiqueta visible ya diga "Cloud":
-// la regla vive en global.css, que otro agente esta editando en paralelo. Renombrar
-// la clase sin poder tocar esa hoja de estilos dejaria el punto sin color.
+// El nombre de la clase se queda `--pro` aunque la etiqueta visible diga "Cloud": la regla
+// vive en global.css con ese nombre, y renombrar sólo la clase dejaria el punto sin color.
 const planDotClass = (plan: Plan | null, isTrialActive: boolean) => {
   if (isTrialActive) return 'user-menu-dot--trial'
   if (plan === 'enterprise') return 'user-menu-dot--enterprise'
@@ -87,9 +86,8 @@ export default function UserMenu({ plan, isTrialActive, trialDaysLeft, onUpgrade
           )}
           <span className={`user-menu-dot ${planDotClass(plan, isTrialActive)}`} />
         </span>
-        {/* Sólo el nombre. El plan estaba en un segundo renglón y era lo que hacía de ésta la
-            única fila de dos líneas de la barra — el resto son todas de una. Sigue estando en
-            el `title`, junto al mail, y en el popover que se abre al tocarla. */}
+        {/* Sólo el nombre: el plan en un segundo renglón haría de ésta la única fila de dos
+            líneas de la barra. El plan está en el `title`, junto al mail, y en el popover. */}
         {expanded && (
           <span className="user-menu-meta">
             <span className="user-menu-name">{displayName || email || 'Signed in'}</span>

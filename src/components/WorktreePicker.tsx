@@ -93,7 +93,7 @@ export function WorktreePicker({ row, onClose, onCreated, onOpenWorktree }: Prop
       // Open a pane on the new worktree. With a worker picked, the whole spec
       // flows up so App can track the pipeline; steps[0].instructions is the
       // first-pane input hint. None → (path, undefined, undefined), i.e. the
-      // plain new-pane flow, exactly as before.
+      // plain new-pane flow.
       const spec = workers.find((w) => w.id === workerId)
       onOpenWorktree?.(res.meta.repoPath, spec?.steps[0]?.instructions, spec)
       onClose()

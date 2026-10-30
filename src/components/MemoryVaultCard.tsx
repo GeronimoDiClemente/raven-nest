@@ -7,10 +7,9 @@ type VaultSettings = { version: number; enabled: boolean; root: string | null; i
 type VaultResult = { written: number; moved: number; deleted: number; conflicts: number; warnings: unknown[] }
 
 /**
- * Task 5 (plan de memoria por cuenta multi-dispositivo) — "Mirror my memory to Markdown"
- * (vault spec §7). Enabling corre una pasada completa al toque (lo hace
- * `memory:vault:setSettings` del lado main, no este componente) — el "un click prende +
- * genera + abre la carpeta" que el spec llama el momento comercial real.
+ * "Mirror my memory to Markdown" (vault spec §7). Enabling corre una pasada completa al
+ * toque (lo hace `memory:vault:setSettings` del lado main, no este componente): un click
+ * prende, genera y abre la carpeta.
  *
  * Self-contained a propósito, como MemoryHub/MemoryAdoptionDialog: no pasa por useMemory()
  * porque el vault es un subsistema aparte del daemon de sync (no tiene status en vivo que

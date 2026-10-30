@@ -3,11 +3,9 @@ import { useInstalledPlugins } from '../hooks/useInstalledPlugins'
 import { ConnectionCard, ConnectionCardSoon } from './ConnectionCard'
 
 /**
- * Connections tab of the Integrations Hub — one clean card per catalog
- * integration instead of the old search + Installed/Available/Coming soon
- * grids (IntegrationsMarketplaceView, still used verbatim by its own tests
- * and kept as the underlying OAuth/apiKey implementation via ConnectControl,
- * see ConnectionCard.tsx). Cards for entries without `auth` (or `auth.kind
+ * Connections tab of the Integrations Hub — one card per catalog integration.
+ * The OAuth/apiKey implementation lives in IntegrationsMarketplaceView, reused
+ * via ConnectControl (see ConnectionCard.tsx). Cards for entries without `auth` (or `auth.kind
  * === 'none'`, e.g. the internal "demo" fixture) are skipped — there's
  * nothing to connect, so they don't belong in this view.
  */

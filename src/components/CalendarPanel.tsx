@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { GcalEventDTO } from '../types'
 
-// H6 Motor 4 (entrada) — "Block → Session". Lista los bloques de HOY del calendario
+// "Block → Session". Lista los bloques de HOY del calendario
 // y ofrece "Start session" por bloque: crea un worktree e inyecta el título/descr
 // del evento como prompt inicial del agente. JAMÁS automático — siempre requiere el
-// click (spec madre). UI deliberadamente mínima (lista simple, clases del shell).
+// click. UI deliberadamente mínima (lista simple, clases del shell).
 interface CalendarPanelProps {
   /** Crea el worktree, escribe el spec del bloque y abre la sesión (block→session). */
   onStartSession: (title: string, context: string) => void

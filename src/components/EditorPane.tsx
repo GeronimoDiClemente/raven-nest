@@ -94,8 +94,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
 
   // Los buffers dirty viven en el state de ESTE componente y cambiar de
   // workspace tab lo DESMONTA (App renderiza solo el tab activo, sin
-  // keep-alive): sin esto, al volver la tab seguía marcada dirty pero
-  // recargaba de disco — y Ctrl+S escribía el contenido de disco pisando
+  // keep-alive): sin esto, al volver la tab sigue marcada dirty pero
+  // recarga de disco — y Ctrl+S escribe el contenido de disco pisando
   // las ediciones del usuario. El unmount stashea todo buffer dirty al
   // handoff; la carga ya consume stashes para tabs que llegan dirty.
   useEffect(() => () => {
@@ -120,9 +120,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // its key can race: watch()'s synchronous dedupe-check sees the key still
   // present and no-ops, then the in-flight unwatch() finishes and deletes it
   // anyway — leaving the file silently unwatched even though this component
-  // believes it's watched. Ported from ExplorerPanel.tsx, which hit the same
-  // bug class on directory watches: sequence watch/unwatch calls per key so
-  // the last toggle always wins.
+  // believes it's watched. Same fix as ExplorerPanel.tsx's directory watches:
+  // sequence watch/unwatch calls per key so the last toggle always wins.
   const pendingOpsRef = useRef(new Map<string, Promise<void>>())
   const eolRef = useRef<Record<string, '\n' | '\r\n'>>({})
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -172,9 +171,9 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const editorInstanceRef = useRef<{ createDecorationsCollection: (d: unknown[]) => { set: (d: unknown[]) => void } } | null>(null)
   // ext → lang id de shiki, 'pending' mientras carga, o null si esa ext quedó
   // en Monarch (sin grammar o falla de carga). Es un REF, nunca state: un
-  // state acá re-renderizaba al resolver el import y @monaco-editor/react
-  // pisaba el buffer del editor con el prop `value` atrasado en medio del
-  // tipeo — se comía keystrokes. El lenguaje se aplica imperativamente vía
+  // state acá re-renderiza al resolver el import y @monaco-editor/react
+  // pisa el buffer del editor con el prop `value` atrasado en medio del
+  // tipeo — se come keystrokes. El lenguaje se aplica imperativamente vía
   // setModelLanguage (preserva buffer y cursor), jamás por el prop `language`.
   const shikiLangsRef = useRef<Record<string, string | null | 'pending'>>({})
   const editorThemeRef = useRef(editorTheme)
@@ -192,11 +191,11 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // deja una race — el onChange de Monaco programa un setContents, el commit
   // de React se difiere (p.ej. shiki tokenizando en el main thread), el
   // usuario mete otra tecla, y el wrapper pisa el buffer con el prop viejo
-  // (keystroke comido; visto como '#edited' en E2E). Las escrituras al
+  // (keystroke comido). Las escrituras al
   // modelo van imperativas y SOLO en cargas/recargas de disco.
   // Monaco dispara onDidChangeModelContent (→ onChange del wrapper) también
   // para el setValue PROGRAMÁTICO de las cargas de disco — sin esta guarda,
-  // cada carga marcaba la tab dirty sin que el usuario tocara nada. Contador
+  // cada carga marcaría la tab dirty sin que el usuario tocara nada. Contador
   // y no boolean por si una escritura anida otra; funciona porque Monaco
   // notifica sincrónicamente dentro de setValue.
   const suppressChangeRef = useRef(0)
@@ -204,10 +203,10 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const setModelText = useCallback((relPath: string, text: string) => {
     const monaco = monacoRef.current
     if (!monaco) return
-    // Matching EXACTO contra el path calificado por worktree. El matching
-    // viejo por sufijo (endsWith('/'+relPath)) inyectaba el contenido de
+    // Matching EXACTO contra el path calificado por worktree. Un matching
+    // por sufijo (endsWith('/'+relPath)) inyectaría el contenido de
     // foo.ts de raíz en el modelo de src/foo.ts — y sin calificar, dos
-    // worktrees compartían modelo (clobber cruzado en Ctrl+S).
+    // worktrees compartirían modelo (clobber cruzado en Ctrl+S).
     const target = worktreePath ? modelPathFor(worktreePath, relPath) : relPath
     const model = monaco.editor.getModels().find(
       (m) => m.uri.path === target || m.uri.path === `/${target}`,
@@ -276,7 +275,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const handleEditorMount = useCallback((editorInstance: unknown, monaco: MonacoLike) => {
     editorInstanceRef.current = editorInstance as typeof editorInstanceRef.current
     monacoRef.current = monaco
-    // Sin LSP real (fuera de alcance v1 a propósito), la validación SEMÁNTICA
+    // Sin LSP real, la validación SEMÁNTICA
     // de TS/JS de Monaco marca en rojo imports perfectamente válidos (no
     // resuelve módulos del proyecto) — falsos positivos en cada archivo. La
     // sintáctica queda: los typos reales sí valen. Best-effort: MonacoLike no
@@ -350,8 +349,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   const relPathsKey = tabs.map((t) => t.relPath).sort().join('\n')
 
   // Una tab que SALE del pane (mudanza por drag/botón, no solo closeTab)
-  // debe soltar sus caches: el snapshot viejo hacía que al volver se
-  // salteara la lectura y Ctrl+S escribiera contenido PRE-mudanza al disco.
+  // debe soltar sus caches: con el snapshot viejo, al volver se saltea
+  // la lectura y Ctrl+S escribe contenido PRE-mudanza al disco.
   const prevRelPathsRef = useRef<ReadonlySet<string>>(new Set())
   useEffect(() => {
     const current = new Set(tabsRef.current.map((t) => t.relPath))
@@ -419,7 +418,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   }, [tabs, worktreePath, bridge])
 
   // Keyear por el SET de paths y no por la identidad de `tabs`: cada
-  // transición de dirty (.map() del padre) creaba un array nuevo y rehacía
+  // transición de dirty (.map() del padre) crea un array nuevo y rehace
   // TODOS los watchers (2N round-trips IPC + teardown/rebuild de chokidar)
   // sin que el conjunto watcheado cambiara.
   const watchKey = tabs.map((t) => t.relPath).sort().join('\n')
@@ -431,8 +430,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
     const unsubscribe = bridge.fs.onChanged((changedWorktree, relPath) => {
       // sameWorktree y no ===: el registry de watchers deduplica dos formas del
       // mismo worktree (C:/ vs C:\) en un chokidar que emite UNA sola forma; con
-      // === el pane de la otra forma quedaba ciego a cambios externos y su Ctrl+S
-      // los pisaba sin conflicto. Misma normalización que el resto del archivo.
+      // === el pane de la otra forma queda ciego a cambios externos y su Ctrl+S
+      // los pisa sin conflicto. Misma normalización que el resto del archivo.
       if (!sameWorktree(changedWorktree, worktreePath)) return
       const tab = tabsRef.current.find((t) => t.relPath === relPath)
       if (!tab) return
@@ -458,8 +457,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
         } else {
           // Most commonly ENOENT — the file (or its whole worktree) was
           // removed on disk. No proactive pane teardown on worktree:remove
-          // exists in this codebase for any pane type (see design spec,
-          // "Manejo de errores") — this reuses the same watch/read path
+          // exists in this codebase for any pane type — this reuses the same watch/read path
           // conflicts already go through, so it needs no separate listener.
           setLoadErrors((e) => ({ ...e, [relPath]: res.error }))
         }
@@ -479,9 +477,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
   // clobber onTabsChange with a stale tabs/activePath snapshot from before
   // the user closed or switched tabs while the save was in flight. Refs are
   // kept in sync every render (see tabsRef/activePathRef above), so
-  // synchronous callers (e.g. handleChange) see identical behavior to
-  // before — they read the ref at the time they're invoked, same as they'd
-  // have read the closure.
+  // synchronous callers (e.g. handleChange) read the ref at the time they're
+  // invoked, same as they'd read the closure.
   const setDirty = useCallback((relPath: string, dirty: boolean) => {
     onTabsChange(tabsRef.current.map((t) => (t.relPath === relPath ? { ...t, dirty } : t)), activePathRef.current)
   }, [onTabsChange])
@@ -533,9 +530,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       refreshDiffDecorationsRef.current(relPath)
       return true
     }
-    // No global toast service exists in this app (see design spec) — the
-    // established precedent for surfacing a rare failure immediately is
-    // window.alert (src/App.tsx:537-541, WorktreesSection.tsx:160).
+    // No global toast service exists in this app — the established way to
+    // surface a rare failure immediately is window.alert.
     window.alert(`Could not save ${relPath}: ${res.error}`)
     return false
   }, [worktreePath, bridge, setDirty])
@@ -559,7 +555,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
       // the in-memory content is unchanged (still whatever it was before the
       // click), so `conflicts`/`dirty` must NOT be cleared. Same
       // window.alert precedent as save()'s failure path (no global toast
-      // service exists — see design spec).
+      // service exists).
       window.alert(`Could not reload ${relPath} from disk: ${res.error}`)
     }
   }, [worktreePath, bridge, setDirty])
@@ -615,7 +611,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
         e.preventDefault()
         // dropEffect DEBE ser compatible con el effectAllowed del origen: el
         // Explorer arrastra con 'copy' y forzar 'move' acá INVALIDA el drop
-        // en Chromium (el pane resaltaba pero el drop jamás disparaba).
+        // en Chromium (el pane resalta pero el drop nunca dispara).
         e.dataTransfer.dropEffect = workspaceDropEffect(Array.from(e.dataTransfer.types))
         setDropActive(true)
       }}
@@ -626,7 +622,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
         // escucha drops, y un drop consumido acá abriría ADEMÁS un pane
         // nuevo allá. Pero un payload que este pane RECHAZA (cross-worktree)
         // debe burbujear — el workspace sabe abrirlo en un pane nuevo con el
-        // worktree del payload; tragárselo hacía desaparecer el drop.
+        // worktree del payload; tragárselo haría desaparecer el drop.
         const tabRaw = e.dataTransfer.getData(EDITOR_TAB_DRAG_MIME)
         if (tabRaw) {
           try {
@@ -669,9 +665,9 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
               // Solo tabs DIRTY stashean: una limpia tiene su contenido en
               // disco y el destino lee disco. Sin limpieza en dragend a
               // propósito — el pane origen se desmonta con la mudanza y
-              // cualquier chequeo post-unmount (tabsRef congelado) corría una
-              // carrera contra el consumo del destino (pisaba el stash y el
-              // edit se perdía). Un stash de un drag cancelado es inofensivo:
+              // cualquier chequeo post-unmount (tabsRef congelado) corre una
+              // carrera contra el consumo del destino (pisa el stash y el
+              // edit se pierde). Un stash de un drag cancelado es inofensivo:
               // solo lo consume una tab que LLEGA dirty, y toda llegada dirty
               // viene de un gesto de mudanza que stashea fresco primero.
               const content = contentsRef.current[tab.relPath]
@@ -695,7 +691,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
             {tab.dirty && <span className="editor-tab-dirty" data-testid={`dirty-${tab.relPath}`}>●</span>}
             <span className="editor-tab-actions">
               {/* Mover la ÚNICA tab del pane a "un pane nuevo" es un no-op
-                  conceptual (ya está sola en el suyo) — y ofrecerlo dejaba un
+                  conceptual (ya está sola en el suyo) — y ofrecerlo deja un
                   pane cascarón sin tabs (negro) por cada click. */}
               {tabs.length > 1 && <button
                 className="editor-tab-btn editor-tab-move"
@@ -764,7 +760,7 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
           onChange={(value) => handleChange(activePath, value)}
           // Con shiki cargado, el lenguaje del modelo pasa a ser el id que
           // registró shikiToMonaco (p.ej. 'tsx'); si shiki no cargó queda
-          // undefined y Monaco infiere por extensión → Monarch, como antes.
+          // undefined y Monaco infiere por extensión → Monarch.
           // El wrapper llama monaco.editor.setTheme(theme) por su cuenta; un
           // nombre no registrado (tema shiki aún no cargado) lo haría tirar.
           // Los no built-in los aplica applyTheme; acá va el fallback seguro.
@@ -785,8 +781,8 @@ export function EditorPane({ pane, onTabsChange, onClose, onFocus, onOpenInNewPa
         />
       ) : activePath ? (
         // Contenido aún no cargado del disco: mostrar carga en vez de montar un
-        // <Editor> editable con buffer vacío — tipear ahí descartaba el disco al
-        // resolver la lectura y un Ctrl+S truncaba el archivo (finding #1).
+        // <Editor> editable con buffer vacío — tipear ahí descartaría el disco al
+        // resolver la lectura y un Ctrl+S truncaría el archivo.
         <div className="editor-file-unavailable" data-testid="editor-loading">
           <FileIcon name={activePath} />
           <span className="editor-unavailable-text">Loading…</span>

@@ -21,7 +21,7 @@ interface EstadoCifradoEquipo {
   /** Filas de equipo que el SERVIDOR todavía tiene en claro (sólo lo ve el leader con la
    * clave; `null` = no se pudo leer). La migración no está terminada hasta que da 0. */
   recryptPending?: number | null
-  /** La envoltura de esta máquina abre una maestra que no es la del equipo (C2). */
+  /** La envoltura de esta máquina abre una maestra que no es la del equipo. */
   keyMismatch?: boolean
   /** Memorias de este equipo guardadas en ESTA máquina que esperan sin subir porque le falta
    * la clave de equipo (`team_key_missing` / `team_encryption_required`). */
@@ -58,7 +58,7 @@ export default function TeamEncryptionCard() {
   useEffect(() => { void refrescar() }, [refrescar])
 
   /**
-   * Gemelo del `useEffect` de adopción automática de `MemoryEncryptionCard.tsx` (líneas 69-81):
+   * Gemelo del `useEffect` de adopción automática de `MemoryEncryptionCard.tsx`:
    * si el equipo ya tiene clave y esta máquina no, intenta tomar la envoltura que el leader
    * pueda haber dejado publicada. Sin esto, autorizar desde la máquina del leader no tendría
    * ningún efecto visible en la del recién autorizado hasta que alguien reabra la app.
@@ -72,7 +72,7 @@ export default function TeamEncryptionCard() {
       try {
         const res = await adoptar(activeTeam.id)
         if (vivo && res.ok && res.adoptada) await refrescar()
-        // Una clave que no es la del equipo (C2) se rechaza en main.ts; acá sólo se avisa.
+        // Una clave que no es la del equipo se rechaza en main.ts; acá sólo se avisa.
         else if (vivo && !res.ok) setError(res.error)
       } catch { /* sin red: se reintenta al reabrir, o con el botón de abajo */ }
     })()
@@ -120,7 +120,7 @@ export default function TeamEncryptionCard() {
     if (!res) return
     if (res.ok) {
       setCodigo(res.recoveryCode)
-      // I3: lo que ya estaba compartido se migra solo, sin esperar a que alguien encuentre el
+      // Lo que ya estaba compartido se migra solo, sin esperar a que alguien encuentre el
       // botón. Corre en segundo plano mientras el leader anota el código.
       void migrar()
     } else setError(res.error)
@@ -128,7 +128,7 @@ export default function TeamEncryptionCard() {
   })
 
   const autorizar = (deviceId: string) => conBloqueo(async () => {
-    // I4: la huella que el leader comparó viaja con el pedido; main.ts no envuelve si la
+    // La huella que el leader comparó viaja con el pedido; main.ts no envuelve si la
     // pública que vuelve a pedir no da esta misma huella.
     const res = await api?.teamEncryptionAuthorize?.(activeTeam.id, deviceId, estado.huellasPorDevice?.[deviceId] ?? '')
     if (res && !res.ok) setError(res.error ?? 'Could not authorise.')
@@ -150,7 +150,7 @@ export default function TeamEncryptionCard() {
   const soloElLeader = 'Only the team leader can turn it on.'
 
   // Lo que el gate del push retiene por falta de clave: sin decirlo, la máquina sin autorizar
-  // no sabía que tenía memorias sin subir.
+  // no sabe que tiene memorias sin subir.
   const retenidas = estado.heldCount ?? 0
   const avisoRetenidas = retenidas > 0 && (
     <p className="m-0 text-fs-sm text-foreground">
@@ -178,7 +178,7 @@ export default function TeamEncryptionCard() {
   }
 
   if (!estado.activated && !esLeader) {
-    // Final review M2: la bajada ya lo dice; una línea abajo con lo mismo era repetir.
+    // Sin texto abajo: la bajada ya lo dice.
     return <SettingRow nombre={nombre} descripcion={soloElLeader} />
   }
 
@@ -205,7 +205,7 @@ export default function TeamEncryptionCard() {
 
   if (!estado.hasMaster && sinCifradoPersonal) {
     // Sin cifrado personal esta máquina no publica su clave pública, así que nunca aparece en
-    // la lista del leader: decirle "pedile al leader" era mandarlo a esperar algo imposible.
+    // la lista del leader: decirle "pedile al leader" es mandarlo a esperar algo imposible.
     return (
       <SettingRow
         nombre={<>This machine can&rsquo;t read team memory yet</>}
@@ -314,8 +314,8 @@ export default function TeamEncryptionCard() {
       )}
       {esLeader && (
         <div className="flex flex-col gap-1">
-          {/* "Terminado" sólo con 0 en el SERVIDOR (C1): lo que un member compartió desde su
-              copia también cuenta, y antes la tarjeta lo daba por cifrado sin mirarlo. */}
+          {/* "Terminado" sólo con 0 en el SERVIDOR: lo que un member compartió desde su copia
+              también cuenta. */}
           {pendientes === 0 && !migrando && !migracion?.error && (
             <p className="m-0 text-fs-sm text-muted-foreground">All shared memories are encrypted on the server.</p>
           )}

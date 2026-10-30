@@ -187,7 +187,6 @@ export default function IssueDetail({ repoFullName, issue: initialIssue, githubT
 
   return (
     <div className="issue-detail-container">
-      {/* Header */}
       <div className="pr-review-header">
         <button className="pr-back-btn" onClick={onBack}>← Back</button>
         <div className="pr-review-title-block">
@@ -225,14 +224,12 @@ export default function IssueDetail({ repoFullName, issue: initialIssue, githubT
       </div>
 
       <div className="issue-detail-body">
-        {/* Issue body */}
         {issue.body && (
           <div className="issue-body-block">
             <p className="issue-body-text">{issue.body}</p>
           </div>
         )}
 
-        {/* Comments */}
         <div className="issue-comments">
           {loading && (
             <div className="pr-skeleton">
@@ -252,7 +249,6 @@ export default function IssueDetail({ repoFullName, issue: initialIssue, githubT
           ))}
         </div>
 
-        {/* New comment */}
         <div className="issue-new-comment">
           <textarea
             className="snippet-textarea"

@@ -116,7 +116,7 @@ export default function GraphFiltersPanel({ graph, ansi, filtros, includeSimilar
           ))}
         </ul>
         <div className="flex flex-wrap gap-1.5">
-          {/* Un interruptor (final review F7): `aria-pressed` = las adivinadas SE VEN, y el
+          {/* Un interruptor: `aria-pressed` = las adivinadas SE VEN, y el
               texto dice qué son, no la acción. Apagado saca todas las inferidas (same branch,
               same topic y similar), que es lo que el tour llama "las punteadas". */}
           <Button

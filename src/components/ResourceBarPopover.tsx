@@ -422,10 +422,10 @@ function PaneAILogo({ aiType, color, size }: { aiType: string | undefined; color
 // Pasarlos por un set genérico los volvería todos iguales, que es justo lo contrario de
 // para qué existen.
 //
-// Lo que sí comparten con el resto de la app es el GROSOR. Tenían cuatro distintos (0.9, 1,
-// 1.1 y 1.2) para una familia que tiene que leerse como una sola — y como el viewBox es 12
-// y el width también, la escala es 1 y el strokeWidth declarado ES el grosor en pantalla.
-// Ahora todos toman ICON_STROKE, el mismo que el LucideProvider le da a todo lo demás.
+// Lo que sí comparten con el resto de la app es el GROSOR: es una familia que tiene que
+// leerse como una sola. Como el viewBox es 12 y el width también, la escala es 1 y el
+// strokeWidth declarado ES el grosor en pantalla. Todos toman ICON_STROKE, el mismo que el
+// LucideProvider le da a todo lo demás.
 
 function NodeLogo({ size, color }: { size: number; color: string }) {
   // Hexagon — Node.js' signature shape.

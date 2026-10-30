@@ -52,10 +52,9 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
   /**
    * El color REAL del pane, resuelto contra el tema.
    *
-   * `pane.borderColor` dejó de ser siempre un hex: desde que el selector guarda el índice del
-   * tema (`ansi:5`), usarlo crudo como valor CSS no pinta nada — el navegador descarta la
-   * declaración inválida en silencio. El disco quedaba invisible y el borde sin color, que es
-   * exactamente lo que se veía.
+   * `pane.borderColor` no es siempre un hex: el selector guarda el índice del tema
+   * (`ansi:5`), y usarlo crudo como valor CSS no pinta nada — el navegador descarta la
+   * declaración inválida en silencio y el disco y el borde quedan sin color.
    */
   const colorDelPane = resolverColorDePane(pane.borderColor, temaDeTerminal ?? TEMA_NEST)
   const sinColor = colorDelPane === 'transparent'
@@ -167,7 +166,7 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
                   
                   La grilla de arriba es el atajo: colores que ya armonizan con lo que estás
                   leyendo y que siguen al tema si lo cambiás. Pero acotar la elección a esa
-                  paleta era una decisión nuestra sobre algo que es tuyo — el borde de un pane
+                  paleta sería una decisión nuestra sobre algo que es tuyo — el borde de un pane
                   es una etiqueta que le ponés vos, no una parte del tema.
                   
                   `type="color"` abre el selector del sistema, que en macOS trae cuentagotas y
@@ -186,13 +185,12 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
                 </label>
               </div>
 
-              {/* Apagar el borde sale de la grilla y pasa a ser una acción con nombre.
+              {/* Apagar el borde va fuera de la grilla, como una acción con nombre.
                   
-                  Era una ✕ redonda ocupando el primer casillero, lo que dejaba 13 elementos
-                  en una grilla de 6 columnas: 6, 6 y uno solo colgando abajo. Y con los doce
-                  colores del tema —seis tonos y sus brillantes— ese corte partía los pares al
-                  medio, así que lo que se leía era una lista desordenada con colores
-                  repetidos en vez de dos filas de seis. */}
+                  Como casillero dejaría 13 elementos en una grilla de 6 columnas: 6, 6 y uno
+                  solo colgando abajo. Y con los doce colores del tema —seis tonos y sus
+                  brillantes— ese corte parte los pares al medio, así que se leería una lista
+                  desordenada con colores repetidos en vez de dos filas de seis. */}
               <button
                 className={`pane-color-off${pane.borderColor === 'transparent' ? ' selected' : ''}`}
                 onClick={() => { onColorChange('transparent'); setShowPicker(false) }}
@@ -256,11 +254,10 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
           </span>
         )}
 
-        {/* El estado del agente: el dato que faltaba.
+        {/* El estado del agente.
             
-            El header sabía que hubo salida (un punto que parpadea) y que el proceso murió
-            ("ended"). Con ocho panes abiertos eso no contesta la pregunta que importa —cuál
-            me necesita— y las tres situaciones se veían iguales.
+            Que hubo salida (un punto que parpadea) o que el proceso murió ("ended") no
+            contesta, con ocho panes abiertos, la pregunta que importa: cuál me necesita.
             
             `ended` gana: un proceso muerto no está trabajando ni esperando nada. */}
         {!editingNote && !processEnded && ESTADOS_VISIBLES.has(estado) && (
@@ -300,12 +297,10 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
         </button>
       )}
 
-      {/* Los tres botones que estaban acá —bloques de respuesta, copiar la última respuesta
-          y guardar la conversación— salieron de la barra el 2026-09-13. Eran tres iconos
-          permanentes en el encabezado de CADA pane para acciones que casi nadie usa, y lo
-          que dejan es lugar para las tres que sí: compartir, agrandar y cerrar.
-          Los handlers siguen llegando por props y las features no se borraron: lo que se
-          quita es su lugar fijo en una barra que se repite en cada terminal abierta. */}
+      {/* Bloques de respuesta, copiar la última respuesta y guardar la conversación no tienen
+          botón acá: serían tres iconos permanentes en el encabezado de CADA pane para
+          acciones que casi nadie usa, y el lugar queda para las tres que sí: compartir,
+          agrandar y cerrar. Los handlers siguen llegando por props. */}
 
       {processEnded && onRestart && (
         <button className="pane-restart-btn" onClick={onRestart} title="Restart process">

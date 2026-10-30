@@ -25,7 +25,7 @@ type WorktreeCreateResult = { ok: true; meta: WorktreeMeta } | { ok: false; erro
 type HubTab = 'hub' | 'connections' | 'recipes' | 'automations'
 
 /** Full-screen overlay for the orchestration board — mirrors the
- *  teams-workspace shell used by TeamsWorkspace/MyReposPanel. */
+ *  teams-workspace shell used by TeamsWorkspace. */
 export function IntegrationsHub({ onClose, activeRepoPath, onOpenWorktree }: IntegrationsHubProps) {
   const { rows, refresh } = useBoardRows()
   const { activeTeamId, userId } = useTeam()
@@ -40,7 +40,7 @@ export function IntegrationsHub({ onClose, activeRepoPath, onOpenWorktree }: Int
   const [calBusy, setCalBusy] = useState(false)
   const [calError, setCalError] = useState<string | null>(null)
 
-  // H6 block→session, restored from MyReposPanel: create a worktree in the active
+  // Block→session: create a worktree in the active
   // repo tab and open a session seeded with the calendar block's title/description.
   async function startCalendarSession(title: string, context: string) {
     if (calBusy) return
@@ -89,7 +89,6 @@ export function IntegrationsHub({ onClose, activeRepoPath, onOpenWorktree }: Int
 
   return (
     <div className="teams-workspace">
-      {/* Header */}
       <div className="teams-workspace-header">
         <button className="tw-back-btn" onClick={onClose}>
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 5 }}>
@@ -110,7 +109,6 @@ export function IntegrationsHub({ onClose, activeRepoPath, onOpenWorktree }: Int
         <div className="tw-header-right" />
       </div>
 
-      {/* Body */}
       <div className="teams-workspace-body">
         <div className="teams-workspace-content">
           {tab === 'hub' && (

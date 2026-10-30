@@ -75,7 +75,7 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Spec 2b-2 §4.8: la identidad sale del JWT de la sesión (supabase-js lo manda solo) y el
+  // La identidad sale del JWT de la sesión (supabase-js lo manda solo) y el
   // precio lo elige la función según el intervalo. Los errores se ven en el modal.
   const cobrar = async (accion: () => ReturnType<typeof abrirCheckout>) => {
     if (loading) return
@@ -116,8 +116,8 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
 
         <div className="upgrade-plans">
           {PLAN_LIST.map(plan => {
-            // `pro` es el alias heredado de `cloud` hasta que la Task 6 migre los
-            // perfiles: un usuario en `pro` tiene que ver su card marcada como actual.
+            // `pro` es el alias heredado de `cloud` mientras haya perfiles sin migrar:
+            // un usuario en `pro` tiene que ver su card marcada como actual.
             const isCurrent = currentPlan === plan.id || (plan.id === 'cloud' && currentPlan === 'pro')
             const gestiona = plan.id === 'cloud' && tieneSuscripcionPropia(currentPlan)
             return (

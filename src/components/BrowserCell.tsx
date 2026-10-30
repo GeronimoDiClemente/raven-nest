@@ -47,10 +47,9 @@ function isHttpUrl(u: string): boolean {
 }
 
 // Dark placeholder loaded into the WebContentsView when the user hasn't
-// navigated anywhere yet. Replaces the default Chromium error page (white)
-// that used to show because we'd load `http://localhost:3000` blindly and
-// it'd fail with ERR_CONNECTION_REFUSED on machines without a dev server
-// there. Pure HTML data URL — no network, no preload needed.
+// navigated anywhere yet, instead of guessing a dev-server URL that would show
+// Chromium's white ERR_CONNECTION_REFUSED page on machines without one.
+// Pure HTML data URL — no network, no preload needed.
 const BLANK_PAGE = 'data:text/html;charset=utf-8,' + encodeURIComponent(
   `<!doctype html><html><head><meta charset="utf-8"><style>` +
   `html,body{margin:0;height:100%;background:#0a0a0a;color:#666;` +
@@ -171,7 +170,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
       onNavigateRef.current?.(navUrl)
     }
     // Cada celda saca SÓLO su oyente: `removeListeners()` borra los de todas, y con
-    // dos browsers abiertos cerrar uno dejaba al otro sin enterarse de sus navegaciones.
+    // dos browsers abiertos cerrar uno dejaría al otro sin enterarse de sus navegaciones.
     const off = window.browser.onNavigated(cb)
     return () => off()
   }, [pane.id])
@@ -228,11 +227,8 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     const el = placeholderRef.current
     if (!el) return
 
-    // Selectors of every overlay/full-screen view that should hide the browser
-    // pane while open. WebContentsView always paints above DOM (no z-index),
-    // so any sidebar popover or modal must collapse this pane to avoid being
-    // covered. Includes: dialogs, full-screen workspaces, sidebar popovers,
-    // pane-level overlays.
+    // The overlay selectors (dialogs, full-screen workspaces, sidebar popovers,
+    // pane-level overlays) live in browser-overlay-selectors.ts.
 
     const computeBounds = (): { x: number; y: number; width: number; height: number } => {
       // Si el drag oculta este browser, colapsar (la foto la muestra el overlay).
@@ -250,15 +246,14 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     // Reposición: se mide el rect y sólo se emite IPC cuando cambió (dedupe por
     // string). Un ResizeObserver no alcanza: no detecta cambios de POSICIÓN —
     // reordenar panes, abrir un pane hermano o la animación de zoom mueven el
-    // browser sin redimensionarlo, y el WebContentsView (capa nativa) quedaba
-    // clavado en la posición vieja hasta el siguiente tick.
+    // browser sin redimensionarlo, y el WebContentsView (capa nativa) quedaría
+    // clavado en la posición vieja.
     //
     // CUÁNDO medir vive en reposition-scheduler.ts, que tiene tests: en reposo
-    // agenda un timer a ~10 Hz y NO pide ni un frame. Acá antes se re-armaba un
-    // requestAnimationFrame en CADA frame; el trabajo estaba throttleado a 10 Hz,
-    // pero el callback de frame seguía vivo, y un rAF vivo obliga al compositor de
-    // Chromium a producir frames para siempre — que es lo que despierta a la GPU y
-    // al WindowServer con la app quieta. Eran 63 frames por segundo al vacío.
+    // agenda un timer a ~10 Hz y NO pide ni un frame. No re-armar un
+    // requestAnimationFrame por frame: aunque el trabajo esté throttleado, un rAF
+    // vivo obliga al compositor de Chromium a producir frames para siempre — que
+    // es lo que despierta a la GPU y al WindowServer con la app quieta.
     let last = ''
     const sched = startRepositionScheduler({
       check: () => {

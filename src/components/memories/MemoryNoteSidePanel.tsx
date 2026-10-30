@@ -16,7 +16,7 @@ import type { MemoryObservationDetail } from '../../types'
 export interface MemoryNoteSidePanelProps {
   detail: MemoryObservationDetail
   /** El grafo entero, SIN los filtros de la pestaña Graph (huérfanas, foco, tipos): de ahí
-   *  sale el local. Con esos filtros una memoria suelta no tenía grafo local (final review F5). */
+   *  sale el local. Con esos filtros una memoria suelta no tendría grafo local. */
   graphData: GraphData
   ansi?: readonly string[]
   titulosPorId: ReadonlyMap<string, { title: string; type: string }>
@@ -38,7 +38,7 @@ function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) 
 }
 
 // Con las clases de Button (que traen `border-transparent`): Tailwind va sin preflight y un
-// `<button>` pelado se queda con el borde gris del navegador (final review V1).
+// `<button>` pelado se queda con el borde gris del navegador.
 const FILA = cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'w-full justify-start gap-2 px-1.5 text-left text-foreground')
 
 export default function MemoryNoteSidePanel({ detail, graphData, ansi, titulosPorId, onOpen, onIrALinea }: MemoryNoteSidePanelProps) {

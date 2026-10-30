@@ -35,7 +35,7 @@ export default function HubView({ tabs, activeTabId, activePanes, onJump, onTogg
       t.panes
         // El overlay es un espejo de TERMINALES (HubTile monta xterm contra
         // el PTY del pane): browser y editor no tienen PTY — un editor acá
-        // renderizaba un xterm muerto tipeando al vacío. (La TAB Hub sí
+        // renderizaría un xterm muerto tipeando al vacío. (La TAB Hub sí
         // renderiza editores de verdad — ver renderHubPane en App.tsx.)
         .filter(p => p.aiType !== 'browser' && p.aiType !== 'editor')
         .map(p => ({

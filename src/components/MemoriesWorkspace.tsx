@@ -1,22 +1,17 @@
-// Spec §4.4 (direccion C, "el hilo es la pantalla"), §5.2 y §7 (2026-10-19). Reusa
-// `teams-workspace` como cascara visual — es la misma forma de overlay a pantalla completa
-// que Personal y Teams — y suma `.memories-workspace` para el z-index de arriba de todo
-// (§5.4).
+// Reusa `teams-workspace` como cascara visual — es la misma forma de overlay a pantalla
+// completa que Personal y Teams — y suma `.memories-workspace` para el z-index de arriba de
+// todo.
 //
-// SIN chips de scope (decision 3): el grafo ya dibuja las ramas con autor y fecha, asi que
+// SIN chips de scope: el grafo ya dibuja las ramas con autor y fecha, asi que
 // "tuyo vs del equipo" se ve por color. Ademas evita heredar el acoplamiento de
-// PersonalWorkspace.tsx:306, donde elegir un equipo llama a switchTeam y cambia chat,
+// PersonalWorkspace, donde elegir un equipo llama a switchTeam y cambia chat,
 // presencia y stats de TODA la app.
 //
-// 2026-10-21 (spec Memory settings como pestaña): la configuración es una PESTAÑA más
-// (Settings, cerrable). Con ella activa el explorer muestra las secciones y el panel derecho
-// se colapsa solo; ya no hay una segunda vista ni un Back que vuelva a los nodos.
-//
-// 2026-10-20 (spec "Memories estilo Obsidian" §3): la vista principal pasa a tres columnas —
-// explorer por carpetas a la izquierda, pestañas en el centro (Graph fija, Team thread fija
-// si el repo tiene el hilo, una por nota, New memory) y a la derecha los filtros del grafo o
-// el panel de la nota. Salen la lista de abajo y el cuadro del grafo. Esta pantalla y
-// `MemoriesNoteTab` siguen siendo lo unico que habla con `window.memory`: los componentes de
+// Tres columnas: explorer por carpetas a la izquierda, pestañas en el centro (Graph fija,
+// Team thread fija si el repo tiene el hilo, una por nota, New memory, Settings cerrable) y a
+// la derecha los filtros del grafo o el panel de la nota. Con Settings activa el explorer
+// muestra las secciones y el panel derecho se colapsa solo. Esta pantalla y
+// `MemoriesNoteTab` son lo unico que habla con `window.memory`: los componentes de
 // `memories/` entran por props y salen por callbacks.
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle, type ImperativePanelHandle } from 'react-resizable-panels'
@@ -63,40 +58,39 @@ interface Props {
   activeRepoPath: string | null
   onOpenFile: (relPath: string) => void
   /**
-   * Task 8 (migracion Tailwind/shadcn, resolucion 2): abre el dialogo NATIVO de carpeta
-   * (App.tsx: handleRepoLink) y setea el repo activo de la pestaña — el grafo aparece sin
+   * Abre el dialogo NATIVO de carpeta (App.tsx: handleRepoLink) y setea el repo activo de la pestaña — el grafo aparece sin
    * salir de esta pantalla, sin pelear con el z-index del overlay. Opcional: sin ella el
    * boton del estado vacio no se renderiza, para que el arbol siga montando en callers
    * y tests viejos que no la pasan.
    */
   onLinkRepo?: () => void
-  /** workspace-shell-design §1: true while App.tsx holds this mounted after onClose so the zoomOut exit animation can play. See TeamsWorkspaceProps.closing (same shared shell, same mechanism). */
+  /** True while App.tsx holds this mounted after onClose so the zoomOut exit animation can play. See TeamsWorkspaceProps.closing (same shared shell, same mechanism). */
   closing?: boolean
-  /** La paleta ANSI del tema de terminal activo (spec §5), para colorear el grafo, el
+  /** La paleta ANSI del tema de terminal activo, para colorear el grafo, el
    *  explorer y las pestañas por tipo — mismo color en todos. */
   ansi?: readonly string[]
-  /** El tour "How it works" de la vista principal (Task 7). */
+  /** El tour "How it works" de la vista principal. */
   onHowItWorks: () => void
   /** Sube cada vez que algo de afuera (Account → "Memory settings") pide abrir la pestaña
-   *  Settings; useMemoryTabs atiende cada pedido una vez por sesión (D5). */
+   *  Settings; useMemoryTabs atiende cada pedido una vez por sesión. */
   pedidoDeSettings?: number
   /** La sección que trae el pedido (Keep syncing → 'sync'); sin ella conserva la actual. */
   seccionDeSettings?: SeccionDeSettings
   /** Plan & billing: cierra Memories y abre Settings › Account. */
   onPlanYFacturacion?: () => void
-  /** Sube cada vez que arranca el tour de Memories: activa Graph para que sus anclas se vean
-   *  (final review I2). Mismo mecanismo que `pedidoDeSettings`. */
+  /** Sube cada vez que arranca el tour de Memories: activa Graph para que sus anclas se vean.
+   *  Mismo mecanismo que `pedidoDeSettings`. */
   pedidoDelGrafo?: number
 }
 
-/** Ventana angosta (spec §3): el panel derecho arranca colapsado. */
+/** Ventana angosta: el panel derecho arranca colapsado. */
 const ANCHO_ANGOSTO = 1100
 
 /**
  * El ancho de las tres columnas, en %. Se guarda a mano (con `onLayout`) y no con el
  * `autoSaveId` de react-resizable-panels porque hay colapsos AUTOMATICOS del panel derecho
  * (ventana angosta, pestana Team thread) que no son una eleccion de la persona y no tienen que
- * quedar guardados: con `autoSaveId`, una ventana ancha arrancaba despues con el panel cerrado.
+ * quedar guardados: con `autoSaveId`, una ventana ancha arrancaria despues con el panel cerrado.
  */
 const CLAVE_COLUMNAS = 'nest:memories:columnas'
 const COLUMNAS_POR_DEFECTO: [number, number, number] = [18, 60, 22]
@@ -132,11 +126,8 @@ export default function MemoriesWorkspace({
   const [version, setVersion] = useState(0)
 
   /**
-   * Un agente escribió una memoria desde la terminal: todo se vuelve a pedir solo.
-   *
-   * Es la mitad interesante del producto —que lo escriban ellos mientras trabajás— y hasta
-   * ahora la pantalla no se enteraba: sólo se refrescaba por acciones tuyas, así que una
-   * memoria nueva no aparecía hasta cerrar y reabrir el overlay.
+   * Un agente escribió una memoria desde la terminal: todo se vuelve a pedir solo, sin
+   * esperar a una acción tuya ni a reabrir el overlay.
    */
   // `state` es un objeto nuevo en cada render, así que un efecto que dependa de él se
   // re-suscribe y se da de baja en cada uno. La suscripción se hace UNA vez, al montar, y el
@@ -154,7 +145,7 @@ export default function MemoriesWorkspace({
   }, [])
 
   const prefsMem = useMemoryPrefs()
-  // Lo recordado (D14). Con las prefs ya en la caché de sesión arranca de ahí; en la primera
+  // Lo recordado. Con las prefs ya en la caché de sesión arranca de ahí; en la primera
   // apertura llegan después y se aplican abajo, una vez.
   const recordadosAlMontar = useRef<FiltrosGuardados | null>(
     prefsMem.cargadas && prefsMem.prefs.graph.remember ? prefsMem.prefs.graph.filtros ?? null : null,
@@ -165,8 +156,7 @@ export default function MemoriesWorkspace({
   // inferidas): ver useGraphFilters.
   const filtros = useGraphFilters(grafo.graph, ansi, includeSimilar, recordadosAlMontar.current)
 
-  /** true cuando lo guardado ya se aplicó: antes, guardar pisaría lo recordado con defaults
-   *  (Review Focus 2). */
+  /** true cuando lo guardado ya se aplicó: antes, guardar pisaría lo recordado con defaults. */
   const restaurado = useRef(prefsMem.cargadas)
   const aplicarFiltros = filtros.aplicar
   useEffect(() => {
@@ -214,7 +204,7 @@ export default function MemoriesWorkspace({
   }, [version, refrescarGrafo])
 
   // El estado del hilo, UNO solo para la pestaña Team thread y el toggle de Branch notes de la
-  // pestaña Settings (D3): prender o apagar se ve en el acto.
+  // pestaña Settings: prender o apagar se ve en el acto.
   const hilo = useTeamThreadSettings(activeRepoPath)
   const conHilo = pestanaDelHilo(activeRepoPath, hilo)
   const tabs = useMemoryTabs(conHilo, pedidoDeSettings, pedidoDelGrafo, seccionDeSettings)
@@ -233,8 +223,7 @@ export default function MemoriesWorkspace({
   )
 
   // El explorer sale del grafo CRUDO, no de `filtros.data`: los filtros (tipos, foco,
-  // huérfanas) son del grafo. Decisión del 20-10: apagar un tipo no esconde memorias del
-  // explorer.
+  // huérfanas) son del grafo: apagar un tipo no esconde memorias del explorer.
   const carpetas = useMemo(() => armarArbol(grafo.graph?.nodes ?? [], resaltados), [grafo.graph, resaltados])
 
   const { candidatos, titulosPorId } = useMemo(() => {
@@ -327,7 +316,7 @@ export default function MemoriesWorkspace({
 
   // A qué repo va cada pestaña «New memory», decidido al abrirla. El form sólo sabe escribir
   // en el repo activo o en Global: la carpeta Global elige Global y cualquier otra el repo
-  // activo (el spec no pide crear en un repo que no está abierto).
+  // activo (no se crea en un repo que no está abierto).
   const repoDeNuevas = useRef(new Map<string, string | null>())
   const contadorDeNuevas = useRef(0)
   const abrirNueva = useCallback((titulo: string) => {
@@ -344,7 +333,7 @@ export default function MemoriesWorkspace({
   }, [cerrarPestana])
 
   /**
-   * Las pestañas «New memory» con algo escrito (final review F4). Cerrarlas por cualquier
+   * Las pestañas «New memory» con algo escrito. Cerrarlas por cualquier
    * camino —×, click del medio, Ctrl/Cmd+W, Cancel— pregunta antes de tirar lo escrito; sin
    * nada escrito cierran directo. Un ref y no un estado: el form avisa en cada cambio y el
    * cierre sólo necesita leerlo.
@@ -364,10 +353,10 @@ export default function MemoriesWorkspace({
   }
 
   /**
-   * Foco (final review F8): Ctrl/Cmd+W y Esc se escuchan en la raíz, así que el foco tiene que
-   * estar adentro. Un click en el canvas no lo mueve (d3-zoom cancela el mousedown) y cerrar
-   * una pestaña desmonta el elemento que lo tenía: en los dos casos el siguiente Ctrl+W iba a
-   * la ventana y escondía Nest.
+   * Foco: Ctrl/Cmd+W y Esc se escuchan en la raíz, así que el foco tiene que estar adentro.
+   * Un click en el canvas no lo mueve (d3-zoom cancela el mousedown) y cerrar una pestaña
+   * desmonta el elemento que lo tenía: en los dos casos el siguiente Ctrl+W iría a la
+   * ventana y escondería Nest.
    */
   const raizRef = useRef<HTMLDivElement>(null)
   useEffect(() => { raizRef.current?.focus({ preventScroll: true }) }, [])
@@ -389,7 +378,7 @@ export default function MemoriesWorkspace({
     setAvisoDeEnlace(null)
   }, [])
 
-  // Teclado en la raíz del overlay, NO en `window` (Review Focus 1): Ctrl/Cmd+W tiene que
+  // Teclado en la raíz del overlay, NO en `window`: Ctrl/Cmd+W tiene que
   // cerrar la pestaña y morir acá — nunca llegar al menú de Electron ni a otro handler que
   // cierre la ventana.
   const alTeclear = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -461,8 +450,8 @@ export default function MemoriesWorkspace({
     if (window.innerWidth < ANCHO_ANGOSTO) colapsarSolo('angosto')
   }, [colapsarSolo])
 
-  // Spec §3: con Team thread o Settings activa el panel derecho se oculta; al salir vuelve
-  // como estaba, sin guardar ese colapso (Ruling 11).
+  // Con Team thread o Settings activa el panel derecho se oculta; al salir vuelve
+  // como estaba, sin guardar ese colapso.
   const pestanaSinPanel = activa.kind === 'thread' || activa.kind === 'settings'
   useEffect(() => {
     if (pestanaSinPanel) colapsarSolo('pestana')
@@ -511,7 +500,7 @@ export default function MemoriesWorkspace({
         // Sólo si el foco está AFUERA: un click en un input o en el editor se lo queda igual.
         // Y sólo para clicks en el DOM de la raíz: los eventos de React también suben desde
         // los portales (menú «⋯», popover de «Create this memory», diálogos), y sacarles el
-        // foco ahí los cerraba antes de que llegara el click.
+        // foco ahí los cerraría antes de que llegara el click.
         const raiz = raizRef.current
         if (!raiz || !(e.target instanceof Node) || !raiz.contains(e.target)) return
         if (!raiz.contains(document.activeElement)) raiz.focus({ preventScroll: true })
@@ -526,9 +515,8 @@ export default function MemoriesWorkspace({
         </button>
 
         <div className="tw-header-center">
-          {/* Sólo el título, como Teams y Personal. El glifo del grafo que había acá era el
-              único ícono en el header de una pantalla grande, dibujado a mano y pintado con
-              `--raven-blue`: un color de marca donde el resto de la app usa texto. */}
+          {/* Sólo el título, como Teams y Personal: sin glifo ni color de marca, que el resto
+              de la app no usa en el header. */}
           <span className="tw-header-title">Memories</span>
         </div>
 
@@ -556,7 +544,7 @@ export default function MemoriesWorkspace({
             <PanelGroup ref={grupoRef} direction="horizontal" onLayout={alCambiarColumnas} className="min-h-0 flex-1">
               <Panel defaultSize={columnas[0]} minSize={12} collapsible id="explorer" order={1}>
                 {/* Con Settings activa, la lista de secciones. El explorer queda MONTADO (oculto):
-                    carpetas abiertas/cerradas, scroll y búsqueda siguen al volver (spec §3). */}
+                    carpetas abiertas/cerradas, scroll y búsqueda siguen al volver. */}
                 <div hidden={settingsActiva} className={cn('h-full', settingsActiva && 'hidden')}>
                   <MemoriesExplorer
                     carpetas={carpetas}
@@ -606,8 +594,7 @@ export default function MemoriesWorkspace({
                     </div>
                   )}
 
-                  {/* Sin la caja de 16rem que el panel trae para cuando vivía apilado al pie:
-                      acá es la pestaña entera. */}
+                  {/* Sin el max-height de 16rem que el panel trae: acá es la pestaña entera. */}
                   {activa.kind === 'thread' && activeRepoPath && (
                     <div className="min-h-0 flex-1 overflow-y-auto p-3 [&_.team-thread-panel]:max-h-none">
                       <TeamThreadPanel activeRepoPath={activeRepoPath} onOpenFile={onOpenFile} />
@@ -615,7 +602,7 @@ export default function MemoriesWorkspace({
                   )}
 
                   {/* Settings: se monta sólo mientras está activa, así cada vuelta relee el estado
-                      de sync/cifrado/compartir (D3). Las notas siguen montadas detrás. */}
+                      de sync/cifrado/compartir. Las notas siguen montadas detrás. */}
                   {activa.kind === 'settings' && (
                     <div className="min-h-0 flex-1 overflow-y-auto">
                       <MemorySettingsTab
@@ -683,7 +670,7 @@ export default function MemoriesWorkspace({
                                   else cerrarPestana(id)
                                   setVersion((v) => v + 1)
                                   // La fila de estado tiene su propio ciclo de lectura: sin
-                                  // esto decia "0 items" al lado de la memoria recien escrita.
+                                  // esto diria "0 items" al lado de la memoria recien escrita.
                                   void state.refresh()
                                 }}
                               />

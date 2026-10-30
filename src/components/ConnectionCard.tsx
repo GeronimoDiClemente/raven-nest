@@ -16,19 +16,16 @@ interface ConnectionCardProps {
 }
 
 /**
- * One connectable integration, redesigned as a card (icon + name + one-line
- * description + a compact status LED) with the actual Connect/Disconnect
- * affordance handed off to `ConnectControl` — that's the only place OAuth
- * (Slack deep-link, GitHub session reuse, gcal loopback+PKCE) and the apiKey
- * forms (Notion/Jira) are implemented, so this card never reimplements them.
+ * One connectable integration as a card (icon + name + one-line description +
+ * a compact status LED) with the actual Connect/Disconnect affordance handed
+ * off to `ConnectControl` — that's the only place OAuth (Slack deep-link,
+ * GitHub session reuse, gcal loopback+PKCE) and the apiKey forms (Notion/Jira)
+ * are implemented, so this card never reimplements them.
  *
- * The old marketplace grid required an explicit "Install" step before
- * `ConnectControl` even rendered (only "Installed" plugins got it). Cards
- * collapse that into a single Connect action, so once a plugin's credentials
- * land (`connected` flips true) we install it here if it isn't already —
- * `useBoardRows`/`useInstalledPlugins` still key ticket-source plugins
- * (jira/github) off the installed list, and this keeps that wiring intact
- * without requiring a separate step in the new UI.
+ * There is no separate "Install" step: once a plugin's credentials land
+ * (`connected` flips true) we install it here if it isn't already —
+ * `useBoardRows`/`useInstalledPlugins` key ticket-source plugins
+ * (jira/github) off the installed list.
  */
 export function ConnectionCard({ plugin, isInstalled, install }: ConnectionCardProps) {
   const { connected, loading } = usePluginConnection(plugin.id)

@@ -35,10 +35,10 @@ interface TeamsWorkspaceProps {
   onPendingInvitesChange?: () => void
   /** When provided, the header shows a "?" button that launches the Teams tutorial. */
   onStartTutorial?: () => void
-  /** Pending invites now live in Personal. When provided, call sites that used to jump to the local 'pendings' section call this instead. */
+  /** Pending invites live in Personal; call sites that show an invite open them through this. */
   onOpenPersonalInvites?: () => void
   /**
-   * workspace-shell-design §1: the caller (App.tsx) delays actually unmounting
+   * The caller (App.tsx) delays actually unmounting
    * this component after `onClose` so the zoomOut exit animation has time to
    * play. While that grace period runs, `closing` is true — it drives the
    * `.closing` CSS class, which both plays the exit keyframes and sets
@@ -193,7 +193,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
   const isTeamLeader = activeTeam && userId
     ? members.some(m => m.user_id === userId && m.role === 'leader' && m.status === 'active')
     : false
-  // RLS allows DELETE on teams only to owner_id (decision B13). Render the
+  // RLS allows DELETE on teams only to owner_id. Render the
   // Delete button by ownership, not by leader role — otherwise non-owner
   // leaders see it and click into a silent RLS rejection.
   const isTeamOwner = activeTeam && userId ? activeTeam.owner_id === userId : false
@@ -217,7 +217,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
     if (!r.ok) setMemberActionError(r.error ?? 'Error')
   }
 
-  // workspace-shell-design §2: a counter is only wired up when its data is
+  // A counter is only wired up when its data is
   // already sitting in memory — no fetch triggered by rendering the nav.
   // `members` (and whether any of them is a pending join request) come from
   // useTeam(), which loads eagerly on `activeTeam` regardless of which
@@ -272,7 +272,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
   return (
     <div className={`teams-workspace teams-workspace--front${closing ? ' closing' : ''}`}>
 
-      {/* Header */}
       <div className="teams-workspace-header">
         <button className="tw-back-btn" onClick={onClose}>
           <ChevronLeft size={ICON_SIZE.lg} aria-hidden />
@@ -397,7 +396,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
         </div>
       </div>
 
-      {/* Body */}
       <div className="teams-workspace-body">
 
         {loading && (
@@ -516,7 +514,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
 
         {!loading && activeTeam && (
           <>
-            {/* Left nav */}
             <nav className="teams-workspace-nav">
               {NAV_ITEMS.map(item => (
                 <WorkspaceNavButton
@@ -552,7 +549,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
               )}
             </nav>
 
-            {/* Content area */}
             <div className="teams-workspace-content">
 
               {/* Create new team (while already in a team) */}
@@ -834,7 +830,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
 
             </div>
 
-            {/* Right presence sidebar */}
             <div className="teams-workspace-presence">
               <p className="tw-presence-title">Presence</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
@@ -870,7 +865,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange
 
       </div>
 
-      {/* Terminal panel */}
       <div className={`teams-workspace-terminal${terminalExpanded ? ' expanded' : ''}`}>
         <button className="tw-terminal-toggle" onClick={() => setTerminalExpanded(v => !v)}>
           <ChevronDown size={ICON_SIZE.lg} aria-hidden />

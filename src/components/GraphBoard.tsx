@@ -10,7 +10,7 @@ interface GraphBoardProps {
   activeRepoPath?: string | null
 }
 
-// NodeRunState → the visual bucket the mockups use (working/needs/done/queued).
+// NodeRunState → its visual bucket (working/needs/done/queued).
 const STATE_CLASS: Record<NodeRunState, 'working' | 'needs' | 'done' | 'queued'> = {
   queued: 'queued',
   running: 'working',

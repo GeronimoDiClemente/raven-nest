@@ -30,7 +30,7 @@ interface Props {
 }
 
 // Agent logo (Claude/Gemini/…) with a colored-dot fallback for plain shells, plus
-// a live-status ring when the terminal is emitting output. Replaces the bullet.
+// a live-status ring when the terminal is emitting output.
 function TermAvatar({ aiType, color, busy }: { aiType: AIType; color: string; busy: boolean }) {
   const logo = <AILogo aiType={aiType} size={13} color={color} />
   return (
@@ -55,7 +55,7 @@ function StarIcon({ filled }: { filled: boolean }) {
 /**
  * Hub-tab sidebar: the picker that CURATES which terminals live in the Hub. The
  * Hub itself renders like a normal workspace; here the user pins the terminals
- * they use most (from any workspace) into it. Design (per competitor research):
+ * they use most (from any workspace) into it. Design:
  * NO checkboxes — a pin/star that appears on hover, a separate "In the Hub"
  * section for the curated set, agent logos + live-status instead of bullets.
  */

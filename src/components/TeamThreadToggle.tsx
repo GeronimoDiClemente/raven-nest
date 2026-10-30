@@ -1,5 +1,5 @@
 // Branch notes (spec 2026-10-21 §5): el toggle del hilo de equipo, en fila. El estado lo
-// levanta MemoriesWorkspace y lo comparte con la pestaña Team thread (D3).
+// levanta MemoriesWorkspace y lo comparte con la pestaña Team thread.
 import type { UseTeamThreadSettings } from '../hooks/useTeamThreadSettings'
 import SettingRow from './memories/settings/SettingRow'
 import { Switch } from '@/components/ui/switch'

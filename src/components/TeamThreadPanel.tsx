@@ -1,4 +1,4 @@
-// Task 10 (Team Memory Layer 2): la data-fetching detras de <TeamThreadGraph>. Ese
+// La data-fetching detras de <TeamThreadGraph>. Ese
 // componente es prop-driven y puro a proposito (se testea sin IPC); este es el que sabe de
 // donde salen esos props para la app real.
 //
@@ -7,16 +7,14 @@
 // resolveProjectKey, necesita normalizar el remote y hashear). Nunca se calcula aca.
 //
 // Self-contained como MemoryVaultCard: no worktree activo -> no se muestra nada, no hay
-// estado vacio que inventar. Un error de IPC SI se muestra (a diferencia de una version
-// anterior de este archivo, que dejaba `ready` en false para siempre y el panel quedaba
-// invisible — indistinguible de "no hay worktree activo"; review de Task 10, hallazgo 4):
+// estado vacio que inventar. Un error de IPC SI se muestra (si no, el panel queda
+// invisible — indistinguible de "no hay worktree activo"):
 // - si falla la carga inicial, no hay `enabled`/`branches` de los que fiarse -> se
 //   reemplaza el panel entero por el error.
 //
-// Task 2 (mirar vs. configurar): projectKey/enabled salen de `useTeamThreadSettings`,
-// compartido con `TeamThreadToggle`. Este panel sigue siendo el unico que necesita las
-// ramas (para el grafo) — y ahora devuelve `null` si el hilo esta apagado, en vez de
-// pasarle `enabled`/`onToggle` a TeamThreadGraph: prenderlo vive en la vista de settings.
+// projectKey/enabled salen de `useTeamThreadSettings`, compartido con `TeamThreadToggle`.
+// Este panel es el unico que necesita las ramas (para el grafo) y devuelve `null` si el
+// hilo esta apagado: prenderlo vive en la vista de settings.
 import { useCallback, useEffect, useState } from 'react'
 import { TeamThreadGraph } from './TeamThreadGraph'
 import { useTeamThreadSettings } from '../hooks/useTeamThreadSettings'
@@ -69,9 +67,8 @@ export default function TeamThreadPanel({ activeRepoPath, onOpenFile }: Props) {
   }, [activeRepoPath, enabled, settingsReady, loadBranches])
 
   const handleOpenNote = useCallback((slug: string) => {
-    // I2: `general` (las filas sin rama) NO vive en `ramas/`, sino en la raiz del hilo —
-    // ver filePathFor() en electron/integrations/team-thread-plan.ts. Armar siempre
-    // `ramas/<slug>.md` abria un path que no existe.
+    // `general` (las filas sin rama) NO vive en `ramas/`, sino en la raiz del hilo —
+    // ver filePathFor() en electron/integrations/team-thread-plan.ts.
     onOpenFile(slug === 'general' ? '.nest/team/general.md' : `.nest/team/ramas/${slug}.md`)
   }, [onOpenFile])
 
@@ -98,11 +95,9 @@ export default function TeamThreadPanel({ activeRepoPath, onOpenFile }: Props) {
   }
 
   return (
-    // Task 6 (vista principal sólo memoria): el borde/fondo de esta caja vivían en un `<div>`
-    // de MemoriesWorkspace que envolvía a este panel SIEMPRE que había un repo activo —
-    // incluido cuando este componente devolvía `null` (hilo apagado), lo que dibujaba una
-    // caja vacía. Ahora `.team-thread-panel` ya trae el borde (global.css) y acá sólo se
-    // agrega el tamaño/scroll que antes ponía el wrapper, para no perderlo.
+    // El borde/fondo (`.team-thread-panel` en global.css), el tamaño y el scroll van acá y no
+    // en un wrapper de MemoriesWorkspace: con el hilo apagado este componente devuelve
+    // `null`, y un wrapper de afuera dibujaría una caja vacía.
     <div className="team-thread-panel max-h-64 shrink-0 overflow-y-auto">
       <TeamThreadGraph
         branches={branches}

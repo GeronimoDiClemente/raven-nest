@@ -10,7 +10,7 @@ interface Props {
   /** branch -> teammate display name, for the "<name> is here" presence chip
    *  (team-presence — see useTeamPresence). Omitted/empty renders no chips. */
   presenceByBranch?: Record<string, string>
-  /** H6 block→session (see IntegrationsHub.startCalendarSession). Omitted ->
+  /** Block→session (see IntegrationsHub.startCalendarSession). Omitted ->
    *  the "Today" calendar section doesn't mount at all. */
   onStartCalendarSession?: (title: string, context: string) => void
   calendarBusy?: boolean

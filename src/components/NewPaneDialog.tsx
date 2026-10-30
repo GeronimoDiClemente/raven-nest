@@ -9,20 +9,15 @@ import { cn } from '@/lib/utils'
 
 // Label de seccion chica (MAYUSCULA, tracking ancho) repetido en cuatro
 // lugares de este dialogo ("Color", "Model", "Saved accounts", "New
-// account") — era la clase `.account-list-label` de global.css, retirada
-// porque no le quedaba ningun usuario fuera de este archivo. `--text-muted`
-// no tiene equivalente Tailwind (no es `--muted-foreground`, ver el
-// comentario en global.css) asi que sigue como var() a mano, no como clase.
+// account"). `--text-muted` no tiene equivalente Tailwind (no es
+// `--muted-foreground`, ver el comentario en global.css) asi que va como
+// var() a mano, no como clase.
 const SECTION_LABEL_CLASS = 'text-fs-xs uppercase tracking-[0.8px] mb-2'
 
-// Tratamiento B (task-12-brief.md): el logo de cada tile mantiene su color
-// de marca; el label pasa de --text-primary fijo a reaccionar al :hover del
-// tile (`.ai-card` de global.css sigue poniendo el `group` — necesita CSS
-// propio por el color-mix con --ai-color, ver la nota ahi). Sin estado
-// "seleccionado" todavia: hoy ningun tile queda marcado como elegido — un
-// click en la grilla siempre navega al siguiente paso — asi que esa rama de
-// la tabla de diseño no tiene ningún punto del código que la dispare; se
-// deja afuera en vez de agregar CSS sin dueño.
+// El logo de cada tile mantiene su color de marca; el label reacciona al
+// :hover del tile (`.ai-card` de global.css pone el `group` — necesita CSS
+// propio por el color-mix con --ai-color, ver la nota ahi). No hay estado
+// "seleccionado": un click en la grilla siempre navega al siguiente paso.
 const AI_CARD_LABEL_CLASS = 'relative z-10 text-fs-sm font-semibold tracking-[0.2px] text-muted-foreground group-hover:text-foreground'
 
 // El banner muestra el comando del SO en el que estas: el de Cursor difiere en
@@ -202,7 +197,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, presetAgent, preset
         // not a guess, so it wins even with 0 (unless the account itself has
         // since been deleted — in that case it wouldn't be in `existing`) or
         // >1 saved accounts. A missing/stale presetAccount falls back to the
-        // original "auto-launch only when unambiguous" rule.
+        // "auto-launch only when unambiguous" rule.
         const chosenAccount = presetAccount && existing.includes(presetAccount)
           ? presetAccount
           : existing.length === 1 ? existing[0] : null
@@ -481,10 +476,9 @@ export default function NewPaneDialog({ onConfirm, onCancel, presetAgent, preset
                 {/* Sin AI_CARD_LABEL_CLASS a proposito: esa clase trae su propio
                     color (`text-muted-foreground` + `group-hover:text-foreground`),
                     y el tile "Add CLI" quiere el gris MAS apagado de `--text-muted`
-                    todo el tiempo (asi era en el original: `.ai-card-add:hover` nunca
-                    tocaba el color del label, solo opacity/borde). Mezclar las dos
-                    clases de color hubiera dejado `text-muted-foreground` muerta
-                    debajo del `style` — exactamente la trampa de este dialogo. */}
+                    todo el tiempo (`.ai-card-add:hover` solo toca opacity/borde).
+                    Mezclar las dos clases de color dejaria `text-muted-foreground`
+                    muerta debajo del `style`. */}
                 <span className="relative z-10 text-fs-sm font-semibold tracking-[0.2px]" style={{ color: 'var(--text-muted)' }}>Add CLI</span>
               </button>
             </div>
@@ -551,7 +545,6 @@ export default function NewPaneDialog({ onConfirm, onCancel, presetAgent, preset
               </div>
             ) : null}
 
-            {/* CLI detection banner */}
             {/* Cursor solo se instala bajando y ejecutando un script. Ese patron
                 (`curl | bash`, `irm | iex`) es el que Defender levanta como
                 troyano, asi que no lo ejecutamos en ningun SO: va a la web. */}

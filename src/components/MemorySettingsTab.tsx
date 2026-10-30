@@ -1,4 +1,4 @@
-// La pestaña Settings de Memories (spec 2026-10-21 §3-§5): una sección por vez (D1). Vive
+// La pestaña Settings de Memories: una sección por vez. Vive
 // FUERA de components/memories/ porque monta las tarjetas que hablan con window.memory; las
 // piezas puras (fila, sección, Editor & graph) sí están allá y entran por props.
 import { useState } from 'react'
@@ -31,11 +31,11 @@ export interface MemorySettingsTabProps {
   prefsCargadas: boolean
   onPrefs: (cambio: (p: MemoryPrefs) => MemoryPrefs) => void
   onResetGraph: () => void
-  /** Spec 2b-3: el link de Cloud sync a Settings › Account. */
+  /** El link de Cloud sync a Settings › Account. */
   onPlanYFacturacion?: () => void
 }
 
-/** D19: el nombre de la carpeta del repo, que es como lo reconoce la persona. */
+/** El nombre de la carpeta del repo, que es como lo reconoce la persona. */
 function nombreDelRepo(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }

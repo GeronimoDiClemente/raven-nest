@@ -1,4 +1,4 @@
-// Spec 2b-3 §3: Plan, Usage y Machines en Settings › Account, entre el email y Memory settings.
+// Plan, Usage y Machines en Settings › Account, entre el email y Memory settings.
 import { useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useProfile } from '../../hooks/useProfile'
@@ -28,9 +28,8 @@ function Enlace({ children, onClick }: { children: ReactNode; onClick: () => voi
 export type MemoriaDeCuenta = Pick<ReturnType<typeof useMemory>, 'state' | 'error' | 'statusDetail' | 'cloudProjects' | 'limits' | 'localOnlyProjects' | 'overLimit'>
 
 /**
- * `memory` viene de SettingsPanel y NO de un `useMemory()` propio. Nació porque el `onStatus`
- * del preload hacía `removeAllListeners('memory:status')` y una tercera instancia dejaba sorda
- * a otra; eso ya no pasa (Task 10b), pero una sola lectura del status por panel sigue alcanzando.
+ * `memory` viene de SettingsPanel y NO de un `useMemory()` propio: una sola lectura del status
+ * por panel alcanza.
  */
 export default function AccountPlanSection({ memory, onOpenMemorySync }: { memory: MemoriaDeCuenta; onOpenMemorySync: () => void }) {
   const profile = useProfile()

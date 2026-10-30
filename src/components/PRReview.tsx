@@ -363,7 +363,6 @@ Be specific and actionable. Keep it short.`
 
   return (
     <div className="pr-review-container">
-      {/* Header */}
       <div className="pr-review-header">
         <button className="pr-back-btn" onClick={onBack}>← Back</button>
         <div className="pr-review-title-block">
@@ -450,7 +449,6 @@ Be specific and actionable. Keep it short.`
         </div>
       )}
 
-      {/* Tabs */}
       <div className="pr-tabs">
         <button className={`pr-tab${tab === 'files' ? ' active' : ''}`} onClick={() => setTab('files')}>
           Files {!loading && `(${files.length})`}
@@ -494,7 +492,6 @@ Be specific and actionable. Keep it short.`
         </div>
       )}
 
-      {/* Body */}
       <div className="pr-review-body">
         {loading && (
           <div className="pr-skeleton">

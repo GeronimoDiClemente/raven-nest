@@ -17,8 +17,7 @@ interface ScopeSelectorProps {
  * On a plan that does have teams but with none joined yet, the chips are still
  * pointless (a lone "Personal" chip controls nothing) but the door to the team
  * workspace is not: its "Welcome to Teams" empty state is where you create your
- * first team or join one by code, and this is the only way in since the sidebar
- * lost its Team door.
+ * first team or join one by code, and the sidebar has no other way in.
  */
 export default function ScopeSelector({
   scope, teams, allowTeam, onScopeChange, onOpenTeamWorkspace,

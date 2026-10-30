@@ -6,12 +6,11 @@ interface Props {
 }
 
 /**
- * Task 2 (adopción con aviso, docs/superpowers/plans/2026-09-03-memoria-por-cuenta-multi-dispositivo.md):
- * se muestra al primer login de una cuenta cuando `_local` tiene memorias sin dueño — antes
- * de que Task 1's swapMemoryStore() las adopte en silencio. "Not mine" no borra nada: los
- * datos quedan intactos en `_local`, invisibles para esta cuenta, y siguen ahí para que
- * cualquier cuenta que entre después pueda reclamarlos (ver swapMemoryStore's `adopt` param).
- * Reusa la cáscara visual de MemoryHub (Task 7) para que se sienta parte del mismo sistema.
+ * Adopción con aviso: se muestra al primer login de una cuenta cuando `_local` tiene
+ * memorias sin dueño, para que swapMemoryStore() no las adopte en silencio. "Not mine" no
+ * borra nada: los datos quedan intactos en `_local`, invisibles para esta cuenta, y siguen
+ * ahí para que cualquier cuenta que entre después pueda reclamarlos (ver swapMemoryStore's
+ * `adopt` param). Reusa la cáscara visual de MemoryHub para que se sienta parte del mismo sistema.
  */
 export default function MemoryAdoptionDialog({ count, projects, onAdopt, onDecline }: Props) {
   const memories = count === 1 ? 'memory' : 'memories'

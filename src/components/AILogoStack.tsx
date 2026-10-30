@@ -9,14 +9,13 @@ interface Props {
 }
 
 /**
- * workspace-shell-design §3: los logos de las IAs con un pane abierto en
+ * Los logos de las IAs con un pane abierto en
  * esta fila de repo/worktree. Maximo MAX_VISIBLE_AI_LOGOS, el resto se
  * pliega en un "+N".
  *
  * Devuelve null si `aiTypes` esta vacio — el caller solo pasa los tipos de
  * una fila cuando groupAITypesByRepoPath encontro panes ahi; un path sin
- * panes no se rellena con un slot vacio ni un icono gris (§3, "manejo de
- * errores").
+ * panes no se rellena con un slot vacio ni un icono gris.
  *
  * `AILogo` ya devuelve null para un aiType sin logo conocido (terminal,
  * custom, editor) — sin fallback generico, a proposito. Eso puede dejar un

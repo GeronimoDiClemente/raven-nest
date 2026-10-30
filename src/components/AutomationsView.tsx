@@ -26,8 +26,8 @@ const PROVIDER_OPTIONS: { value: string; label: string }[] = [
 const DEFAULT_TIME = '09:00'
 
 // Real launchable agents a worker step can run as. Excludes terminal/browser
-// (not meaningful worker agents) and custom (needs a customCliId picker —
-// deferred to a later enhancement). Order mirrors PROVIDER_OPTIONS above.
+// (not meaningful worker agents) and custom (needs a customCliId picker, which
+// this form doesn't have). Order mirrors PROVIDER_OPTIONS above.
 const WORKER_AGENTS: AIType[] = ['claude', 'codex', 'gemini', 'copilot', 'opencode']
 
 function nextRunLabel(nextRunAt: number | null): string {

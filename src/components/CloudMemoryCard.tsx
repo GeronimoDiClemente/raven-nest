@@ -26,10 +26,9 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * Sync de Memory settings (spec 2026-10-21 §5): las filas Cloud sync, Cloud space y Machine
- * without a browser. Self-contained como antes: lee sus hooks. Lo que NO cambia: los mismos
- * estados de `useMemory`, el mismo diálogo de Turn off con el borrado de la nube adentro.
- * El campo de token se mudó a Advanced (SyncTokenRow, D7) y "Learn more" salió (D16).
+ * Sync de Memory settings: las filas Cloud sync, Cloud space y Machine without a browser,
+ * más el diálogo de Turn off con el borrado de la nube adentro. Self-contained: lee sus hooks.
+ * El campo de token vive en Advanced (SyncTokenRow).
  */
 export default function CloudMemoryCard({ onPlanYFacturacion }: { onPlanYFacturacion?: () => void } = {}) {
   const memory = useMemory()
@@ -38,11 +37,11 @@ export default function CloudMemoryCard({ onPlanYFacturacion }: { onPlanYFactura
   // En un build beta la nube no depende del plan: la habilita el allowlist del servicio.
   const nubeDisponible = nubeDeMemoriaDisponible(planIncluyeNube(plan))
   const [memoryUpgradeOpen, setMemoryUpgradeOpen] = useState(false)
-  // M10 / §6.6 "Right to delete": disconnect never touches local data regardless of this — it
+  // "Right to delete": disconnect never touches local data regardless of this — it
   // only controls whether main also calls memory-sync's delete-cloud-data action.
   const [deleteCloudOnDisconnect, setDeleteCloudOnDisconnect] = useState(false)
   const [turnOffOpen, setTurnOffOpen] = useState(false)
-  // Spec 2b-3: gestionar la suscripción vive en Settings › Account; acá sólo el atajo.
+  // Gestionar la suscripción vive en Settings › Account; acá sólo el atajo.
   const planYFacturacion = onPlanYFacturacion && (tieneSuscripcionPropia(plan) || plan === 'free') && (
     <Button variant="link" size="sm" onClick={onPlanYFacturacion}>Plan &amp; billing ›</Button>
   )
@@ -66,7 +65,7 @@ export default function CloudMemoryCard({ onPlanYFacturacion }: { onPlanYFactura
   const control: ReactNode =
     memory.state === 'unavailable' ? <Button size="sm" disabled>Unavailable</Button>
     : conectada ? turnOff
-    // §6.6/§7.5: `error` y `plan_required` son conexiones que EXISTEN (token válido, device
+    // `error` y `plan_required` son conexiones que EXISTEN (token válido, device
     // registrado): Turn off tiene sentido y el borrado de la nube autentica.
     : memory.state === 'error' ? <><Button size="sm" onClick={() => void memory.connectWithLogin()}>Retry</Button>{turnOff}</>
     : memory.state === 'plan_required' ? <><Button size="sm" onClick={() => setMemoryUpgradeOpen(true)}>Upgrade</Button>{turnOff}</>
@@ -78,8 +77,8 @@ export default function CloudMemoryCard({ onPlanYFacturacion }: { onPlanYFactura
     <p className={`m-0 text-fs-sm ${tono === 'warn' ? 'text-warn' : tono === 'destructive' ? 'text-destructive' : 'text-muted-foreground'}`}>{texto}</p>
   )
 
-  // La línea de estado (spec §5). `paused` tiene dos motivos desde el candado de
-  // sincronización (§6.3): sin red, u otra instancia de Nest lo tiene tomado.
+  // La línea de estado. `paused` tiene dos motivos: sin red, u otra instancia de Nest tiene
+  // tomado el candado de sincronización.
   const estado: ReactNode =
     memory.state === 'connected' && n > 0 ? (
       <p className="m-0 flex items-center gap-1.5 text-fs-sm text-warn">
@@ -119,7 +118,7 @@ export default function CloudMemoryCard({ onPlanYFacturacion }: { onPlanYFactura
         )}
       </SettingRow>
 
-      {/* Spec 2b-1 §4.4: sólo conectada y con roster. Upgrade abre el mismo UpgradeModal (D9). */}
+      {/* Sólo conectada y con roster. Upgrade abre el mismo UpgradeModal. */}
       {conectada && memory.cloudProjects && (
         <CloudProjectsRow
           enLaNube={memory.cloudProjects}
@@ -138,13 +137,13 @@ export default function CloudMemoryCard({ onPlanYFacturacion }: { onPlanYFactura
           control={<span className="text-fs-sm tabular-nums text-muted-foreground">{formatBytes(quota.used_bytes)} of {formatBytes(quota.max_bytes)}</span>}
         >
           <div role="meter" aria-label="Cloud space" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            {/* D18: el único estilo inline — el ancho es el dato, a escala real. */}
+            {/* El único estilo inline — el ancho es el dato, a escala real. */}
             <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(pct, 0.5)}%` }} />
           </div>
         </SettingRow>
       )}
 
-      {/* D8: aprobar otra máquina tiene sentido con la nube conectada. */}
+      {/* Aprobar otra máquina tiene sentido con la nube conectada. */}
       {conectada && <LinkDeviceCard />}
 
       <AlertDialog open={turnOffOpen} onOpenChange={setTurnOffOpen}>

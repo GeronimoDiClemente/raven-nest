@@ -92,10 +92,9 @@ export default function CommandPalette({
   const buildItems = useCallback((): PaletteItem[] => {
     const items: PaletteItem[] = []
 
-    // Las pantallas grandes, primero. Hasta ahora la única forma de llegar a Personal,
-    // Memories o Integrations era encontrar su fila en la sidebar — que además está
-    // colapsada la mitad del tiempo. Van arriba porque son destinos, no acciones: te
-    // llevan a otro lado en vez de hacer algo acá.
+    // Las pantallas grandes, primero: sin esto la única forma de llegar a ellas es su fila
+    // en la sidebar, que está colapsada la mitad del tiempo. Van arriba porque son destinos,
+    // no acciones: te llevan a otro lado en vez de hacer algo acá.
     const pantallas: Array<[string, string, string, string, (() => void) | undefined]> = [
       ['personal', 'Personal', 'Your repos, issues, standup and invites', 'personal repos issues standup invites', onPersonalOpen],
       ['memories', 'Memories', 'What your agents remember, and the graph that connects it', 'memories memory graph notes', onMemoriesOpen],

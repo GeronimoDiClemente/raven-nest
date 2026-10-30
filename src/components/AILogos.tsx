@@ -141,13 +141,12 @@ type LogoComponent = React.FC<{ size?: number; color?: string }>
 /**
  * Unico mapa agente -> logo.
  *
- * Estaba duplicado en cuatro componentes (picker, header del pane, sidebar del
- * Hub y popover de recursos), asi que sumar un agente pedia tocar los cuatro:
- * los cinco CLIs nuevos entraron al picker con logo y quedaron con un punto
- * gris en todos los demas lugares. El test ai-logos cubre que no vuelva a pasar.
+ * Lo comparten el picker, el header del pane, la sidebar del Hub y el popover de
+ * recursos: sumar un agente es tocar sólo este mapa. El test ai-logos cubre que
+ * ningún lugar vuelva a tener su propia copia.
  */
-// El browser caia al icono generico, que es el MISMO >_ del Terminal: dos
-// tiles distintos con el mismo dibujo. Una ventana con su barra se lee de una.
+// Sin logo propio el browser caería al icono generico, que es el MISMO >_ del
+// Terminal: dos tiles distintos con el mismo dibujo. Una ventana con su barra se lee de una.
 function BrowserLogo({ size = 40, color = '#0066FF' }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

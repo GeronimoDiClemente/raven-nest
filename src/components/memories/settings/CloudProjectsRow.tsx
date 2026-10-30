@@ -1,6 +1,6 @@
-// Spec 2b-1 §4.4: la fila «Projects in the cloud» de Settings › Sync. Presentación pura: el
-// roster, el tope y lo que quedó afuera entran por props (no le habla al bridge de memoria).
-// Spec 2b-2 §4.8: por encima del tope (bajó de plan), `Keep syncing` elige qué proyecto sigue.
+// La fila «Projects in the cloud» de Settings › Sync. Presentación pura: el roster, el tope y
+// lo que quedó afuera entran por props (no le habla al bridge de memoria).
+// Por encima del tope (bajó de plan), `Keep syncing` elige qué proyecto sigue.
 import { useState } from 'react'
 import SettingRow from './SettingRow'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,7 @@ import {
   type ProyectoEnLaNube,
 } from '@/lib/proyectos-en-la-nube'
 
-/** Ruling P8 (plan 2b-2): el spec no da copy para cuando el daemon no pudo elegir. */
+/** Cuando el daemon no pudo cambiar el proyecto elegido. */
 const COPY_NO_SE_PUDO_ELEGIR = "Couldn't change the synced project. Try again."
 
 export interface CloudProjectsRowProps {
@@ -21,11 +21,11 @@ export interface CloudProjectsRowProps {
   /** Los repos retenidos por el tope (`memory:doctor`). */
   fuera: readonly ProyectoEnLaNube[]
   onUpgrade: () => void
-  /** Spec 2b-2: hay más proyectos en la nube que los que el plan sincroniza. */
+  /** Hay más proyectos en la nube que los que el plan sincroniza. */
   overLimit?: boolean
-  /** Spec 2b-2: el proyecto elegido; null = no eligió (sigue el más viejo). */
+  /** El proyecto elegido; null = no eligió (sigue el más viejo). */
   keptProjectKey?: string | null
-  /** Spec 2b-2: elegir el proyecto que sigue. Si devuelve `{ ok: false }`, la fila lo muestra. */
+  /** Elegir el proyecto que sigue. Si devuelve `{ ok: false }`, la fila lo muestra. */
   onKeep?: (projectKey: string) => void | Promise<{ ok: boolean; error?: string }>
 }
 
@@ -45,7 +45,7 @@ export default function CloudProjectsRow({
     setFallo(false)
   }
 
-  // D4 (2b-1): sólo con tope. A un Cloud con retenidas viejas no se le ofrece pasar a Cloud.
+  // Sólo con tope. A un Cloud con retenidas viejas no se le ofrece pasar a Cloud.
   const afuera = tieneTope(maxProyectos) ? soloLocales(fuera, enLaNube) : []
   const sobreElTope = overLimit && tieneTope(maxProyectos) && enLaNube.length > 0
   const sigue = !sobreElTope ? null
@@ -64,7 +64,7 @@ export default function CloudProjectsRow({
       r = { ok: false }
     }
     setEligiendo(false)
-    // Ruling P8: si no se pudo, el select vuelve a lo guardado y la fila lo dice.
+    // Si no se pudo, el select vuelve a lo guardado y la fila lo dice.
     if (r && !r.ok) {
       setElegido(null)
       setFallo(true)

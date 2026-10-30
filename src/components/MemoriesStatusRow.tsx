@@ -2,9 +2,8 @@
 // cosas que se tocan una vez". Y §4.5: los conflictos y lo bloqueado van ACA, no escondidos
 // en una carpeta.
 //
-// 2026-10-19 (Task 6): el icono de ajustes del vault y su popover se van — `MemoryVaultCard`
-// ya vive en la seccion "Notes on disk" de Memory settings (spec §7), asi que esta fila
-// queda SOLO de estado: nada que configurar, nada detras de un icono.
+// Esta fila es SOLO de estado: nada que configurar, nada detras de un icono. `MemoryVaultCard`
+// vive en la seccion "Notes on disk" de Memory settings (spec §7).
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -41,14 +40,14 @@ export default function MemoriesStatusRow({ state }: Props) {
       </Badge>
 
       {/* El contador es de los .md que genera el VAULT, no de memorias — y sólo se muestra
-          cuando el vault está prendido. Con el vault apagado siempre decía "0 notes", que
-          justo al lado de una lista con ocho memorias se lee como "no tenés nada guardado":
-          un número correcto que afirma lo contrario de lo que la pantalla muestra debajo. */}
+          cuando el vault está prendido. Con el vault apagado diría "0 notes", que justo al
+          lado de una lista con ocho memorias se lee como "no tenés nada guardado": un número
+          correcto que afirma lo contrario de lo que la pantalla muestra debajo. */}
       {vault.enabled && (
         <div className="memories-status-cell">
           <span className="font-mono tabular-nums">{vault.noteCount}</span>
           <span className="microlabel text-muted-foreground">notes</span>
-          {/* Riesgo #2 de §11: el vault puede estar horas atras de la base y hoy nadie lo dice. */}
+          {/* Spec §11: el vault puede estar horas atras de la base, y esto lo dice. */}
           <span className="microlabel text-muted-foreground">vault {relativeTime(vault.lastGeneratedAt)}</span>
         </div>
       )}
@@ -71,7 +70,7 @@ export default function MemoriesStatusRow({ state }: Props) {
               <Badge variant="outline" className="gap-1.5 text-muted-foreground">
                 {textoDeTopeDePlan(g.count, maxProjects)}
               </Badge>
-              {/* D4: Upgrade sólo con un tope conocido y finito, como en Settings › Sync. Un
+              {/* Upgrade sólo con un tope conocido y finito, como en Settings › Sync. Un
                   Cloud con retenidas viejas ya paga; con tope desconocido no se sabe. */}
               {tieneTope(maxProjects) && (
                 <Button size="xs" variant="outline" onClick={() => setPlanes(true)}>Upgrade</Button>
@@ -86,17 +85,15 @@ export default function MemoriesStatusRow({ state }: Props) {
         </div>
       )}
 
-      {/* Spec §2.2 — el unico fallo hoy invisible. Se nombra el pane y la CLI: un contador
-          suelto no le dice al usuario cual de sus terminales cerrar y volver a abrir.
-          Review C1/I3: la lista de panes NO va adentro del Badge — el Badge stock es
-          `h-5 overflow-hidden`, asi que un `flex-wrap` ahi adentro recorta en vez de
-          envolver (medido: 12 sesiones mudas perdian pane-10..12 sin ningun aviso, el
-          fallo exacto que este bloque existe para evitar). El Badge queda para el
-          resumen (una linea, nunca envuelve); los pane-ids van en un contenedor
-          hermano sin alto fijo, como en el div.memories-status-cell original.
-          Spec 2026-09-11 §2 — se muestra `paneDisplayLabel(s.paneId)` (el numero de
-          pane), no el paneId crudo: ese trae un timestamp en ms que no dice cual
-          terminal cerrar. */}
+      {/* Spec §2.2 — sesiones que no escriben a memoria. Se nombra el pane y la CLI: un
+          contador suelto no le dice al usuario cual de sus terminales cerrar y volver a abrir.
+          La lista de panes NO va adentro del Badge — el Badge stock es `h-5 overflow-hidden`,
+          asi que un `flex-wrap` ahi adentro recorta en vez de envolver y esconde panes sin
+          ningun aviso, el fallo exacto que este bloque existe para evitar. El Badge queda
+          para el resumen (una linea, nunca envuelve); los pane-ids van en un contenedor
+          hermano sin alto fijo.
+          Se muestra `paneDisplayLabel(s.paneId)` (el numero de pane), no el paneId crudo:
+          ese trae un timestamp en ms que no dice cual terminal cerrar. */}
       {silentSessions.length > 0 && (
         <div className="memories-status-cell flex-wrap">
           <Badge variant="outline" className="gap-1.5 text-destructive">

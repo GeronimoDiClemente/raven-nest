@@ -36,7 +36,7 @@ import {
 export interface MemoryNoteEditorHandle { irALinea: (linea: number) => void }
 export interface MemoryNoteEditorProps {
   detail: MemoryObservationDetail
-  /** Los `[[links]]` resueltos de la ÚLTIMA lectura (final review F1): pueden cambiar sin que
+  /** Los `[[links]]` resueltos de la ÚLTIMA lectura: pueden cambiar sin que
    *  cambie la versión de la nota — escribir la memoria de un hueco no toca a ésta —, así que
    *  no viajan con `externo`. Sin la prop, los de `detail`/`externo`. */
   links?: MemoryObservationDetail['links']
@@ -56,7 +56,7 @@ export interface MemoryNoteEditorProps {
   /** La memoria ya no está en el store (la borró un agente u otra máquina): sólo lectura con
    *  la banda de borrada, sin esperar a que un guardado lo descubra. */
   borrada?: boolean
-  /** Live preview, ancho, ortografía y letra (spec §5, Editor & graph). */
+  /** Live preview, ancho, ortografía y letra. */
   prefs?: PrefsDelEditor
 }
 
@@ -106,10 +106,10 @@ function EditorDeNota({
   const fuente = externoAplicado ?? detail
   const reemplazadaDeOrigen = fuente.supersededBy !== null
   const habilitado = !reemplazadaDeOrigen && !bandaExterna && !borrando && !borrada
-  // Reconocer el eco de nuestros propios guardados (Fix round 1, Important #1). Cuando el
+  // Reconocer el eco de nuestros propios guardados. Cuando el
   // store devuelve por onChanged lo que acabamos de guardar NO es un cambio de otro, aunque
   // mientras tanto se haya seguido escribiendo, y aunque no sea igual a lo que mandamos: main
-  // hace trim y `redact()`. Tomarlo por ajeno bloqueaba la nota y copiaba al portapapeles el
+  // hace trim y `redact()`. Tomarlo por ajeno bloquearía la nota y copiaría al portapapeles el
   // texto SIN redactar.
   const marcasRef = useRef<MarcaDeEco[]>([])
   const enVueloRef = useRef(0)
@@ -196,7 +196,7 @@ function EditorDeNota({
     return l === undefined ? 'desconocido' : l === null ? 'pendiente' : { syncId: l }
   }
 
-  // Navegación segura (Review Focus 5): sólo se abre lo que el store resolvió a un syncId.
+  // Navegación segura: sólo se abre lo que el store resolvió a un syncId.
   // Un `[[javascript:...]]` o cualquier nombre que no está en `links` no hace nada.
   const onWikilinkRef = useRef((nombre: string, background: boolean) => {
     const r = resolverRef.current(nombre)
@@ -225,13 +225,13 @@ function EditorDeNota({
         doc: contenidoRef.current,
         extensions: [
           markdown(),
-          // Deshacer (final review F2): sin historial, un borrado sin querer no tenía vuelta
-          // y el autoguardado lo persistía en 1,5 s.
+          // Deshacer: sin historial, un borrado sin querer no tendría vuelta
+          // y el autoguardado lo persistiría en 1,5 s.
           historiaComp.of(history()),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           EditorView.lineWrapping,
           temaDelEditor,
-          // D11: apagado = Markdown crudo, sin decoraciones ni clic sobre el link.
+          // Apagado = Markdown crudo, sin decoraciones ni clic sobre el link.
           vistaComp.of(prefsRef.current.livePreview ? extLivePreview : []),
           ortografiaComp.of(ortografia(prefsRef.current.spellcheck)),
           letraComp.of(letra(prefsRef.current.fontSize)),
@@ -265,7 +265,7 @@ function EditorDeNota({
   }, [linksPorNombre])
 
   // Cambio de afuera (un agente, otra máquina). Sin cambios locales: se recarga. Con cambios
-  // locales (Review Focus 3): no se pisa lo escrito — banda, solo lectura, y el texto al
+  // locales: no se pisa lo escrito — banda, solo lectura, y el texto al
   // portapapeles para que tampoco se pierda al cerrar.
   procesarExternoRef.current = (ext) => {
     if (!montadoRef.current || ext.syncId !== detail.syncId) return
@@ -381,7 +381,7 @@ function EditorDeNota({
             <DropdownMenu modal={false}>
               {/* El disparador ES el botón (con las clases de Button), no un `<Button>` hijo con
                   `asChild`: Button es un componente función de React 18 sin forwardRef, así que
-                  Radix no recibía el ancla y el menú quedaba sin posicionar, fuera de la pantalla. */}
+                  Radix no recibiría el ancla y el menú quedaría sin posicionar, fuera de la pantalla. */}
               <DropdownMenuTrigger className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })} aria-label="More actions">
                 <MoreHorizontal />
               </DropdownMenuTrigger>

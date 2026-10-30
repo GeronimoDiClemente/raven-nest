@@ -54,7 +54,7 @@ function conAlfa(color: string, alfa: number): string {
   return color
 }
 
-/** El tamaño del punto en px de PANTALLA a zoom 1. Crece poco con el grado (spec §4). */
+/** El tamaño del punto en px de PANTALLA a zoom 1. Crece poco con el grado. */
 function tamanoBase(n: Nodo, escalaDeNodo: number): number {
   return (2 + Math.sqrt(n.degree + 1) * 0.9) * escalaDeNodo
 }
@@ -109,7 +109,7 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
   /**
    * Lo que recibe la librería. Si lo que se dibuja no cambió (el eco de un autoguardado trae el
    * mismo grafo en objetos nuevos), se le pasa EL MISMO objeto y la simulación no se recalienta;
-   * si cambió, copias con las posiciones de antes (final review F6).
+   * si cambió, copias con las posiciones de antes.
    */
   const previa = useRef<{ clave: string; data: GraphData } | null>(null)
   const datos = useMemo(() => {
@@ -151,7 +151,7 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
 
   /**
    * Encuadre propio del local: margen para las etiquetas, que van debajo del punto y se
-   * cortaban contra los bordes de una caja de ~280 × 180 px con el margen parejo de
+   * cortarían contra los bordes de una caja de ~280 × 180 px con el margen parejo de
    * `zoomToFit`.
    */
   const encuadrarLocal = (g: InstanciaDelGrafo, ms: number) => {
@@ -242,7 +242,7 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
               onOpen((n as Nodo).id, { background: e.ctrlKey || e.metaKey })
             }}
             onNodeDragEnd={(n) => { n.fx = n.x; n.fy = n.y }}
-            // Hover (spec §4): las aristas del nodo a pleno y las demás atenuadas, no ocultas.
+            // Hover: las aristas del nodo a pleno y las demás atenuadas, no ocultas.
             linkColor={(raw) => {
               const l = raw as GraphLinkDatum
               if (hover) return tocaAlHover(l) ? colores.lineaVecina : colores.lineaAtenuada

@@ -121,7 +121,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
   useEffect(() => { if (enfocado) setSinLeer(false) }, [enfocado])
   const isBusyRef = useRef(false)
   // One-shot: inyecta pane.initialInput al PTY la primera vez que produce output
-  // (señal de que el REPL del agente arrancó). Ver "arreglá el rojo" (H4).
+  // (señal de que el REPL del agente arrancó).
   const injectedRef = useRef(false)
   const [showShare, setShowShare] = useState(false)
   const { shareCode, isSharing, startSharing, stopSharing } = useTerminalShare(
@@ -200,7 +200,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       }
       responseAccumRef.current += data
       // Sólo en el FLANCO: pasar de quieto a ocupado. Avisarlo en cada chunk —~20 veces por
-      // segundo con un agente escribiendo— re-renderizaba `App` entera por nada. Ver
+      // segundo con un agente escribiendo— re-renderizaría `App` entera por nada. Ver
       // `lib/pane-activity-state.ts`, que ademas lo frena del otro lado.
       if (!isBusyRef.current) {
         isBusyRef.current = true
@@ -515,12 +515,10 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
          * El fondo del TEMA, acá.
          *
          * `.xterm-viewport` está forzado a `transparent !important` (para poder esconder su
-         * scrollbar) y `.terminal-pane` pinta `--bg-app`, así que hasta hoy el fondo que
-         * declaraba un tema no se veía NUNCA: todo se dibujaba sobre el fondo de la app.
-         * Con un solo tema hardcodeado en negro no se notaba; con el catálogo, Dracula se
-         * habría renderizado sobre el fondo de Nest y no sobre el suyo — o sea, ningún tema
-         * se vería como el usuario lo conoce, que es lo único que se le pide a un tema
-         * importado.
+         * scrollbar) y `.terminal-pane` pinta `--bg-app`: sin esto el fondo que declara un
+         * tema no se vería NUNCA, y Dracula se dibujaría sobre el fondo de Nest y no sobre el
+         * suyo — ningún tema se vería como el usuario lo conoce, que es lo único que se le
+         * pide a un tema importado.
          */
         style={{ display: showBlocks ? 'none' : undefined, background: temaActivo.background }}
         onMouseDown={() => onFocusRef.current()}

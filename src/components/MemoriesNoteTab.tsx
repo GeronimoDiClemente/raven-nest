@@ -1,7 +1,7 @@
 // La pestaña de una nota de Memories: el adaptador entre `window.memory` y los componentes de
 // presentación (`MemoryNoteEditor` en el centro, `MemoryNoteSidePanel` en la columna
 // derecha). Es, junto con `MemoriesWorkspace`, lo único de Memories que habla con el preload:
-// los componentes de `memories/` entran por props y salen por callbacks (spec §6).
+// los componentes de `memories/` entran por props y salen por callbacks.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import MemoryNoteEditor, { type MemoryNoteEditorHandle } from './memories/MemoryNoteEditor'
@@ -33,7 +33,7 @@ export interface MemoriesNoteTabProps {
   onDeleted: (syncId: string) => void
   /** Para la etiqueta de la pestaña. */
   onTitulo: (syncId: string, titulo: string, tipo: string) => void
-  /** Spec §5, Editor & graph. */
+  /** Live preview, ancho, ortografía y letra del editor. */
   prefsDelEditor?: PrefsDelEditor
 }
 
@@ -113,7 +113,7 @@ export default function MemoriesNoteTab({
         key={montaje}
         ref={editorRef}
         detail={inicial}
-        // Los links de la ÚLTIMA lectura, no de la primera (final review F1): escribir la
+        // Los links de la ÚLTIMA lectura, no de la primera: escribir la
         // memoria de un [[hueco]] no cambia la versión de ésta, así que no llega como
         // `externo`, pero el hueco ya no lo es.
         links={(detail ?? inicial).links}

@@ -62,8 +62,8 @@ interface Props {
   profileLoading?: boolean
   onUpgrade?: () => void
   onPersonalOpen?: () => void
-  /** Spec 2026-09-09 §4.1: Memories es hermana de Personal, no una seccion adentro ni una 4a pestana.
-   *  Task 6: toma una vista opcional — SettingsPanel la usa para abrir directo en Memory settings. */
+  /** Memories es hermana de Personal, no una seccion adentro ni una 4a pestana (spec 2026-09-09
+   *  §4.1). Toma una vista opcional — SettingsPanel la usa para abrir directo en Memory settings. */
   onMemoriesOpen?: (vista?: 'memorias' | 'settings', seccion?: SeccionDeSettings) => void
   /** Sube cuando algo de afuera pide abrir Settings › Account (Plan & billing). */
   pedidoDeCuenta?: number
@@ -80,8 +80,7 @@ interface Props {
   onNewWorktree: () => void
   onFixCi: (repoPath: string) => void
   worktreeRefreshKey?: number
-  // Layout selector (replaces the old LayoutPicker). Sidebar renders the
-  // trigger; the engine in App.tsx owns the state.
+  // Layout selector. Sidebar renders the trigger; the engine in App.tsx owns the state.
   layoutId: LayoutId
   paneCount: number
   onLayoutChange: (id: LayoutId) => void
@@ -99,7 +98,7 @@ interface Props {
   // Lifted to App.tsx (the single shared instance) — threaded through to
   // SettingsPanel. See UserPreferencesApi's doc comment for why.
   userPrefs: UserPreferencesApi
-  // Hub-tab sidebar (#2/#3): swap the repo context group for a workspace builder.
+  // Hub-tab sidebar: swap the repo context group for a workspace builder.
   isHub?: boolean
   hubWorkspaces?: HubWorkspace[]
   onSelectWorkspace?: (tabId: string) => void
@@ -311,9 +310,8 @@ export default function Sidebar({
         'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
         // Button ghost no declara color de reposo (solo hover) — este proyecto
         // no tiene el preflight que shadcn da por hecho (button {color:inherit}),
-        // asi que sin esto el boton mostraba el negro nativo del navegador
-        // (Task 7, mismo patron que el bg-transparent de la Task 5b, pero de
-        // texto). secondary ya trae su propio text-secondary-foreground.
+        // asi que sin esto el boton muestra el negro nativo del navegador.
+        // secondary ya trae su propio text-secondary-foreground.
         !broadcastMode && 'text-muted-foreground hover:text-foreground',
       )}
       onClick={onBroadcastToggle}
@@ -370,7 +368,7 @@ export default function Sidebar({
               autoFocus
               // fontSize: la escala no tiene un escalon en 20px — --fs-xl es 17,
               // --fs-2xl es 21. Se redondea al mas cercano (21, 1px de diferencia)
-              // en vez de dejar un literal fuera de escala (Task 7).
+              // en vez de dejar un literal fuera de escala.
               className="block w-full box-border bg-popover border border-border rounded-md text-foreground text-fs-2xl font-bold px-3 py-2 tracking-[4px] text-center uppercase mb-2.5 outline-none"
             />
             {terminalJoinService.error && (
@@ -477,8 +475,8 @@ export default function Sidebar({
   )
 
   // Layout selector — lives inside "More tools". Icon is outlined (transparent)
-  // to match the other tools and avoid the solid white square the '1' preset
-  // used to render as. Clicking toggles the popover; Ctrl/⌘+L cycles.
+  // to match the other tools — filled, the '1' preset renders as a solid white
+  // square. Clicking toggles the popover; Ctrl/⌘+L cycles.
   const LayoutItem = (
     <div
       className="sidebar-item sidebar-item-panel"
@@ -498,9 +496,8 @@ export default function Sidebar({
 
   // The repo row. Expanded it is the menu's title (first row of the same box
   // as the tabs, with a chevron for "this is where you swap repo"); the branch
-  // and the CI bar moved into the Worktrees tab, the only place they mean
-  // something. On the collapsed rail it stays the plain icon row it always was,
-  // branch included.
+  // and the CI bar live in the Worktrees tab, the only place they mean
+  // something. On the collapsed rail it is a plain icon row.
   const repoRow = (showBranch: boolean) => (
     <div
       className="sidebar-item sidebar-repo"
@@ -513,8 +510,8 @@ export default function Sidebar({
       <span className="sidebar-icon">
         {/* `FolderGit2`, no `Waypoints`.
             Esta fila es el REPO vinculado a la pestaña; la de arriba es la pestaña activa.
-            Con el mismo glifo en las dos quedaban DOS iconos identicos, uno pegado al otro,
-            en la barra colapsada — y cuando la pestaña activa era Worktrees no habia forma
+            Con el mismo glifo en las dos quedarian DOS iconos identicos, uno pegado al otro,
+            en la barra colapsada — y cuando la pestaña activa es Worktrees no habria forma
             de saber cual era cual. Worktrees comparte glifo con el grafo de ramas del header
             a proposito (un worktree ES una rama); el repo es la carpeta, que es otra cosa. */}
         <FolderGit2 size={ICON_SIZE.lg} aria-hidden />
@@ -522,8 +519,8 @@ export default function Sidebar({
       {repoPath ? (
         <div className="sidebar-repo-info">
           <div className="sidebar-repo-row">
-            {/* Sin `text-ok`. El verde de estado estaba usado como color PERMANENTE del
-                nombre del repo, y un color que siempre está no dice nada: la regla del
+            {/* Sin `text-ok`. El verde de estado como color PERMANENTE del nombre del
+                repo no diria nada — un color que siempre está no informa: la regla del
                 proyecto es que el color ES estado (--ok / --warn / --destructive), nunca
                 decoración. Que el repo esté enlazado ya lo comunica el hecho de que su
                 nombre se muestre. */}
@@ -582,8 +579,8 @@ export default function Sidebar({
   )
 
   // One door for everything that is yours: your repos, each team's repos, and
-  // your pending invites. Local features are free on every plan (corte comercial
-  // 2026-09-02) so this opens the same way regardless of plan.
+  // your pending invites. Local features are free on every plan, so this opens
+  // the same way regardless of plan.
   const PersonalItem = (
     <Button
       variant="ghost"
@@ -597,13 +594,8 @@ export default function Sidebar({
       <span className="sidebar-icon" style={{ position: 'relative' }}>
         <User size={ICON_SIZE.lg} aria-hidden />
         {pendingInvitesCount > 0 && (
-          // background/color -> bg-destructive/text-destructive-foreground (blanco puro,
-          // match exacto); el radio (7 sobre una caja de 14px) -> rounded-full (mismo
-          // resultado visual, mas robusto); el tamano de fuente (9px) -> text-fs-2xs
-          // (10px, el escalon mas chico definido — 1px de diferencia, no hay uno exacto).
-          // El boxShadow usaba una var inexistente (bg-primary, que no esta definida en
-          // ningun lado) con un fallback que coincidia con --background; se corrige a la
-          // referencia real.
+          // text-fs-2xs (10px) es el escalon mas chico de la escala. El boxShadow con
+          // --background recorta el badge del icono que tapa.
           <span
             aria-label={`${pendingInvitesCount} pending invites`}
             className="absolute flex items-center justify-center bg-destructive text-destructive-foreground rounded-full text-fs-2xs font-bold"
@@ -627,7 +619,7 @@ export default function Sidebar({
     <>
       {LayoutItem}
       {/* Filtro de panes — junto al layout selector: ambos son
-          controles de vista del workspace (pedido de Bautista). */}
+          controles de vista del workspace. */}
       {onPaneFilterChange && (
         <PaneFilterControl
           panes={paneFilterPanes ?? []}
@@ -642,14 +634,11 @@ export default function Sidebar({
       {VoiceItem}
       {BroadcastItem}
       {JoinTerminalItem}
-      {/* Integrations y Orchestration eran filas fijas de la sidebar vieja. Con las
-          pestanas viven en Tools, que es la lista que comparten el flyout colapsado y
-          la pestana: asi siguen alcanzables en los dos modos.
-          No salen en esta release (decision del usuario, 2026-09-10): el hito 1 de
-          integrations esta terminado y commiteado pero el resto del backlog
-          (docs/INTEGRATIONS_ORCA_BACKLOG.md) no. ENABLE_INTEGRATIONS_ORCHESTRATION
-          (src/lib/releaseFlags.ts) solo apaga el punto de entrada — nada de esto se
-          borro. Para mostrarlas de nuevo, poner esa constante en `true`. */}
+      {/* Integrations y Orchestration viven en Tools, que es la lista que comparten el
+          flyout colapsado y la pestana: asi son alcanzables en los dos modos.
+          ENABLE_INTEGRATIONS_ORCHESTRATION (src/lib/releaseFlags.ts) solo apaga el punto
+          de entrada mientras el backlog (docs/INTEGRATIONS_ORCA_BACKLOG.md) no esta
+          completo. Para mostrarlas, poner esa constante en `true`. */}
       {ENABLE_INTEGRATIONS_ORCHESTRATION && (
         <>
           <Button
@@ -690,8 +679,8 @@ export default function Sidebar({
       <Button
         variant="ghost"
         size="default"
-        // Sin `mb-1`: era el único margen vertical de toda la columna, así que el espacio
-        // entre esta fila y la siguiente era el único distinto de la barra.
+        // Sin `mb-1`: ninguna otra fila de la columna tiene margen vertical, y el espacio
+        // entre esta fila y la siguiente seria el único distinto de la barra.
         className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
         onClick={onToggle}
         title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
@@ -701,7 +690,7 @@ export default function Sidebar({
             El primitivo trae `[&_svg:not([class*='size-'])]:size-3.5` en el tamaño `sm`, o
             sea que fuerza a 14px cualquier SVG adentro del botón y PISA el `size` que uno le
             pasa al ícono. Como las filas que no son <Button> (`.sidebar-item`) no pasan por
-            esa regla y quedaban en 16, la misma columna mostraba iconos de 14 y de 16.
+            esa regla y quedan en 16, la misma columna mostraria iconos de 14 y de 16.
             `default` es h-8 + size-4 (16), que es exactamente lo que estas filas son. */}
         <span className="sidebar-icon">
           {expanded ? (
@@ -713,14 +702,13 @@ export default function Sidebar({
       </Button>
 
       <div className="sidebar-scroll">
-        {/* ── 1. COLLAPSED RAIL: repo (normal) or workspaces (Hub), same as
-             before — the rail has no room for tabs. ── */}
+        {/* ── 1. COLLAPSED RAIL: repo (normal) or workspaces (Hub) — the rail
+             has no room for tabs. ── */}
         {/* Donde estas, cuando la barra esta colapsada.
-            La barra colapsada no mostraba NINGUNA pestaña: el unico icono era el del repo,
-            y desde que ese glifo es el mismo que el de Worktrees (a proposito: un worktree
-            ES una rama) se leia como si Worktrees estuviera activa aunque estuvieras en
-            Explorer. Esta fila dice cual esta activa de verdad, y al tocarla abre la barra
-            en esa pestaña. */}
+            Sin esta fila el unico icono seria el del repo, y como el glifo de Worktrees se
+            le parece (a proposito: un worktree ES una rama) se leeria como si Worktrees
+            estuviera activa aunque estuvieras en Explorer. Esta fila dice cual esta activa
+            de verdad, y al tocarla abre la barra en esa pestaña. */}
         {!expanded && (
           <Button
             variant="ghost"
@@ -736,10 +724,9 @@ export default function Sidebar({
           </Button>
         )}
 
-        {/* Sin el branch: en 48px de ancho no entra, y lo que se veia era UNA letra suelta
-            al lado del icono — el principio del nombre de la rama desbordando. Un texto que
-            no entra no informa, ensucia. El nombre del repo y la rama siguen en el `title`
-            de la fila, que es como se leen en modo colapsado. */}
+        {/* Sin el branch: en 48px de ancho no entra, y se veria UNA letra suelta al lado
+            del icono — el principio del nombre de la rama desbordando. El nombre del repo y
+            la rama siguen en el `title` de la fila, que es como se leen en modo colapsado. */}
         {!expanded && !isHub && repoRow(false)}
 
         {!expanded && isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
@@ -813,8 +800,7 @@ export default function Sidebar({
           </>
         )}
 
-        {/* ── 3. COLLAPSED ICON RAIL — unchanged: More tools stays an icon
-             row, not a tab. ── */}
+        {/* ── 3. COLLAPSED ICON RAIL — More tools is an icon row, not a tab. ── */}
         {!expanded && (
           <>
             {/* Sin `mx-2`.
@@ -851,7 +837,7 @@ export default function Sidebar({
           </>
         )}
 
-        {/* ── 4.5. LAYOUT SELECTOR — trigger now lives inside "More tools"
+        {/* ── 4.5. LAYOUT SELECTOR — trigger lives inside "More tools"
              (see LayoutItem). Only the popover renders here (position:fixed,
              anchored to the LayoutItem). ── */}
         {layoutOpen && layoutPopPos && (
@@ -914,9 +900,7 @@ export default function Sidebar({
           cuenta. */}
       {/* `MemoriesItem.onOpen` es `() => void` pero por dentro hace `<Button onClick={onOpen}>`
           — pasar `onMemoriesOpen` DIRECTO le entregaria el SyntheticEvent del click como si
-          fuera `vista`. App sólo abre Settings con el literal 'settings', así que hoy un Event
-          cae al grafo; envolver en una arrow sin argumentos corta esa cadena desde el origen
-          (fix round 1, Task 6 del 19-10). */}
+          fuera `vista`. Envolver en una arrow sin argumentos corta esa cadena desde el origen. */}
       {onMemoriesOpen && <MemoriesItem expanded={expanded} onOpen={() => onMemoriesOpen?.()} />}
 
       {/* User menu — hidden while loading to avoid flash */}

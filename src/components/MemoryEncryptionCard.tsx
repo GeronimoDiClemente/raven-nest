@@ -6,8 +6,7 @@
 // para después desaparecer.
 //
 // Escrita con shadcn + utilidades y SIN clases nuevas en `global.css`, que es lo que manda
-// CLAUDE.md para un componente nuevo. (El plan sugería agregar `.memory-encryption-*` allá;
-// se resolvió acá con utilidades, que es la regla vigente del proyecto.)
+// CLAUDE.md para un componente nuevo.
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -63,9 +62,9 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
    * pueda haber dejado publicada. Automático a propósito: después de que alguien toca
    * "Autorizar esta máquina" en la otra, acá no tendría que hacer falta hacer nada.
    *
-   * Hasta el 2026-09-12 este camino no existía en la UI —el único llamador de la adopción era
-   * el botón de activar, que en este estado no se muestra— así que una máquina autorizada
-   * nunca tomaba su clave y la única salida era quemar el código de recuperación.
+   * Es el único camino de adopción en este estado —el botón de activar no se muestra—: sin
+   * esto una máquina autorizada nunca tomaría su clave y la única salida sería quemar el
+   * código de recuperación.
    */
   const adoptar = api?.encryptionAdopt
   const necesitaClave = Boolean(estado && !estado.active && estado.keyEpoch > 0)
@@ -101,7 +100,7 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
   })
 
   const autorizar = (deviceId: string) => conBloqueo(async () => {
-    // I4: la huella que el usuario comparó viaja con el pedido. main.ts vuelve a pedir la
+    // La huella que el usuario comparó viaja con el pedido. main.ts vuelve a pedir la
     // lista y, si la pública ya no da esta huella, no envuelve nada.
     const res = await api?.encryptionAuthorize?.(deviceId, estado?.huellasPorDevice?.[deviceId] ?? '')
     if (res && !res.ok) setError(res.error ?? 'Could not authorise.')
@@ -234,7 +233,7 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
           {fallo}
         </SettingRow>
 
-        {/* Una fila por máquina que espera (D9). Comparar la huella es la única defensa contra
+        {/* Una fila por máquina que espera. Comparar la huella es la única defensa contra
             una clave pública sustituida en el servidor. */}
         {estado.pendingDevices.map((d) => (
           <SettingRow

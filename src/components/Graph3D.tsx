@@ -1,10 +1,10 @@
 // El render 3D, compartido por los dos grafos de la app: el de memorias y el de ramas.
 //
 // **Este archivo es el ÚNICO que importa `react-force-graph-3d`**, y por eso es el que hay
-// que cargar con `import()` diferido. Medido el 2026-09-11: importarlo arriba suma 1379.8 KB
-// crudos al arranque; detrás de un `import()` suma 1.4 KB (la tabla completa está en
+// que cargar con `import()` diferido: importarlo arriba suma ~1.4 MB crudos al arranque;
+// detrás de un `import()` suma 1.4 KB (la tabla completa está en
 // `docs/superpowers/specs/2026-09-11-memories-legible-design.md`). Si aparece un segundo
-// import estático en cualquier lado, el chunk vuelve al arranque y nadie se entera.
+// import estático en cualquier lado, el chunk vuelve al arranque sin que nada falle.
 //
 // Es genérico a propósito: recibe nodos y aristas ya resueltos —color, tamaño y estilo de
 // línea incluidos— y no sabe nada de memorias ni de ramas. Lo que aporta es lo difícil y lo
@@ -90,18 +90,17 @@ function spriteDeEtiqueta(texto: string, color: string, radioDelNodo: number): S
 
   const sprite = new Sprite(new SpriteMaterial({ map: new CanvasTexture(canvas), depthWrite: false }))
   // El sprite vive en unidades de MUNDO, así que su tamaño se mide contra el grafo y no
-  // contra la pantalla. Con el divisor anterior (2.2) un título de 24 caracteres medía ~75
-  // unidades de ancho sobre un grafo que se extiende ~92: cada etiqueta era casi tan ancha
-  // como el grafo entero. No se notaba mientras la cámara quedaba lejos —todo se veía chico
-  // por igual— y saltó a la vista apenas el encuadre empezó a funcionar.
+  // contra la pantalla. Con un divisor chico (2.2) un título de 24 caracteres mide ~75
+  // unidades de ancho sobre un grafo que se extiende ~92: cada etiqueta sería casi tan ancha
+  // como el grafo entero.
   const REDUCCION = 4.2
   const anchoMundo = canvas.width / escala / REDUCCION
   const altoMundo = canvas.height / escala / REDUCCION
   sprite.scale.set(anchoMundo, altoMundo, 1)
   // Arriba del nodo, no encima. `nodeThreeObjectExtend` deja el sprite centrado en el mismo
-  // punto que la esfera, así que el texto se dibujaba ATRAVESANDO el nodo. El desplazamiento
-  // sale del RADIO del nodo, que cambia con su grado: uno fijo alcanzaba para los nodos
-  // chicos y dejaba el título adentro de los grandes, que son justamente los importantes.
+  // punto que la esfera, así que sin correrlo el texto atraviesa el nodo. El desplazamiento
+  // sale del RADIO del nodo, que cambia con su grado: uno fijo alcanza para los nodos
+  // chicos y deja el título adentro de los grandes, que son justamente los importantes.
   sprite.position.set(0, radioDelNodo + altoMundo, 0)
   return sprite
 }
@@ -116,9 +115,8 @@ function endId(end: string | { id?: string } | undefined): string | undefined {
 const ATENUADO_NODO = 'rgba(120, 120, 120, 0.15)'
 const ATENUADO_ARISTA = 'rgba(120, 120, 120, 0.06)'
 /** El radio de un nodo es `cbrt(val) * NODE_REL_SIZE`; la etiqueta lo necesita para saber
- *  cuánto correrse hacia arriba, así que vive acá y no inline. Era 6, que dejaba el diámetro
- *  en ~20% del ancho del grafo: con ocho memorias se veían ocho pelotas y el título no
- *  entraba en ningún lado. */
+ *  cuánto correrse hacia arriba, así que vive acá y no inline. Con 6 el diámetro queda en
+ *  ~20% del ancho del grafo: con ocho memorias se ven ocho pelotas y el título no entra. */
 const NODE_REL_SIZE = 4.5
 
 /** Cuánto tira la gravedad hacia el centro. Lo justo para traer a los grupos sueltos sin
@@ -153,7 +151,7 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
    *
    * Sin esto el grafo se siente roto: la simulación se aquieta a los 4s (`cooldownTime`) y
    * ahí dispara `onEngineStop`, que reencuadra con una animación de 400ms. Si en ese momento
-   * estabas arrastrando o haciendo zoom, la cámara te la sacaba de las manos.
+   * estás arrastrando o haciendo zoom, la cámara te la saca de las manos.
    */
   const usuarioMovioLaCamara = useRef(false)
 
@@ -219,8 +217,8 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
     if (usuarioMovioLaCamara.current) return
     const fg = fgRef.current
     if (!fg) {
-      // Si esto se ve, el ref no llegó — el mismo síntoma de la trampa de React 18 contra
-      // los primitivos de React 19 que ya mordió en esta rama (ver RECETA-MIGRACION-UI.md).
+      // Si esto se ve, el ref no llegó — el síntoma de la trampa de React 18 contra los
+      // primitivos de React 19 (ver RECETA-MIGRACION-UI.md).
       // react-kapsule, que es lo que envuelve a ForceGraph3D, SÍ usa forwardRef, así que
       // debería llegar; el aviso está para que un cambio de versión no lo rompa en silencio.
       console.warn(`[Graph3D:${nombre}] no ref: the graph will not frame itself`)
@@ -235,8 +233,8 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
     // Las posiciones salen de los nodos porque la simulación los muta EN EL LUGAR: los
     // objetos que le pasamos son los mismos que recibe el motor.
     //
-    // Y sin los extremos: un grupo suelto lejos del resto alejaba la cámara para meterlo en
-    // cuadro, y el grafo entero quedaba en un puñito en el medio. Ver `cajaSinExtremos`.
+    // Y sin los extremos: un grupo suelto lejos del resto aleja la cámara para meterlo en
+    // cuadro, y el grafo entero queda en un puñito en el medio. Ver `cajaSinExtremos`.
     const caja = cajaSinExtremos(nodes as Array<Node3D & { x?: number; y?: number; z?: number }>)
     if (!caja) return
     const { x: ex, y: ey, z: ez } = caja
@@ -247,11 +245,10 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
     // El encuadre se calcula sobre la caja PROYECTADA, no sobre el radio de la esfera que
     // contiene a los nodos.
     //
-    // Con la esfera, medido en la app: la simulación dispersa mucho más en profundidad que a
-    // lo ancho —x=92, y=85, z=231 con ocho memorias— o sea que el grafo es una aguja apuntando
-    // a la cámara. El radio quedaba dominado por la Z, que no se ve, y la cámara se alejaba
-    // para encuadrar una esfera cuya sombra en pantalla medía 128×95 px dentro de una caja de
-    // 1400×520. Se veía un puñado de puntos en el medio de un rectángulo vacío.
+    // La simulación dispersa mucho más en profundidad que a lo ancho —x=92, y=85, z=231 con
+    // ocho memorias— o sea que el grafo es una aguja apuntando a la cámara. Con la esfera, el
+    // radio queda dominado por la Z, que no se ve, y la cámara se aleja hasta dejar un puñado
+    // de puntos en el medio de un rectángulo vacío.
     //
     // El eje de la cámara es +Z (mira desde `cz + distancia` hacia `cz`), así que los ejes
     // del mundo y los de la cámara coinciden: el alto en pantalla lo da Y, el ancho X, y Z es
@@ -260,9 +257,8 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
     const semiAlto = Math.max((ey.max - ey.min) / 2, 1)
     const semiAncho = Math.max((ex.max - ex.min) / 2, 1)
 
-    // El fov se lee de la cámara en vez de asumirse. Estaba escrito 60° y el real es 50°:
-    // un encuadre calculado sobre un fov que no es el de la cámara está mal por un factor
-    // fijo, y encima en silencio.
+    // El fov se lee de la cámara en vez de asumirse: un encuadre calculado sobre un fov que
+    // no es el de la cámara está mal por un factor fijo, y encima en silencio.
     const cam = (fg as unknown as { camera?: () => { fov?: number; aspect?: number } }).camera?.()
     const fov = cam?.fov ?? 50
     const aspect = cam?.aspect && cam.aspect > 0 ? cam.aspect : 1
@@ -270,8 +266,8 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
 
     // El margen tiene que dar lugar al nodo Y a su etiqueta, que sobresalen de la caja que se
     // mide entre centros.
-    // Era 1.35, cuando la caja incluía los extremos: ahora los nodos de los bordes ya quedan
-    // adentro del recorte, y el margen grande volvía a dejar un marco vacío.
+    // Es chico porque la caja ya recorta los extremos: los nodos de los bordes quedan
+    // adentro del recorte, y un margen grande deja un marco vacío.
     const MARGEN = 1.15
     const porAlto = (semiAlto * MARGEN) / tanMitad
     const porAncho = (semiAncho * MARGEN) / (tanMitad * aspect)
@@ -299,8 +295,8 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
    *   como arrastrar algo pesado. Con ella sigue un poco y se detiene sola. El ciclo de dibujo
    *   de 3d-force-graph ya llama a `controls.update()` en cada cuadro, que es lo que exige.
    * - Giro solo, lento: un grafo quieto se lee como una foto. No cuesta nada extra: la
-   *   librería ya dibuja un cuadro por frame mientras el grafo está montado (medido: 60 fps
-   *   quieto y rotando). Respeta «reducir movimiento» del sistema.
+   *   librería ya dibuja un cuadro por frame mientras el grafo está montado (60 fps quieto
+   *   y rotando). Respeta «reducir movimiento» del sistema.
    */
   const montado = size !== null && size.w > 0 && size.h > 0
   const reanudarGiro = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -351,8 +347,8 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
     }, ESPERA_PARA_VOLVER_A_GIRAR_MS)
   }, [])
 
-  // Estable entre renders: como prop inline, react-force-graph veía una función nueva en cada
-  // render y volvía a generar TODAS las etiquetas (un canvas y una textura por nodo).
+  // Estable entre renders: como prop inline, react-force-graph ve una función nueva en cada
+  // render y vuelve a generar TODAS las etiquetas (un canvas y una textura por nodo).
   const etiquetaDelNodo = useCallback((n: Node3D) => spriteDeEtiqueta(
     n.label,
     visibles && !visibles.has(n.id) ? ETIQUETA_ATENUADA : ETIQUETA,
@@ -389,7 +385,7 @@ export default function Graph3D({ nodes, links, selectedId, onSelect, showLabels
           // construir el grafo, así que cambiarla en caliente no haría nada.
           controlType="orbit"
           showNavInfo={false}
-          // 6, no el 4 por defecto: con pocos nodos un grafo de puntos chiquitos en una caja
+          // Más que el 4 por defecto: con pocos nodos un grafo de puntos chiquitos en una caja
           // acotada se lee como ruido en vez de como una estructura.
           nodeRelSize={NODE_REL_SIZE}
           nodeVal={(n) => n.val}

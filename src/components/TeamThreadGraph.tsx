@@ -5,19 +5,10 @@
 // abre al hacer click. **El color por estado y frescura es el punto entero de este
 // componente, no la topología.**
 //
-// 2026-09-11: era un SVG plano con su propia simulación de física en 2D. Dos problemas
-// concretos que eso traía, los dos visibles en una captura del usuario:
-//
-// 1. Con el hilo recién prendido y sin notas todavía, el único nodo era `_index`, dibujado
-//    como un círculo RELLENO de `--text-primary` —blanco puro, lo más fuerte de la paleta—
-//    dentro de un `viewBox` fijo de 800×800. O sea: un cuadro enorme y vacío con un punto
-//    blanco en el medio.
-// 2. Convivía con el grafo de memorias, que es 3D, en la misma pantalla. Dos grafos con dos
-//    lenguajes distintos a diez centímetros uno del otro.
-//
-// Ahora comparte `Graph3D` con el de memorias: mismo encuadre, mismos controles, mismo
-// atenuado del vecindario. Con eso se fueron también el rAF de física 2D, el `Map` de
-// posiciones y el corte por energía — el motor 3D ya hace todo eso.
+// Comparte `Graph3D` con el de memorias —mismo encuadre, mismos controles, mismo atenuado
+// del vecindario— porque conviven en la misma pantalla y dos grafos con dos lenguajes
+// distintos a diez centímetros uno del otro no se leen. La física y las posiciones son del
+// motor 3D.
 import { Suspense, useMemo, useState } from 'react'
 import { buildThreadGraph } from '../lib/team-thread-graph'
 // DIFERIDO, no un import directo: este componente cuelga de una cadena de imports estáticos
@@ -68,9 +59,9 @@ export function TeamThreadGraph({ branches, focus, ahora, onOpenNote }: Props) {
 
   return (
     <div className="team-thread-graph">
-      {/* Botones del sistema, no <button> con reglas propias en global.css. Convivian con
-          los <Button> de shadcn del grafo de memorias en la MISMA pantalla, cada juego con
-          su altura, su radio y su padding — dos sistemas a diez centimetros uno del otro. */}
+      {/* Botones del sistema, no <button> con reglas propias en global.css: conviven con
+          los <Button> de shadcn del grafo de memorias en la MISMA pantalla, y dos juegos
+          con su altura, su radio y su padding serian dos sistemas uno al lado del otro. */}
       <header className="team-thread-graph-header">
         <Button variant="outline" size="sm" onClick={() => setShowGlobal((v) => !v)}>
           {showGlobal ? 'Show current branch' : 'Show all branches'}

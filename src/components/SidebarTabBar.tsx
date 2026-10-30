@@ -11,19 +11,17 @@ interface Props {
    *  normal repo sidebar takes the default. */
   tabs?: readonly SidebarTabId[]
   /** Rendered below the tabs, inside the same box — the repo row. Under the
-   *  tabs and not above them: on top it still read as a separate block sitting
-   *  over the menu, which is what we were trying to get rid of. */
+   *  tabs and not above them: on top it reads as a separate block sitting
+   *  over the menu. */
   footer?: ReactNode
 }
 
 // Iconos de lucide, no dibujados a mano: el tamano y el grosor los pone el contrato
-// (src/lib/icons.ts + el LucideProvider de main.tsx), asi que aca no se declara ninguno de
-// los dos. Los cuatro que habia tenian 15px con viewBox 16 y strokeWidth 1.2/1.3 mezclados,
-// o sea dos grosores efectivos distintos en una barra de cuatro botones.
+// (src/lib/icons.ts + el LucideProvider de main.tsx), asi que aca no se inventa ninguno de
+// los dos.
 //
-// `Waypoints` en vez de `GitBranch` para Worktrees: el dibujo original eran tres nodos
-// unidos, y era a proposito — un worktree ES una rama, y el mismo grafo aparece en el
-// header del repo. Waypoints conserva esa forma; GitBranch es otra silueta.
+// `Waypoints` en vez de `GitBranch` para Worktrees: tres nodos unidos — un worktree ES una
+// rama, y el mismo grafo aparece en el header del repo. GitBranch es otra silueta.
 export const TAB_ICONS: Record<SidebarTabId, LucideIcon> = {
   worktrees: Waypoints,
   explorer: Folder,
