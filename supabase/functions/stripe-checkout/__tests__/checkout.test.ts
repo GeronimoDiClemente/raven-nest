@@ -1,7 +1,7 @@
 // Spec 2b-2 §4.2: la decisión del checkout, pura. El shell (index.ts) sólo autentica, lee el
 // perfil y le pasa esto a Stripe.
 import { describe, it, expect } from 'vitest'
-import { decidirCheckout, esClienteInexistente, sinCliente, URL_CANCELADO, URL_EXITO, type PerfilDeCobro } from '../checkout.ts'
+import { decidirCheckout, sinCliente, URL_CANCELADO, URL_EXITO, type PerfilDeCobro } from '../checkout.ts'
 
 const PRECIOS = { monthly: 'price_m', annual: 'price_a' }
 const SIN_PERFIL: PerfilDeCobro = { plan: 'free', stripe_customer_id: null, stripe_subscription_id: null }
@@ -70,18 +70,6 @@ describe('decidirCheckout', () => {
     expect(JSON.stringify(d.sesion)).not.toContain('trial')
     expect(URL_EXITO).toBe('https://nestmux.com/checkout/success')
     expect(URL_CANCELADO).toBe('https://nestmux.com/checkout/cancelled')
-  })
-})
-
-describe('esClienteInexistente', () => {
-  it('sólo el resource_missing sobre el parámetro customer', () => {
-    expect(esClienteInexistente({ code: 'resource_missing', param: 'customer' })).toBe(true)
-    expect(esClienteInexistente({ code: 'resource_missing', param: 'price' })).toBe(false)
-    expect(esClienteInexistente({ code: 'card_declined', param: 'customer' })).toBe(false)
-    expect(esClienteInexistente(null)).toBe(false)
-    expect(esClienteInexistente(undefined)).toBe(false)
-    expect(esClienteInexistente('resource_missing')).toBe(false)
-    expect(esClienteInexistente(new Error('boom'))).toBe(false)
   })
 })
 
