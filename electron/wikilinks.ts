@@ -90,9 +90,9 @@ export function resolverWikilink(nombre: string, candidatos: CandidatoMemoria[])
   // El ÚLTIMO tramo del topic, que es el análogo del nombre de archivo: en Obsidian
   // `[[nota]]` encuentra `carpeta/nota.md` sin que haga falta escribir la carpeta.
   //
-  // No es teoría. Medido contra el corpus real el 2026-09-17: las 120 memorias vivas tienen
-  // topic con prefijo de namespace del importador (`claude-memory/...`, `imported/...`) y
-  // los 116 links ya escritos dicen el slug pelado. Sin esta regla no resolvía NINGUNO.
+  // Es el caso común: los importadores le ponen al topic un prefijo de namespace
+  // (`claude-memory/...`, `imported/...`) y los links se escriben con el slug pelado. Sin
+  // esta regla casi ningún link del corpus real resuelve.
   const porTramo = candidatos.filter((x) => ultimoTramo(x.topicKey) === buscado)
   if (porTramo.length > 0) return masEstable(porTramo)
 

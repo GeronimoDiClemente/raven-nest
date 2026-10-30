@@ -8,7 +8,7 @@ import type { MemoryMethod, MemoryRequest, MemoryResponse } from '../memory-prot
 
 const REQUEST_TIMEOUT_MS = 5000
 
-// Task 1 Step 4 / correction #8: the server (memory-ipc-server.ts's suspend()) rejects
+// The server (memory-ipc-server.ts's suspend()) rejects
 // in-flight requests with `store_swapping` for as long as a hot-swap (logout/login,
 // account switch) is draining and re-pointing the store — see memory-account-switch.ts.
 // That window is bounded by renameSync's own internal retry (2-3 attempts x ~50ms, for
@@ -25,7 +25,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export class MemoryDaemonClient {
-  // C2: every request must carry the shared-secret token the daemon validates before
+  // Every request must carry the shared-secret token the daemon validates before
   // touching the store — see memory-local-auth.ts and memory-ipc-server.ts.
   constructor(private readonly socketPath: string, private readonly authToken: string) {}
 

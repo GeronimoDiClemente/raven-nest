@@ -81,11 +81,11 @@ contextBridge.exposeInMainWorld('memory', {
   // Aprobar la vinculación de OTRA máquina (la que no tiene navegador). El JWT sale de acá
   // por lo mismo que arriba; el código corto lo tipea el usuario.
   linkApprove: (jwt: string, userCode: string) => ipcRenderer.invoke('memory:linkApprove', jwt, userCode),
-  // A qué servicio de sync le habla esta instalación, y cambiarlo sin recompilar (C4).
+  // A qué servicio de sync le habla esta instalación, y cambiarlo sin recompilar.
   syncService: () => ipcRenderer.invoke('memory:syncService:get'),
   setSyncService: (url: string | null) => ipcRenderer.invoke('memory:syncService:set', url),
   setUser: (userId: string | null, opts?: { adopt?: boolean }) => ipcRenderer.invoke('memory:setUser', userId, opts),
-  // Task 2 (adopcion con aviso) — puramente informativo, se llama ANTES de setUser para
+  // Puramente informativo, se llama ANTES de setUser para
   // saber si hay que preguntar "son tuyas?" en vez de adoptar en silencio.
   checkPendingAdoption: (userId: string | null) => ipcRenderer.invoke('memory:checkPendingAdoption', userId),
   disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
@@ -97,8 +97,8 @@ contextBridge.exposeInMainWorld('memory', {
   // Spec 2b-3: máquinas de la cuenta (listar y revocar otra por id).
   devices: () => ipcRenderer.invoke('memory:devices'),
   revokeDevice: (deviceId: string) => ipcRenderer.invoke('memory:revokeDevice', deviceId),
-  // Cifrado del lado del cliente (spec §5.3). Opcionales en `window.memory` como todo lo
-  // que sumo la fase 1: un preload viejo no los expone y la UI tiene que montar igual.
+  // Cifrado del lado del cliente (spec §5.3). Opcionales en `window.memory`: un preload
+  // viejo no los expone y la UI tiene que montar igual.
   encryptionStatus: () => ipcRenderer.invoke('memory:encryption:status'),
   encryptionActivate: () => ipcRenderer.invoke('memory:encryption:activate'),
   encryptionAdopt: () => ipcRenderer.invoke('memory:encryption:adopt'),
@@ -114,9 +114,9 @@ contextBridge.exposeInMainWorld('memory', {
   teamEncryptionRecover: (teamId: string, code: string) => ipcRenderer.invoke('memory:teamEncryption:recover', teamId, code),
   teamEncryptionRecrypt: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:recrypt', teamId),
   hubStats: () => ipcRenderer.invoke('memory:hub-stats'),
-  // Puente de datos del grafo navegable de memorias — ver electron/memory-graph.ts. Sin
-  // UI todavía; el objeto es parcial porque `MemoryGraphQuery` no tiene campos opcionales
-  // y los defaults se resuelven del lado de main.ts.
+  // Puente de datos del grafo navegable de memorias — ver electron/memory-graph.ts. El
+  // objeto es parcial porque `MemoryGraphQuery` no tiene campos opcionales y los defaults
+  // se resuelven del lado de main.ts.
   graph: (
     query?: Partial<{
       projectKey: string | null
@@ -127,10 +127,9 @@ contextBridge.exposeInMainWorld('memory', {
       similarMinScore: number
     }>
   ) => ipcRenderer.invoke('memory:graph', query),
-  // Puente de datos del listado cross-project de memorias (spec 2026-09-11, pantalla de
-  // Memories legible) — ver electron/memory-store.ts's crossProjectMemories(). Sin UI
-  // todavía; el objeto es parcial porque `CrossProjectMemoryQuery` exige `limit` y el
-  // default se resuelve del lado de main.ts, igual que `graph` arriba.
+  // Puente de datos del listado cross-project de memorias — ver electron/memory-store.ts's
+  // crossProjectMemories(). El objeto es parcial porque `CrossProjectMemoryQuery` exige
+  // `limit` y el default se resuelve del lado de main.ts, igual que `graph` arriba.
   crossProject: (
     query?: Partial<{
       query: string
@@ -161,30 +160,27 @@ contextBridge.exposeInMainWorld('memory', {
   updateFromUi: (input: { syncId: string; title?: string; content?: string; tags?: string[] }) =>
     ipcRenderer.invoke('memory:updateFromUi', input),
   deleteFromUi: (syncId: string) => ipcRenderer.invoke('memory:deleteFromUi', syncId),
-  // Team Memory Layer 1, Parte 8 — comparte un proyecto LOCAL con un equipo, vía
-  // POST /v1/projects/share (server/src/share.ts). Sin UI todavía; se prueba desde devtools
-  // o un test.
+  // Comparte un proyecto LOCAL con un equipo, vía POST /v1/projects/share
+  // (server/src/share.ts).
   shareProjectWithTeam: (projectKey: string, teamId: string) =>
     ipcRenderer.invoke('memory:shareProjectWithTeam', projectKey, teamId),
-  // Task 5 — el vault (proyección Markdown de la memoria a `.raven-nest/memory-vault/`).
-  // Sin panel en Settings todavía (fuera de alcance de esta pasada); se prueba desde
-  // devtools o un test hasta que exista el toggle real.
+  // El vault (proyección Markdown de la memoria a `.raven-nest/memory-vault/`).
   vaultGetSettings: () => ipcRenderer.invoke('memory:vault:getSettings'),
   vaultSetSettings: (patch: { enabled?: boolean; root?: string | null; includeSuperseded?: boolean; includeTeamScope?: boolean }) =>
     ipcRenderer.invoke('memory:vault:setSettings', patch),
   vaultRegenerate: () => ipcRenderer.invoke('memory:vault:regenerate'),
   vaultReveal: () => ipcRenderer.invoke('memory:vault:reveal'),
-  // Task 7 (Team Memory Layer 2) — el hilo de equipo, por worktree.
+  // El hilo de equipo, por worktree.
   teamThreadGetSettings: (projectKey: string) => ipcRenderer.invoke('memory:teamThread:getSettings', projectKey),
   teamThreadSetSettings: (projectKey: string, worktreePath: string, patch: unknown) =>
     ipcRenderer.invoke('memory:teamThread:setSettings', projectKey, worktreePath, patch),
   teamThreadRegenerate: (worktreePath: string, projectKey: string) =>
     ipcRenderer.invoke('memory:teamThread:regenerate', worktreePath, projectKey),
-  // Task 10 (el panel) — projectKey resuelto del lado main, ver el comentario en main.ts.
+  // projectKey resuelto del lado main, ver el comentario en main.ts.
   teamThreadProjectKeyForWorktree: (worktreePath: string) =>
     ipcRenderer.invoke('memory:teamThread:projectKeyForWorktree', worktreePath),
   teamThreadRead: (worktreePath: string) => ipcRenderer.invoke('memory:teamThread:read', worktreePath),
-  // Spec §5.3 — los tres datos que la pantalla Memories necesita y no existian:
+  // Spec §5.3 — los tres datos que la pantalla Memories necesita:
   // el estado de sesion (§2.2), lo bloqueado con su razon (§7.1) y el desfasaje del vault.
   sessions: () => ipcRenderer.invoke('memory:sessions'),
   doctor: () => ipcRenderer.invoke('memory:doctor'),
@@ -192,9 +188,8 @@ contextBridge.exposeInMainWorld('memory', {
   /**
    * Igual que `onChanged`: NO hace `removeAllListeners` primero. Hay varios `useMemory`
    * montados a la vez (Settings, la card de Memories, la fila de estado) y limpiar todo
-   * al suscribirse hacía que el último en montar sordeara a los demás; abrir y cerrar
-   * Memory settings dejaba Settings › Account sin actualizarse hasta reiniciar. Devuelve
-   * su propia baja, que saca sólo este handler.
+   * al suscribirse haría que el último en montar deje sordos a los demás. Devuelve su
+   * propia baja, que saca sólo este handler.
    */
   onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {
     const handler = (_e: IpcRendererEvent, status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => cb(status)
@@ -294,9 +289,8 @@ contextBridge.exposeInMainWorld('appFlags', {
   e2eBilling: process.env.RAVEN_E2E === '1' ? (process.env.RAVEN_E2E_BILLING ?? null) : null,
   // Repos simulados para E2E (RAVEN_E2E_REPOS, un JSON array de UserRepo).
   // My Repos exige una cuenta GitHub conectada de verdad, asi que sin esto la
-  // fila de repo no se puede ver renderizada — y por no poder verla se
-  // documento una excepcion de escala en .repo-action-btn que resulto ser
-  // falsa. Mismo doble gate que e2ePlan: useUserRepos re-chequea e2eBypass.
+  // fila de repo no se puede ver renderizada. Mismo doble gate que e2ePlan:
+  // useUserRepos re-chequea e2eBypass.
   e2eRepos: process.env.RAVEN_E2E === '1' ? (process.env.RAVEN_E2E_REPOS ?? null) : null,
 })
 
@@ -469,9 +463,8 @@ contextBridge.exposeInMainWorld('pluginActions', {
 })
 contextBridge.exposeInMainWorld('slack', {
   openOAuth: () => ipcRenderer.invoke('slack:open-oauth'),
-  // Antes no devolvía unsubscribe y por eso apilaba listeners entre reintentos
-  // de Connect (mismo bug que había en github/gitlab). Mirror del patrón de
-  // arriba: devuelve la función de unsubscribe.
+  // Devuelve la función de unsubscribe: sin ella se apilan listeners entre
+  // reintentos de Connect.
   onOAuthCode: (cb: (code: string) => void) => {
     const handler = (_e: IpcRendererEvent, code: string) => cb(code)
     ipcRenderer.on('slack-oauth-code', handler)
@@ -526,7 +519,7 @@ contextBridge.exposeInMainWorld('activity', {
   },
 })
 
-// H7 — @Nest desde Slack (Socket Mode). El main empuja menciones/acciones por
+// @Nest desde Slack (Socket Mode). El main empuja menciones/acciones por
 // IPC push (patrón `signals:update`); postThread invoca el bot token main-side.
 contextBridge.exposeInMainWorld('slackMentions', {
   onMention: (cb: (m: { channel: string; threadTs: string; user: string; text: string }) => void) => {

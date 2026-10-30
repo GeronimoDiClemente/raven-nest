@@ -386,11 +386,8 @@ export class MetricsCollector {
   private winProcSnapshot: WinSnap | null = null
 
   /**
-   * La tabla de procesos de macOS/Linux, leída UNA vez por ciclo.
-   *
-   * Antes cada árbol pedido spawneaba su propio `ps -A` via pidtree: con 12 panes, doce
-   * `ps` cada 5 s del poll de puertos más doce cada 10 s del de métricas. Ver
-   * `ps-snapshot.ts`. El TTL es el mismo 1.5 s que ya usaba Windows.
+   * La tabla de procesos de macOS/Linux, leída UNA vez por ciclo y no un `ps -A` por
+   * árbol pedido. Ver `ps-snapshot.ts`. El TTL es el mismo 1.5 s que usa Windows.
    */
   private posixSnapshot = crearSnapshotDeProcesos({
     correrPs: () => new Promise<string>((res, rej) => {
@@ -454,9 +451,9 @@ export class MetricsCollector {
    *
    * Las dos plataformas leen la tabla de procesos UNA vez por ciclo y caminan el mapa
    * padre→hijos: `Get-CimInstance Win32_Process` en Windows, `ps -A -o ppid,pid` en el
-   * resto. Antes acá se usaba `pidtree`, que spawnea un `ps` por pid en macOS/Linux y en
-   * Windows shellea a `wmic` —que Microsoft sacó en Win11 22H2, así que cada llamada daba
-   * ENOENT y terminábamos midiendo sólo el host de PowerShell (~77 MB) y no el agente.
+   * resto. No se usa `pidtree`: spawnea un `ps` por pid en macOS/Linux y en Windows
+   * shellea a `wmic` —que Microsoft sacó en Win11 22H2, así que da ENOENT y se mediría
+   * sólo el host de PowerShell (~77 MB) y no el agente.
    */
   private async collectPaneTrees(panes: PaneInput[]): Promise<Map<number, number[]>> {
     const out = new Map<number, number[]>()

@@ -31,9 +31,8 @@ function env(name: string): string | undefined {
  * Lo mínimo que el shim necesita para responder: el daemon si está, y si no, lectura directa
  * del disco.
  *
- * Antes esto era `process.exit(1)` cuando faltaba el socket, y esa línea era la que hacía que
- * la memoria fuera una función de la APP y no de la memoria: quien se llevaba el plugin a
- * otro editor sin Nest abierto se quedaba sin nada. Ahora degrada a sólo lectura y lo dice.
+ * Sin socket no se sale: degrada a sólo lectura y lo dice, para que quien se lleva el plugin a
+ * otro editor sin Nest abierto no se quede sin memoria.
  */
 function resolverCliente(): { cliente: ClienteDeMemoria; conDaemon: boolean } {
   const socket = env('NEST_MEMORY_SOCKET')
@@ -91,8 +90,7 @@ async function runHook(event: string): Promise<void> {
 
   const cwd = (payload.cwd as string) ?? process.cwd()
   const sessionId = (payload.session_id as string) ?? `unknown-${Date.now()}`
-  // Lo único que dice qué pasó en la sesión. El hook lo recibe y hasta ahora se tiraba, que
-  // es la razón de fondo por la que `Stop` no tenía nada que guardar (Layer B).
+  // Lo único que dice qué pasó en la sesión: sin esto `Stop` no tiene nada que guardar (Layer B).
   const transcriptPath = typeof payload.transcript_path === 'string' ? payload.transcript_path : undefined
 
   try {

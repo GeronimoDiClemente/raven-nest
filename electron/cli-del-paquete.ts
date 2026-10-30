@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // El punto de entrada de `npx @nestmux/memory`.
 //
-// Hasta acá todo el paquete portátil eran librerías sin puerta: el parser sabía qué se pidió,
-// el plan sabía qué escribir, el store sabía abrir la base — y nadie los unía. Esto los une.
+// Une las piezas del paquete portátil: el parser sabe qué se pidió, el plan sabe qué escribir y
+// el store sabe abrir la base.
 //
 // Deliberadamente flaco: cada comando arma sus dependencias y llama a una función que ya está
 // probada. Lo único propio de este archivo es imprimir, y por eso es lo único que no tiene
@@ -64,8 +64,8 @@ import { comando, NOMBRE_DEL_PAQUETE } from './nombre-del-paquete'
  * `main.ts` hace lo mismo con `better-sqlite3`. `memory-store.ts` no nombra a ninguno de los
  * dos, y hay un test que camina el grafo de imports para que siga siendo así.
  *
- * Queda registrado aunque los comandos de hoy sólo LEAN: el día que se cablee una escritura,
- * el store tiene que encontrar su motor sin que nadie se acuerde de esto.
+ * Queda registrado aunque el comando sólo LEA: cualquier escritura tiene que encontrar su
+ * motor sin que nadie se acuerde de esto.
  */
 usarAbridorPorDefecto(abrirBase)
 usarAbridorDeLecturaPorDefecto(abrirBaseSoloLectura)
@@ -160,8 +160,8 @@ function comandoSetup(opts: { soloEditores: string[] | null; deshacer: boolean; 
  *
  * Lo de Nest se busca bajo `ravenHome()` y no bajo `homedir()`: adentro de una terminal de
  * Nest el HOME está redirigido a la carpeta de la cuenta (`~/.raven-nest/accounts/...`), y
- * con `homedir()` el paquete no encontraba ni el puntero ni el pipe — parecía no haber Nest
- * justo en la máquina donde estaba abierto.
+ * con `homedir()` el paquete no encontraría ni el puntero ni el pipe — parecería no haber
+ * Nest justo en la máquina donde está abierto.
  */
 async function dondeEstaLaBase() {
   const raven = ravenHome()
@@ -383,8 +383,7 @@ const NODE_MINIMO_OK = (() => {
  *
  * Es el MISMO bucle que corre adentro de Nest —`memory-mcp/servidor.ts`— con otro cliente
  * atrás: el despacho del daemon corriendo en este proceso (`memory-mcp/local.ts`). Un agente
- * en una máquina sin Nest tiene las mismas herramientas Y puede escribir: hasta el
- * 2026-10-02 esto era de sólo lectura, y en una máquina nueva no servía para nada.
+ * en una máquina sin Nest tiene las mismas herramientas Y puede escribir.
  *
  * Con cuenta (§6.2 del spec) baja al abrir la base y sube después de cada escritura, sin
  * daemon de fondo y soltando el candado entre operaciones (`sync-del-mcp.ts`).
@@ -401,9 +400,8 @@ async function comandoMcp(): Promise<void> {
   const base = await dondeEstaLaBase()
   if (base.modo === 'daemon') {
     // Con Nest abierto se le delega TODO: es el escritor único y el que sincroniza en vivo,
-    // y sus escrituras aparecen al instante en la pantalla de Memories. Antes acá se salía
-    // con «use Nest's own server», que para un editor lanzado por su cuenta —Cursor, VS
-    // Code— era quedarse sin memoria justo con Nest abierto.
+    // y sus escrituras aparecen al instante en la pantalla de Memories. Un editor lanzado
+    // por su cuenta —Cursor, VS Code— no puede quedarse sin memoria justo con Nest abierto.
     await runMcpServer(new MemoryDaemonClient(base.socket, base.token), process.cwd())
     return
   }
@@ -473,10 +471,10 @@ async function comandoLogin(): Promise<void> {
   if (existente) {
     console.log(fila(marcas.ok(e), 'Connected', 'checking encryption access'))
     avisarSiElServicioNoCoincide(existente)
-    // Review final de rama, MINOR: una credencial sin `baseUrl` (de antes de 5dc84c5)
-    // resolvía el servicio DE NUEVO cada corrida — env actual, si no el default — sin
-    // dejar nada escrito. Si el env que la creó ya no está seteado, el próximo `login`
-    // calla y habla con un servicio distinto del que emitió el token. Se persiste ACÁ,
+    // Una credencial vieja sin `baseUrl` resuelve el servicio DE NUEVO cada corrida — env
+    // actual, si no el default — sin dejar nada escrito. Si el env que la creó ya no está
+    // seteado, el próximo `login` calla y habla con un servicio distinto del que emitió el
+    // token. Se persiste ACÁ,
     // una sola vez, el valor que se está por usar — no hace falta que el usuario lo pida.
     if (!existente.baseUrl) guardarCredencial(homedir(), safe, { ...existente, baseUrl: base })
     for (const linea of mensajeDeEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
@@ -609,9 +607,9 @@ function leerUnaLinea(): Promise<string> {
 /**
  * Un comando asincrónico que falla tiene que DECIRLO, no volcar un stack de Node.
  *
- * Sin esto, `void comandoLogin()` descarta la promesa: un servicio inalcanzable terminaba en
+ * Sin esto, `void comandoLogin()` descarta la promesa: un servicio inalcanzable termina en
  * un rechazo sin atrapar, con el stack impreso y —lo peor— saliendo con código 0, o sea
- * anunciando éxito. Lo encontré corriéndolo contra un puerto cerrado.
+ * anunciando éxito.
  */
 function correrAsync(p: Promise<void>): void {
   p.catch((err) => {
@@ -636,10 +634,8 @@ export function correr(argv: string[]): void {
       salir(1)
     // eslint-disable-next-line no-fallthrough
     default: {
-      // El compilador tiene que gritar si mañana se agrega un comando al parser y nadie lo
-      // cablea acá. Sin esto, `doctor` estuvo en la ayuda y en el parser y NO en este
-      // switch: el binario lo aceptaba, no hacía nada y salía con 0. Se descubrió
-      // CORRIÉNDOLO, no compilándolo — que es justo lo que este guard evita la próxima vez.
+      // El compilador tiene que gritar si se agrega un comando al parser y nadie lo cablea
+      // acá: sin esto, el binario lo aceptaría, no haría nada y saldría con 0.
       const nuncaLlega: never = cmd
       throw new Error(`Unhandled command: ${JSON.stringify(nuncaLlega)}`)
     }

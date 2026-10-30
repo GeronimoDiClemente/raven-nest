@@ -7,7 +7,7 @@
 // (session.created/session.idle) was never verified live.
 //
 // WHY opencode NEEDS NO ISOLATED IDENTITY HOME: same reasoning as
-// memory-provisioner-qwen.ts — Task 6 Step 4 verified HOME/USERPROFILE redirection
+// memory-provisioner-qwen.ts — HOME/USERPROFILE redirection
 // (already generic in pty-manager.ts) is enough to isolate opencode's entire config root
 // (os.homedir()/.config/opencode/).
 //

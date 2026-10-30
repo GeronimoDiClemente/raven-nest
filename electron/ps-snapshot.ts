@@ -1,15 +1,14 @@
 /**
  * Una sola foto de la tabla de procesos, compartida por todos los que preguntan.
  *
- * El poll de puertos (cada 5 s) pedía el árbol de procesos de CADA pane por separado, y
- * en macOS/Linux `pidtree` spawnea un `ps -A` sobre la tabla ENTERA por llamada. Con los
- * 12 panes del tope son 12 `ps` cada 5 s, más otros 12 cada 10 s del poll de métricas:
- * medido el 2026-09-17, doce `ps -A` cuestan 0.12 s de CPU (casi todo `sys`), o sea ~3.6%
- * de un core quemándose para siempre en atribuir puertos y medir memoria.
+ * El poll de puertos (cada 5 s) y el de métricas (cada 10 s) piden el árbol de procesos de
+ * CADA pane, y en macOS/Linux `pidtree` spawnea un `ps -A` sobre la tabla ENTERA por
+ * llamada. Con los 12 panes del tope, doce `ps -A` cuestan ~0.12 s de CPU (casi todo
+ * `sys`), o sea ~3.6% de un core quemándose para siempre en atribuir puertos y medir memoria.
  *
- * Windows ya no tenía este problema: `getWindowsSnapshot()` cachea la tabla 1.5 s porque
- * ahí la consulta es carísima. Esto es la misma idea para el resto — la tabla se lee una
- * vez por ciclo y los árboles salen de caminarla en memoria.
+ * En Windows `getWindowsSnapshot()` ya cachea la tabla 1.5 s porque ahí la consulta es
+ * carísima. Esto es la misma idea para el resto — la tabla se lee una vez por ciclo y los
+ * árboles salen de caminarla en memoria.
  */
 
 export interface DepsSnapshot {

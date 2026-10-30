@@ -1,5 +1,4 @@
-// Gemini CLI memory provisioning (docs/nest-memory-architecture.md §2.5, §9 — the "Phase 2
-// adapter" the doc's Claude-only section anticipates).
+// Gemini CLI memory provisioning (docs/nest-memory-architecture.md §2.5, §9).
 //
 // Deliberately a separate file from memory-provisioner.ts, same reason that file's own
 // header gives: that module documents and guards a Claude-specific hazard (the account's
@@ -9,22 +8,21 @@
 // instead of a special case bolted onto Claude's.
 //
 // -----------------------------------------------------------------------------------------
-// DESIGN DEVIATION FLAGGED FOR REVIEW — read before changing this file.
+// DESIGN NOTE — read before changing this file.
 //
-// The task that produced this module specified an isolated, Nest-exclusive home
-// (`{accountDir}/.nest/gemini-home`) that `deprovision()` could `rmSync` wholesale, mirroring
-// how memory-provisioner.ts's `.nest/` is 100% Nest-owned for Claude. Implementing it that
-// way would collide with code that already exists and already runs in production:
+// An isolated, Nest-exclusive home (`{accountDir}/.nest/gemini-home`) that `deprovision()`
+// could `rmSync` wholesale, mirroring how memory-provisioner.ts's `.nest/` is 100% Nest-owned
+// for Claude, would collide with code that already runs in production:
 //
 //   - docs/nest-memory-architecture.md §2.5's own provisioning table already specifies
-//     `GEMINI_CLI_HOME = {accountDir}/gemini`, "set at pty-manager.ts:53-57".
-//   - pty-manager.ts's `create()` (the `cmd === 'gemini'` block) ALREADY sets
+//     `GEMINI_CLI_HOME = {accountDir}/gemini`.
+//   - pty-manager.ts's `create()` (the `cmd === 'gemini'` block) sets
 //     `env.GEMINI_CLI_HOME = join(accountDir, 'gemini')` for every real Gemini account pane
 //     — this is Gemini's per-Nest-account IDENTITY home: its OAuth token, trustedFolders.json,
-//     history. account-store.ts's `save()` already `mkdir`s that exact subdirectory for
+//     history. account-store.ts's `save()` `mkdir`s that exact subdirectory for
 //     every new account, gemini or not.
-//   - Gemini CLI has no `--settings <file>` flag the way Claude does (verified: no such
-//     flag exists) — GEMINI_CLI_HOME is the ONLY isolation lever, and it redirects the
+//   - Gemini CLI has no `--settings <file>` flag the way Claude does — GEMINI_CLI_HOME is
+//     the ONLY isolation lever, and it redirects the
 //     entire config root, all or nothing (the exact equivalent of CLAUDE_CONFIG_DIR, not of
 //     Claude's ADDITIVE `--settings`). Only one GEMINI_CLI_HOME value can apply to a given
 //     spawn — whichever write happens last in pty-manager.ts's `env` object wins.
@@ -49,15 +47,12 @@
 // user's credentials (memory rides in via additive `--mcp-config`/`--settings` flags
 // instead). There is no such additive path for Gemini — `provision()` here always returns a
 // GEMINI_CLI_HOME override, which for a headless node WOULD redirect away from the real
-// `~/.gemini` and its real login, same tension as above. Not fixed here: headless Gemini
-// invocation isn't wired yet (graph-tick.ts's `launchCommand` returns `''` for a `gemini`
-// agent — "no verified headless invocation yet"), so this path is currently unreachable in
-// production. Flagging it so whoever wires up headless Gemini next sees the caveat instead
-// of rediscovering it.
+// `~/.gemini` and its real login, same tension as above. Unreachable today: headless Gemini
+// invocation isn't wired (graph-tick.ts's `launchCommand` returns `''` for a `gemini`
+// agent). Whoever wires it up has to solve this first.
 //
-// HOOK EVENT NAMES (verified against gemini 0.55.1 installed on disk, not assumed): Gemini's
-// hook system uses different event names than Claude's for the same moments — confirmed by
-// running `gemini hooks migrate --from-claude` and reading its actual output:
+// HOOK EVENT NAMES: Gemini's hook system uses different event names than Claude's for the
+// same moments (as `gemini hooks migrate --from-claude` maps them):
 //   Claude SessionStart -> Gemini SessionStart
 //   Claude Stop         -> Gemini AfterAgent
 //   Claude PreCompact    -> Gemini PreCompress
@@ -66,11 +61,11 @@
 // it takes the same `hook session-start|stop|pre-compact` subcommands regardless of which
 // CLI invoked it, so only the Gemini-side event key changes, never the wrapper invocation.
 //
-// DO NOT call `gemini hooks migrate` from code, ever — verified with repeated runs: it reads
+// DO NOT call `gemini hooks migrate` from code, ever: it reads
 // `{cwd}/.claude/settings.json` (never our isolated file), always writes to PROJECT scope
 // (`{cwd}/.gemini/settings.json`, never GEMINI_CLI_HOME), and is a SILENT no-op with a false
 // "success" message when cwd === HOME. It is not a shortcut for what this module does —
-// write the JSON directly, the same way memory-provisioner.ts already does for Claude.
+// write the JSON directly, the same way memory-provisioner.ts does for Claude.
 import { existsSync, mkdirSync, rmSync } from 'fs'
 import { join } from 'path'
 import { writeWrapperScript, readJsonOrThrow, writeJson, type JsonFile, type ProvisionerPaths } from './memory-provisioner'
@@ -82,7 +77,7 @@ const GEMINI_HOOK_EVENTS: Record<string, string> = {
   PreCompress: 'pre-compact',
 }
 
-/** Gemini's per-Nest-account identity home — same directory pty-manager.ts already
+/** Gemini's per-Nest-account identity home — same directory pty-manager.ts
  *  points GEMINI_CLI_HOME at for every real account pane (see the file header). */
 function geminiHomeDir(accountDir: string): string {
   return join(accountDir, 'gemini')

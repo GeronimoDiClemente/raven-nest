@@ -1,9 +1,8 @@
 // Spec §5.5.3: lo que ya esta en la nube en claro hay que subirlo de nuevo cifrado.
 //
 // No hay endpoint de migracion ni script de servidor y no hacen falta: el push ya cifra
-// (Task 7) y el upsert del servidor es por `sync_id`, asi que re-encolar todo y dejar que
-// el daemon haga su trabajo ES la migracion. Con una sola cuenta y ~866 observaciones son
-// cinco lotes de 200.
+// y el upsert del servidor es por `sync_id`, asi que re-encolar todo y dejar que el daemon
+// haga su trabajo ES la migracion.
 import type { MemoryStore } from './memory-store'
 
 export interface ReencryptProgress {

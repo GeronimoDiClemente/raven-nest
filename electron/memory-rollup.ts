@@ -1,18 +1,15 @@
 /**
  * El resumen de una sesión, armado desde el transcript que la CLI ya escribió.
  *
- * Layer B (§5.2 de la arquitectura) era la deuda más grande del subsistema: `SessionStart`
- * sólo leía, **`Stop` no escribía nada** y `PreCompact` dejaba un placeholder que prometía
- * un rollup "on session close" que nunca llegaba. O sea que la memoria no capturaba lo que
- * decía capturar.
+ * Es la Layer B (§5.2 de la arquitectura): lo que `Stop` escribe al cerrar la sesión.
  *
  * **Sin LLM, a propósito.** Nest es BYOK y promete no medir el uso: gastar tokens del
  * usuario en cada cierre de sesión, en silencio, sería romper eso. Y no hace falta —
  * Claude Code ya escribe en el transcript un `ai-title` (un título generado de la sesión) y
- * los prompts. El resumen ya está hecho; lo único que faltaba era leerlo.
+ * los prompts. El resumen ya está hecho; sólo hay que leerlo.
  *
  * El formato no está inferido de la documentación: sale de leer transcripts reales
- * (`{accountDir}/.claude/projects/<slug>/<sessionId>.jsonl`) el 2026-09-03. Igual todo el
+ * (`{accountDir}/.claude/projects/<slug>/<sessionId>.jsonl`). Igual todo el
  * parseo es tolerante: una línea que no entendemos se saltea, nunca tira la sesión entera.
  */
 

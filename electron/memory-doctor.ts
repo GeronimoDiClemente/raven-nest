@@ -1,6 +1,6 @@
 // Spec §7.1, robado de engram: "if sync is blocked, fail loudly and visibly. No silent
-// drops." El dato ya se escribe desde la Task 8 de memory-bridge (mutation_log.blocked_reason,
-// memory-store.ts:1213) y nunca lo leyo nadie. Esto solo lo agrupa: puro, sin tocar la base.
+// drops." El dato lo escribe memory-store.ts en `mutation_log.blocked_reason`; esto solo lo
+// agrupa: puro, sin tocar la base.
 import type { MutationLogRow } from './memory-store'
 import { REVERSIBLE_REJECTIONS } from './memory-daemon'
 

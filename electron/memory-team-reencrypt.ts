@@ -4,21 +4,18 @@
 // (memory-reencrypt.ts), esto reescribe filas de OTROS autores, así que no puede pasar por
 // el push normal (server/src/push.ts exige same-author) — llama al endpoint dedicado.
 //
-// Task 15 (review final):
-// - C1: QUÉ migrar, y CON QUÉ contenido, lo dice el SERVIDOR (`recrypt-pending`). Antes salía
-//   de la base local filtrada por `projects.team_id` local, que sólo existe para los proyectos
-//   que este device compartió: lo que un member compartió desde su copia quedaba en claro para
-//   siempre. Tampoco alcanza con buscar local por `sync_id`: el pull sólo baja filas de los
-//   `project_key` que el device ya tiene, así que una fila de un repo que el leader no clonó
-//   no le llega nunca. El servidor ya la tiene en claro (es lo que se va a sellar) y el leader
-//   ya está autorizado a leerla (miembro activo del equipo).
-// - I1: cada item lleva el `lamport` de la versión que se selló; si la fila se edita entre la
+// - QUÉ migrar, y CON QUÉ contenido, lo dice el SERVIDOR (`recrypt-pending`), no la base
+//   local: `projects.team_id` local sólo existe para los proyectos que este device compartió,
+//   así que lo que un member compartió desde su copia quedaría en claro para siempre. Tampoco
+//   alcanza con buscar local por `sync_id`: el pull sólo baja filas de los `project_key` que
+//   el device ya tiene, así que una fila de un repo que el leader no clonó no le llega nunca.
+//   El servidor ya la tiene en claro (es lo que se va a sellar) y el leader ya está
+//   autorizado a leerla (miembro activo del equipo).
+// - Cada item lleva el `lamport` de la versión que se selló; si la fila se edita entre la
 //   lectura y el envío, el servidor la rechaza (`stale`) y queda para la próxima vuelta.
-// - I3: lotes con tope de bytes, reintento ante 429, y un error a mitad devuelve lo aplicado.
-//
-// Task 15b: también se sella el TEMA (I2) — con el mismo HMAC que `sealMutationPayload` le pone
-// a una fila nueva del equipo, para que el supersede las encuentre —, `migrateTeam` ya no puede
-// rechazar (Minor 4), y lo pendiente sólo se pregunta si este usuario es leader (Minor 3).
+// - Lotes con tope de bytes, reintento ante 429, y un error a mitad devuelve lo aplicado.
+// - También se sella el TEMA, con el mismo HMAC que `sealMutationPayload` le pone a una fila
+//   nueva del equipo, para que el supersede las encuentre.
 import { deriveKeys, encryptField, fieldAad, hmacTopicKey, isCiphertext, teamKeyProof } from './memory-crypto'
 import type { MemoryKeys } from './memory-crypto'
 
@@ -38,7 +35,7 @@ interface FilaPendiente {
   tags: unknown
   content_hash: string | null
   origin_account: string | null
-  /** Task 15b (I2): el proyecto de la fila en el servidor y su tema EN CLARO (o null). */
+  /** El proyecto de la fila en el servidor y su tema EN CLARO (o null). */
   project_key: string
   topic_key: string | null
 }
@@ -63,7 +60,7 @@ export interface MigrateOpts {
 
 /** Bajo el `MAX_BATCH` (500) de push: cada fila es una transacción en el servidor. */
 const ITEMS_POR_LOTE = 200
-/** 1 MiB, contra los 20 MiB de `MAX_BODY_BYTES`: un lote de 200 filas grandes los pasaba. */
+/** 1 MiB, contra los 20 MiB de `MAX_BODY_BYTES`: un lote de 200 filas grandes los puede pasar. */
 const BYTES_POR_LOTE = 1024 * 1024
 /** Reintentos por request ante un 429; después, el error sube y lo aplicado se conserva. */
 const REINTENTOS_429 = 3
@@ -135,7 +132,7 @@ function sellar(keys: MemoryKeys, r: FilaPendiente) {
     content_hash: r.content_hash === null ? null : sellarCampo(keys, r.content_hash, r.sync_id, 'content_hash'),
     origin_account: r.origin_account === null ? null : sellarCampo(keys, r.origin_account, r.sync_id, 'origin_account'),
     lamport: r.lamport,
-    // I2: la MISMA derivación que `sealMutationPayload` (memory-envelope.ts) usa para una fila
+    // La MISMA derivación que `sealMutationPayload` (memory-envelope.ts) usa para una fila
     // nueva de equipo: clave de equipo, `project_key` de la fila y scope 'team'. Si difiriera en
     // un byte, la fila migrada y una nueva del mismo tema nunca chocarían y las dos quedarían
     // vivas. Lo pendiente siempre trae el tema en claro: una fila que ya pasó por
@@ -165,8 +162,8 @@ export async function migrateTeam(
   let rejected = 0
   let error: string | undefined
 
-  // Se derivan ADENTRO del try de abajo (Minor 4): afuera, una maestra inválida lanzaba antes
-  // del try y `void migrarEquipo(teamId)` en main.ts terminaba en un unhandled rejection.
+  // Se derivan ADENTRO del try de abajo: afuera, una maestra inválida lanzaría antes del try
+  // y `void migrarEquipo(teamId)` en main.ts terminaría en un unhandled rejection.
   let proof = ''
   // El sobre del body (team_id, proof, llaves) se cuenta aparte; un item que solo ya pasa el
   // tope va solo.
@@ -231,7 +228,7 @@ async function countRecryptPending(deps: TeamReencryptDeps, teamId: string): Pro
 }
 
 /**
- * Lo que la tarjeta muestra como pendiente (Minor 3). Sólo pregunta si el servidor dice que este
+ * Lo que la tarjeta muestra como pendiente. Sólo pregunta si el servidor dice que este
  * usuario es leader del equipo (`isLeader` de `GET /v1/teams/key`), el equipo está activado y
  * este device tiene la clave: para cualquier otro, `recrypt-pending` es un 403 seguro que
  * además gasta el limiter propio de recrypt (60/min por device). `null` = no aplica o no se

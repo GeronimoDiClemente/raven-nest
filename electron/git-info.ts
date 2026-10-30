@@ -6,7 +6,7 @@ import { runGit } from './git-exec'
  * remote, git missing). Shared by MemoryIpcServer's `memory.save`/`memory.search` project-key
  * resolution AND the handoff:read/write handlers in main.ts.
  *
- * Vive aparte de `main.ts` desde el 2026-10-02 porque el paquete portátil también lo usa: su
+ * Vive aparte de `main.ts` porque el paquete portátil también lo usa: su
  * MCP escribe sin Nest, y la clave de proyecto tiene que salir del remote igual que adentro
  * de la app, o una memoria guardada desde el paquete caería en otro proyecto.
  */

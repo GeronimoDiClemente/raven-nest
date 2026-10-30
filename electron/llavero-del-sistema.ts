@@ -21,16 +21,14 @@
 // esta máquina puede guardar y buscar lo local pero no puede abrir lo cifrado de la nube, que
 // es un estado que el §7 del spec ya describe como legítimo. Falla cerrado por diseño.
 //
-// > **Verificado de verdad en macOS** (2026-09-18, contra el `security` real) **y en
-// > Windows** (2026-10-02, Windows 11: lo guardado en el registro es un blob de DPAPI —
-// > empieza con `01000000d08c9ddf…`— y no contiene el texto). Ver `llavero-real.test.ts`.
-// > **Y en Linux** (2026-10-08, Ubuntu 26.04 en WSL con gnome-keyring: store, lookup,
-// > actualizar y clear contra el binario real). Si no hay servicio de secretos, `disponible()`
-// > da `false` y el paquete queda en modo local, que es la falla segura. Desde el
-// > 2026-10-09 eso se decide antes de sondear (sin bus, o el bus dice que no hay servicio o
-// > no hay colección por defecto): pasó de 10–30 s a 0–60 ms, o 2 s si el servicio se cuelga
-// > al activarse. Y en un escritorio sin colección por defecto ya no se corre `store`, que le
-// > abría al usuario el diálogo de gnome-keyring «Choose password for new keyring».
+// Las tres plataformas se prueban contra el binario real en `llavero-real.test.ts` (en Windows
+// lo guardado en el registro es un blob de DPAPI —empieza con `01000000d08c9ddf…`— y no
+// contiene el texto). Si no hay servicio de secretos, `disponible()` da `false` y el paquete
+// queda en modo local, que es la falla segura. En Linux eso se decide antes de sondear (sin
+// bus, o el bus dice que no hay servicio o no hay colección por defecto): 0–60 ms, o 2 s si el
+// servicio se cuelga al activarse, en vez de 10–30 s. Y sin colección por defecto no se corre
+// `store`, que le abriría al usuario el diálogo de gnome-keyring «Choose password for new
+// keyring».
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
 import { execFileSync } from 'child_process'
 import { existsSync } from 'fs'
@@ -81,7 +79,7 @@ export const correrComando: CorrerComando = (comando, args, entrada) => {
     // pueda distinguir si le interesa.
     //
     // `||` y no `??`: cuando el comando corre y falla, `stdout` es '' (no undefined), y con
-    // `??` el stderr se perdía siempre. `dbus-send` escribe el error del bus SÓLO en stderr, y
+    // `??` el stderr se perdería siempre. `dbus-send` escribe el error del bus SÓLO en stderr, y
     // la sonda de Linux necesita leerlo para distinguir «el bus dijo que no» de «no está
     // dbus-send».
     const e = err as { stdout?: string; stderr?: string; message?: string }
@@ -108,7 +106,7 @@ function llaveroDeMac(correr: CorrerComando): LlaveroDelSistema {
       // porque además lo confirma («password data for new item: retype password for new
       // item:»). Mandarlo una sola vez guarda una entrada VACÍA sin dar error, que es la
       // peor forma de fallar: el llavero queda escrito y lo que se lee después es ''.
-      // Verificado contra el `security` real; un test de integración lo fija.
+      // Un test de integración contra el `security` real lo fija.
       //
       // El secreto no va como argumento a propósito: `ps` muestra los argumentos de
       // cualquier proceso a cualquier usuario de la máquina. `-U` actualiza si ya existe,
@@ -139,7 +137,7 @@ const ENTORNO_REAL: EntornoDelLlavero = { env: process.env, existe: existsSync }
  * Cuánto se le espera al servicio de secretos en la pregunta previa. Contra un gnome-keyring
  * que ya corre contesta en ~5 ms; lo que puede tardar es la ACTIVACIÓN por D-Bus (KDE levanta
  * su servicio recién cuando alguien lo pide), y 2 s le sobra. Un keyring que se cuelga al
- * activarse —medido en WSL con `dbus-run-session`— cuesta esto y no 30 s.
+ * activarse (pasa en WSL con `dbus-run-session`) cuesta esto y no 30 s.
  */
 const ESPERA_DEL_BUS_MS = 2000
 
@@ -186,15 +184,14 @@ function preguntarAlBus(correr: CorrerComando): boolean | null {
 function llaveroDeLinux(correr: CorrerComando, entorno: EntornoDelLlavero): LlaveroDelSistema {
   let hayLlavero: boolean | null = null
   return {
-    // Hasta el 2026-10-08 esto era `secret-tool --version`, que NO existe: sale 2 con el
-    // texto de uso, así que el cifrado no se activaba nunca en Linux. Tampoco sirve un
-    // comando de sólo lectura: `search` sale 0 haya o no servicio de secretos (medido en
-    // Ubuntu 26.04 con gnome-keyring). Lo único que lo prueba es guardar, leer y borrar.
+    // `secret-tool --version` NO existe: sale 2 con el texto de uso. Tampoco sirve un
+    // comando de sólo lectura: `search` sale 0 haya o no servicio de secretos. Lo único que
+    // lo prueba es guardar, leer y borrar.
     // Son tres procesos, y sin servicio cada uno puede colgarse hasta el timeout: se mide una
     // vez por proceso. Si el llavero aparece después, lo ve el próximo arranque.
     //
     // Antes de la sonda se descarta lo que se puede descartar barato, porque un Linux sin
-    // llavero (un servidor, un WSL pelado) pagaba hasta 30 s en CADA arranque del paquete:
+    // llavero (un servidor, un WSL pelado) pagaría hasta 30 s en CADA arranque del paquete:
     // sin bus de sesión no hay nada que sondear, y si el bus dice que el servicio no existe,
     // no se activa o no tiene colección, tampoco. Todo lo que no es un «no» claro —incluido
     // que falte `dbus-send`— sigue yendo a la sonda, así que esto no puede inventar un «sí».

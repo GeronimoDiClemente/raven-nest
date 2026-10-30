@@ -1,11 +1,10 @@
 // MCP tool manifest — memory_save / memory_search / memory_context / memory_promote /
-// memory_get / memory_update, per docs/nest-memory-architecture.md §9. memory_promote is
-// Team Memory Layer 1 (Parte 7 del plan, lado cliente): promueve una memoria ya guardada a
-// scope 'team' — sin cola de aprobacion (decision ya tomada), pero SOLO a pedido explicito
-// del usuario, nunca por iniciativa propia del modelo (ver su description abajo).
+// memory_get / memory_update, per docs/nest-memory-architecture.md §9. memory_promote
+// promueve una memoria ya guardada a scope 'team' — sin cola de aprobacion, pero SOLO a
+// pedido explicito del usuario, nunca por iniciativa propia del modelo (ver su description
+// abajo).
 //
-// memory_get y memory_update (spec 2026-09-11, pantalla de Memories legible) completan las
-// seis tools que §1.1 especifica — memory_get envuelve MemoryStore.getSummary(),
+// memory_get y memory_update completan las seis tools que §1.1 especifica — memory_get envuelve MemoryStore.getSummary(),
 // memory_update envuelve MemoryStore.update() (mismo mecanismo de replicación que save(),
 // ver su doc comment en memory-store.ts). A diferencia de memory_save, no son "llamar sin
 // que te pidan": son lookups/correcciones puntuales sobre una memoria que el modelo ya
@@ -15,12 +14,11 @@
 // Tool descriptions are the prompt — see §2.1. They are copied close to verbatim from
 // the design doc; do not "clean them up" without re-reading why they're phrased this way.
 
-// M27: field-validated gap — sync works end-to-end, but agents only used memory when a
-// user explicitly asked, because nothing told a connected model WHEN to call these tools
-// on its own. Tool descriptions alone are a per-tool lever; this is the server-wide one —
-// the MCP `initialize` result's optional `instructions` field (2024-11-05 spec: "can be
-// thought of like a hint to the model... MAY be added to the system prompt"), wired in
-// index.ts's `initialize` handler. Kept compact and imperative on purpose: a model pays
+// Without this, agents only use memory when a user explicitly asks, because nothing tells a
+// connected model WHEN to call these tools on its own. Tool descriptions alone are a per-tool
+// lever; this is the server-wide one — the MCP `initialize` result's optional `instructions`
+// field (2024-11-05 spec: "can be thought of like a hint to the model... MAY be added to the
+// system prompt"), wired in servidor.ts's `initialize` handler. Kept compact and imperative on purpose: a model pays
 // tokens for this every single session. Mirrors the same trigger-based, mandatory framing
 // as memory_save's own description below rather than descriptive prose.
 export const MCP_INSTRUCTIONS =

@@ -59,7 +59,7 @@ export async function runMcpServer(client: ClienteDeMemoria, cwd: string): Promi
               protocolVersion: '2024-11-05',
               capabilities: { tools: {} },
               serverInfo: { name: 'nest-memory', version: '1.0.0' },
-              // M27: server-wide behavioral protocol — see tools.ts's MCP_INSTRUCTIONS
+              // Server-wide behavioral protocol — see tools.ts's MCP_INSTRUCTIONS
               // for why this channel (not just per-tool descriptions) is the primary
               // lever. Not every MCP client surfaces `instructions` the same way the spec
               // recommends (folding it into the system prompt), which is why the search

@@ -21,10 +21,9 @@ export type ObservationType =
   | 'config'
   | 'preference'
   | 'session'
-  // Task 4 (plan de memoria por cuenta multi-dispositivo): el resumen que un agente deja
-  // en .nest/handoff.md, guardado ADEMÁS como observación para que "retomar en otra
-  // máquina" funcione aunque el worktree local no tenga el archivo — ver
-  // electron/main.ts's handoff:write/handoff:read.
+  // El resumen que un agente deja en .nest/handoff.md, guardado ADEMÁS como observación
+  // para que "retomar en otra máquina" funcione aunque el worktree local no tenga el
+  // archivo — ver electron/main.ts's handoff:write/handoff:read.
   | 'handoff'
 
 export type ObservationSource = 'mcp' | 'hook' | 'pty' | 'import' | 'ui'
@@ -44,11 +43,9 @@ export interface SaveMemoryParams {
 
 export interface SaveMemoryResult {
   syncId: string
-  // 'source_ref_updated' (review round 1, minor): Step 0's source_ref identity match
-  // used to report 'topic_updated' even though the row may not have a topic_key at all
-  // — the match was by import identity, not by a topic-key collision. Kept as a
-  // distinct value from 'topic_updated' so a caller inspecting outcome can tell the two
-  // resolution paths apart.
+  // 'source_ref_updated': the row matched by import identity (source_ref), not by a
+  // topic-key collision — it may not have a topic_key at all. Distinct from 'topic_updated'
+  // so a caller inspecting outcome can tell the two resolution paths apart.
   outcome: 'inserted' | 'topic_updated' | 'source_ref_updated' | 'duplicate'
   redacted: boolean
 }
@@ -64,7 +61,7 @@ export interface ContextMemoryParams {
   limit?: number
 }
 
-// M26: `refreshed` is only ever present (and only ever `true`) when memory-ipc-server.ts's
+// `refreshed` is only ever present (and only ever `true`) when memory-ipc-server.ts's
 // pull-through search fallback fired — a local zero-result search triggered an immediate
 // daemon pull before re-querying. Absent on every other response, including a fallback
 // that ran but still found nothing locally after the pull — the field reports whether a
@@ -120,11 +117,9 @@ export interface HookPreCompactParams {
   transcriptPath?: string
 }
 
-// M12: local delete/tombstone origination. Not exposed as an MCP tool in Phase 1 (the
-// doc's own Phase 1 tool scope is memory_save/search/context only, §9) — this is the
+// Local delete/tombstone origination. Not exposed as an MCP tool — this is the
 // store/protocol-level capability so a tombstone CAN be originated locally and replicate
-// through the normal mutation_log/push path; a UI or future MCP tool wiring is a
-// follow-up, not a Phase 1 gap in itself.
+// through the normal mutation_log/push path.
 export interface DeleteMemoryParams {
   cwd: string
   syncId: string
@@ -134,9 +129,8 @@ export interface DeleteMemoryResult {
   ok: boolean
 }
 
-// Team Memory Layer 1, Parte 6/7 (lado cliente): promueve una observacion existente a
-// scope 'team' — la unica forma de que una fila salga de 'personal'/'project'. Expuesta
-// como la tool MCP memory_promote (memory-mcp/tools.ts) junto a memory_save/search/context.
+// Promueve una observacion existente a scope 'team' — la unica forma de que una fila salga
+// de 'personal'/'project'. Expuesta como la tool MCP memory_promote (memory-mcp/tools.ts).
 export interface PromoteMemoryParams {
   cwd: string
   syncId: string
@@ -183,7 +177,7 @@ export interface GetMemoryResult {
    * Viaja CON la memoria y no en una tool aparte, a propósito: el agente que ya la tiene en
    * la mano tiene que poder seguir el grafo sin pagar otra vuelta. Si averiguar los vecinos
    * costara una segunda llamada, recuperar por búsqueda seguiría siendo lo más barato y
-   * nadie caminaría nada — que es justo lo que este trabajo vino a cambiar.
+   * nadie caminaría el grafo.
    */
   neighbors: VecinoDeMemoria[]
   /**
@@ -239,7 +233,7 @@ export interface MemoryRequest {
   id: string
   method: MemoryMethod
   params: unknown
-  // C2: shared-secret handshake validated by memory-ipc-server.ts on every request.
+  // Shared-secret handshake validated by memory-ipc-server.ts on every request.
   // Node's `net` module gives no way to set a custom Windows named-pipe DACL or verify
   // the connecting process's user SID, so an unpredictable pipe name alone is not
   // access control — see memory-local-auth.ts for the full rationale and the read-only
@@ -264,13 +258,12 @@ export type MemoryResponse = MemoryResponseOk | MemoryResponseErr
 /**
  * Windows named pipe or POSIX unix socket path for the daemon's IPC server.
  *
- * C2 fix: `pipeId` must be an unpredictable, per-install random value (see
- * memory-local-auth.ts's `ensureLocalAuthMaterial`) — NOT a hash of ravenHomeDir. The
- * previous implementation derived the pipe suffix from a fast non-cryptographic hash of
- * a path that is itself guessable (the user's home directory), so any local process
- * could compute the exact pipe name and either connect to it (no Windows ACL restricts
- * named-pipe connections to the creating user by default via Node's `net` module) or
- * squat on the name before Nest starts. Making the name unguessable closes the squatting
+ * `pipeId` must be an unpredictable, per-install random value (see
+ * memory-local-auth.ts's `ensureLocalAuthMaterial`) — NOT derived from ravenHomeDir. A
+ * name derived from a guessable path (the user's home directory) lets any local process
+ * compute it and either connect to it (no Windows ACL restricts named-pipe connections to
+ * the creating user by default via Node's `net` module) or squat on the name before Nest
+ * starts. Making the name unguessable closes the squatting
  * angle; the `token` field on every MemoryRequest (validated in memory-ipc-server.ts) is
  * the actual access control for the "who can issue calls" angle.
  */

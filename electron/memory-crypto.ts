@@ -4,8 +4,8 @@
 // Puro a proposito: sin Electron, sin base, sin red. Es la pieza de la que cuelga todo el
 // resto del cifrado, asi que tiene que poder testearse sin montar nada.
 //
-// Solo `node:crypto`: sumar libsodium o argon2 traeria un modulo nativo, que es el riesgo
-// 8.2 de la spec (el paquete npm de la fase 2 tiene que instalar rapido).
+// Solo `node:crypto`: sumar libsodium o argon2 traeria un modulo nativo, y el paquete npm
+// portatil tiene que instalar rapido (riesgo 8.2 de la spec).
 import { randomBytes, hkdfSync, createCipheriv, createDecipheriv, createHmac, createHash } from 'crypto'
 
 /**
@@ -108,13 +108,12 @@ export function decryptField(keys: MemoryKeys, envelope: string, aad: string): s
  * colapsarian en uno — el servidor supersede por igualdad de este valor, asi que colisionar
  * es que una memoria pise a la otra.
  *
- * **El separador solo no cierra la ambiguedad**, y este comentario decia que si. `topic_key`
- * es texto libre del usuario y puede contener `|`: ('proj','personal','a|b') y
- * ('proj','personal|a','b') producen el MISMO string. Lo que la cierra es que el unico
+ * **El separador solo no cierra la ambiguedad**: `topic_key` es texto libre del usuario y
+ * puede contener `|`, y ('proj','personal','a|b') y ('proj','personal|a','b') producen el
+ * MISMO string. Lo que la cierra es que el unico
  * componente libre es el ULTIMO — el project_key es hex y el scope un enum, asi que no hay
  * donde mover el corte. Si algun dia un componente del medio deja de estar restringido, o se
  * suma un cuarto, hace falta escapar o usar longitudes, no basta con el `|`.
- * Encontrado por la cuarta revision adversarial (2026-09-21) al escribir el test.
  *
  * 32 hex = 128 bits: sobra para que no colisionen dos temas y entra comodo en la columna
  * `text` que el servidor ya tiene.
@@ -158,12 +157,12 @@ export function rotateVerifier(master: Buffer, keyEpoch: number): string {
 }
 
 /**
- * La prueba de que esta máquina TIENE la maestra de un EQUIPO (Task 15, C2 de la review final).
+ * La prueba de que esta máquina TIENE la maestra de un EQUIPO.
  *
- * `authorize` y `recrypt` de equipo sólo miraban el rol, y un leader sin la clave existe por
- * diseño (spec §6: el rol se transfiere, la clave no). Con eso alcanzaba para pisar la
- * envoltura de cualquier device del equipo con una maestra propia, o re-cifrar el histórico con
- * basura. Mismo agujero que `rotateVerifier` cerró para la clave personal.
+ * Un leader sin la clave existe por diseño (spec §6: el rol se transfiere, la clave no), así
+ * que para `authorize` y `recrypt` de equipo el rol no alcanza: sin esta prueba bastaría para
+ * pisar la envoltura de cualquier device del equipo con una maestra propia, o re-cifrar el
+ * histórico con basura. Es el mismo contrato que `rotateVerifier` para la clave personal.
  *
  * El `teamId` va en la etiqueta: la prueba de un equipo no sirve en otro.
  */

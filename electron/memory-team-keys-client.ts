@@ -3,8 +3,7 @@
 // miembro — adoptar la envoltura que el leader ya le dejó publicada.
 //
 // Mismo patrón que memory-keys-client.ts, sin épocas (spec §2/§8: v1 no rota la clave de
-// equipo). Lo que SÍ tiene desde Task 15 (C2 de la review final) es prueba de posesión: el
-// servidor guarda el verificador de la maestra al activar, exige la prueba para autorizar y
+// equipo). Lo que SÍ tiene es prueba de posesión: el servidor guarda el verificador de la maestra al activar, exige la prueba para autorizar y
 // migrar, y el cliente compara contra el verificador toda maestra que desenvuelve antes de
 // adoptarla.
 import { generateMasterKey, teamKeyProof, teamKeyVerifier } from './memory-crypto'
@@ -25,7 +24,7 @@ export interface RemoteTeamKeyState {
   verifier: string | null
   wrap: { wrapped: string; wrapMeta: Record<string, unknown> | null } | null
   pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
-  /** Task 15b (Minor 3): si este usuario es leader del equipo, según el servidor. Ausente
+  /** Si este usuario es leader del equipo, según el servidor. Ausente
    * (servicio anterior) es false: lo único que se pierde es el conteo de pendientes. */
   isLeader: boolean
 }

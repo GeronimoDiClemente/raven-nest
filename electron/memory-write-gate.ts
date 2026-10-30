@@ -1,5 +1,4 @@
-// Adversarial review, hallazgo (alto): memorySink.save() (main.ts) writes straight to
-// memory.store without going through any swap protocol — unlike the MCP socket path
+// memorySink.save() (main.ts) writes straight to memory.store without going through any swap protocol — unlike the MCP socket path
 // (memory-ipc-server.ts's dispatch(), which rejects with 'store_swapping' while a swap is
 // in flight, and memory-mcp/client.ts, which retries 8x150ms on exactly that error).
 // During the window inside performUserSwap() between ctx.store.close() (swapMemoryStore)

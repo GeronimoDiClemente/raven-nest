@@ -5,10 +5,9 @@
 // symlink — never open it for read-modify-write) and its regression test
 // (electron/__tests__/memory-provisioner.test.ts) asserts the global settings.json stays
 // byte-identical across provision/deprovision. None of that is generic across AI types,
-// so it stays put, untouched, exports unchanged. This file is the seam instead: a thin
-// `AiMemoryAdapter` wrapper around the existing Claude functions, plus the registry that
-// account-store.ts / pty-manager.ts / main.ts dispatch through so a Gemini/Codex adapter
-// (Phase 2) is one more entry here — no changes needed at any call site.
+// so it stays there. This file is the seam instead: a thin `AiMemoryAdapter` wrapper around
+// the Claude functions, plus the registry that account-store.ts / pty-manager.ts / main.ts
+// dispatch through so another CLI is one more entry here — no changes at any call site.
 import {
   provisionClaudeAccount,
   deprovisionClaudeAccount,
@@ -33,7 +32,7 @@ export interface AiMemoryAdapter {
  * not reimplement or duplicate their logic, only adapts the call/return shape. Callers
  * that need the underlying functions directly (main.ts's migrateClaudeAccounts path,
  * existing tests) keep importing provisionClaudeAccount/deprovisionClaudeAccount from
- * memory-provisioner.ts as before; this adapter is an additional thin layer on top, not a
+ * memory-provisioner.ts; this adapter is an additional thin layer on top, not a
  * replacement.
  */
 const claudeAdapter: AiMemoryAdapter = {

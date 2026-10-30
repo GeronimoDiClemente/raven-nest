@@ -6,8 +6,8 @@
 //   - Por dispositivo: sealed box X25519. Una maquina ya autorizada envuelve para la
 //     publica de la nueva, sin tener su privada.
 //   - Por codigo de recuperacion: scrypt sobre los 120 bits que el usuario guarda. Es la
-//     respuesta a "perdi todas mis maquinas" (D8). Son 24 caracteres de un alfabeto de 32,
-//     o sea 24 x 5 = 120 bits — medido, no estimado; este comentario decia 128.
+//     respuesta a "perdi todas mis maquinas". Son 24 caracteres de un alfabeto de 32,
+//     o sea 24 x 5 = 120 bits.
 //
 // Puro y sin dependencias, mismo motivo que memory-crypto.ts.
 import {
@@ -22,11 +22,11 @@ const TAG_BYTES = 16
 
 /**
  * scrypt y no Argon2id: Argon2 no esta en `node:crypto` y traerlo seria una dependencia
- * nativa (Global Constraint). El costo de la eleccion es acotado porque el codigo de
- * recuperacion NO es una contraseña elegida por una persona — son 128 bits del CSPRNG, y
+ * nativa. El costo de la eleccion es acotado porque el codigo de
+ * recuperacion NO es una contraseña elegida por una persona — son 120 bits del CSPRNG, y
  * contra eso ninguna KDF importa: no hay diccionario que probar.
  *
- * N = 2^17 con r = 8 son ~134 MB y ~200 ms medidos en la Mac del 2026-09-09. `maxmem` hay
+ * N = 2^17 con r = 8 son ~134 MB y ~200 ms en una Mac. `maxmem` hay
  * que subirlo a mano: el default de Node (32 MB) rechaza este N.
  */
 const SCRYPT_PARAMS = { N: 2 ** 17, r: 8, p: 1, maxmem: 256 * 1024 * 1024 } as const
@@ -162,7 +162,7 @@ export function generateRecoveryCode(): string {
  */
 /**
  * Las letras que el alfabeto EXCLUYE por confundibles, mapeadas a lo que el usuario quiso
- * escribir. Crockford base32 las define así y es la mitad que faltaba: excluirlas del
+ * escribir. Crockford base32 las define así: excluirlas del
  * alfabeto evita generarlas, pero no sirve de nada si al leerlas del papel se descartan.
  *
  * El caso concreto: el código se muestra UNA vez, el usuario lo anota a mano, meses después

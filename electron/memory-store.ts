@@ -34,10 +34,10 @@ import type {
 const DEDUPE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /**
- * Task 1 (plan de memoria por cuenta multi-dispositivo): calcula el path del store físico
- * de UNA cuenta. Pura, sin fs — no crea el directorio ni decide si hay que migrar un store
- * `_local` preexistente a esta cuenta; eso es responsabilidad de quien orqueste el swap
- * (electron/memory-account-switch.ts), que sí puede usar existsSync para esa decisión.
+ * Calcula el path del store físico de UNA cuenta. Pura, sin fs — no crea el directorio ni decide si
+ * hay que migrar un store `_local` preexistente a esta cuenta; eso es responsabilidad de quien
+ * orqueste el swap (electron/memory-account-switch.ts), que sí puede usar existsSync para esa
+ * decisión.
  *
  * `userId` null o string vacía (sesión sin cuenta logueada) cae en la partición `_local`,
  * separada de cualquier cuenta real — así una sesión anónima nunca comparte archivo con
@@ -48,26 +48,24 @@ export function resolveStorePath(ravenHomeDir: string, userId: string | null): s
   return join(ravenHomeDir, '.raven-nest', 'memory', account, 'memory.db')
 }
 
-// Adversarial-review fix (smoke/memory-bridge), BUG 1 (ALTO): renameSync has no retry of
-// its own. On Windows a transient EBUSY/EPERM (antivirus or an indexer — OneDrive included
-// — holding a handle on the .db an instant after MemoryStore.close() released it) used to
-// throw straight out of migrateLegacyStorePath, up through main.ts's unguarded call site,
-// into the try/catch that sets `memory = null` — disabling the ENTIRE memory feature for
-// the session over a one-off timing fluke, not a real failure. Same retry shape as
-// renameDirWithRetry in memory-account-switch.ts (that file's sibling fix for the same
-// class of Windows timing issue): a few short attempts, only for EBUSY/EPERM, anything else
-// rethrows immediately.
+// renameSync has no retry of its own. On Windows a transient EBUSY/EPERM (antivirus or an
+// indexer — OneDrive included — holding a handle on the .db an instant after
+// MemoryStore.close() released it) would throw straight out of migrateLegacyStorePath, up
+// through main.ts's unguarded call site, into the try/catch that sets `memory = null` —
+// disabling the ENTIRE memory feature for the session over a one-off timing fluke. Same
+// retry shape as renameDirWithRetry in memory-account-switch.ts: a few short attempts, only
+// for EBUSY/EPERM, anything else rethrows immediately.
 const RENAME_RETRY_ATTEMPTS = 3
 const RENAME_RETRY_DELAY_MS = 50
 
-// migrateLegacyStorePath runs at module scope in main.ts (electron/main.ts ~line 267),
-// synchronously, before `new MemoryStore(...)` and before any window exists — there is no
+// migrateLegacyStorePath runs at module scope in main.ts, synchronously, before
+// `new MemoryStore(...)` and before any window exists — there is no
 // event loop turn anything else is waiting on yet. Turning it async would mean wrapping
 // that whole module-scope initialization block in an async IIFE, a much bigger structural
 // change to main.ts for a one-time startup delay measured in tens of milliseconds. A
 // synchronous sleep via Atomics.wait blocks this thread for real (no busy CPU spin, unlike
 // a Date.now() poll loop) without turning any part of main.ts async — the lowest-risk shape
-// for a fix that only ever fires while retrying a transient rename at startup.
+// for something that only ever fires while retrying a transient rename at startup.
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
@@ -87,16 +85,14 @@ function renameSyncWithRetry(from: string, to: string): void {
 }
 
 /**
- * Task 1 (plan de memoria por cuenta multi-dispositivo), Step 3d: migración de una sola vez
- * del store PLANO legado (`{home}/.raven-nest/memory/memory.db`, sin subcarpeta de cuenta —
- * el layout de antes de esta Task) al nuevo layout por-cuenta (`resolveStorePath(home,
- * null)` = `{home}/.raven-nest/memory/_local/memory.db`).
+ * Migración de una sola vez del store PLANO legado (`{home}/.raven-nest/memory/memory.db`,
+ * sin subcarpeta de cuenta) al layout por-cuenta (`resolveStorePath(home, null)` =
+ * `{home}/.raven-nest/memory/_local/memory.db`).
  *
- * Máquinas reales — incluida la que corrió esta implementación — YA TIENEN datos
- * capturados bajo el path viejo. Esta función tiene que correr ANTES de construir el
- * MemoryStore inicial (main.ts la llama ahí): si el primer arranque bajo el nuevo layout
- * simplemente abriera `resolveStorePath(home, null)`, encontraría una base vacía y el
- * historial real quedaría huérfano para siempre en el path legado, nunca más leído por
+ * Las máquinas existentes pueden tener datos capturados bajo el path viejo. Esta función tiene que
+ * correr ANTES de construir el MemoryStore inicial (main.ts la llama ahí): si el primer arranque
+ * bajo el nuevo layout simplemente abriera `resolveStorePath(home, null)`, encontraría una base
+ * vacía y el historial real quedaría huérfano para siempre en el path legado, nunca más leído por
  * nada.
  *
  * No-op si el path nuevo YA existe (la migración ya corrió, o es una instalación nueva sin
@@ -110,11 +106,10 @@ function renameSyncWithRetry(from: string, to: string): void {
  * reintento, ver renameSyncWithRetry) por archivo, y sólo para los que efectivamente
  * existen.
  *
- * Adversarial-review fix, BUG 2 (CRÍTICO, pérdida de datos real): el `.db` se mueve AL
- * FINAL, no primero. Con el `.db` primero, si el proceso moría entre mover el `.db` y mover
- * el `-wal`, el próximo arranque veía `existsSync(newPath) === true` (el `.db` ya estaba
- * ahí) y el guard de arriba cortaba con `return` inmediato — sin mover jamás el `-wal`
- * legado que quedó atrás, que puede tener filas commiteadas pero no checkpointeadas
+ * El `.db` se mueve AL FINAL, no primero. Con el `.db` primero, si el proceso muriera entre
+ * mover el `.db` y mover el `-wal`, el próximo arranque vería `existsSync(newPath) === true`
+ * (el `.db` ya estaría ahí) y el guard de arriba cortaría con `return` inmediato — sin mover
+ * jamás el `-wal` legado que quedó atrás, que puede tener filas commiteadas pero no checkpointeadas
  * (`journal_mode = WAL`, `synchronous = FULL`, ver el constructor de MemoryStore):
  * huérfanas para siempre, en silencio. Con los compañeros primero y el `.db` al final, el
  * `.db` en el path nuevo es la señal de "migración completa" recién cuando de verdad lo
@@ -135,7 +130,7 @@ export function migrateLegacyStorePath(ravenHomeDir: string): void {
   if (existsSync(newPath) || !existsSync(legacyPath)) return
 
   mkdirSync(dirname(newPath), { recursive: true })
-  // Companions first, bare `.db` last — see the BUG 2 fix note above for why this order is
+  // Companions first, bare `.db` last — see the doc comment above for why this order is
   // the whole point.
   for (const suffix of ['-wal', '-shm', '']) {
     const from = `${legacyPath}${suffix}`
@@ -154,55 +149,48 @@ export function generateSyncId(prefix: 'obs' | 'sess' | 'prom'): string {
  * save() use for the dedupe window, Step 2 below) + topicKey — never from WHERE it came
  * from.
  *
- * WHY content, not source identity: the previous formula (sha256 of
- * "<source>:<sourceRef>", e.g. "import:engram:<engram's own sync_id>") failed in live
- * multi-device testing — the SAME observation content exists in two machines' engram.db
- * files under two DIFFERENT engram sync_ids (engram never guarantees a stable id across
- * separate installs), so each machine derived a DIFFERENT Nest sync_id for identical
- * content. The `memory:connect` flow is import -> push -> pull (memory-daemon.ts), so at
- * import time the local store does NOT yet contain the other device's rows — only the
- * SERVER's upsert-by-sync_id (PK sync_id, no content dedup) can catch this, and only if
- * both devices hand it the same PK. Verified in production: 261 duplicate content groups
- * from this exact failure mode.
+ * WHY content, not source identity: the SAME observation content can exist in two machines'
+ * engram.db files under two DIFFERENT engram sync_ids (engram never guarantees a stable id across
+ * separate installs), so a seed of "<source>:<sourceRef>" (e.g. "import:engram:<engram's own
+ * sync_id>") would give each machine a DIFFERENT Nest sync_id for identical content. The
+ * `memory:connect` flow is import -> push -> pull (memory-daemon.ts), so at import time the local
+ * store does NOT yet contain the other device's rows — only the SERVER's upsert-by-sync_id (PK
+ * sync_id, no content dedup) can catch this, and only if both devices hand it the same PK.
  *
  * WHY source is excluded (not just de-emphasized): the product requirement is
  * importer-agnostic identity — a user who imports the same fact via engram on one
  * machine and via some other memory system (or a plain markdown export) on another must
- * ALSO converge on one row, not two. Baking the importer name into the seed (as the old
- * formula did) would defeat that by construction. The source's own row id and any
+ * ALSO converge on one row, not two. Baking the importer name into the seed would defeat
+ * that by construction. The source's own row id and any
  * timestamp are excluded for the same reason: neither identifies WHAT the content is —
  * both are the source system's own conventions, outside Nest's control, and would make
  * two imports of the identical fact diverge for reasons that have nothing to do with the
  * fact itself.
  *
- * WHY topicKey IS included (fix for a real collision, not a hypothetical): two import
- * rows sharing (projectKey, scope, type, content_hash) but carrying DIFFERENT topic_key
- * values used to derive the SAME sync_id, because the seed ignored topic_key entirely.
+ * WHY topicKey IS included: without it, two import rows sharing (projectKey, scope, type,
+ * content_hash) but carrying DIFFERENT topic_key values would derive the SAME sync_id.
  * save()'s Step 0.5 (sync_id-match) update path only overwrites title/content/tags/
  * content_hash/source_ref — it never touches topic_key — so the second import's topic
- * classification was silently dropped while its source_ref clobbered the first import's,
- * and alternating re-imports (e.g. on reconnect) ping-ponged source_ref back and forth on
- * one row instead of ever producing two. Same content under different topics is
+ * classification would be silently dropped while its source_ref clobbered the first
+ * import's, and alternating re-imports (e.g. on reconnect) would ping-pong source_ref back
+ * and forth on one row instead of ever producing two. Same content under different topics is
  * deliberately DISTINCT identity: a topic_key is a user-meaningful classification of the
  * content, not incidental metadata, so two different classifications of otherwise-
  * identical text are two different facts as far as identity is concerned. Cross-device
  * convergence still holds with topicKey in the seed — both devices read the same
  * topic_key off the same source data (the same engram row, the same markdown heading), so
- * they derive the same seed and therefore the same sync_id, exactly as before.
+ * they derive the same seed and therefore the same sync_id.
  * `topicKey` is normalized to `''` for null/undefined so a no-topic row's seed reduces to
- * exactly the pre-fix formula — no-topic import identity is unchanged by this fix; only
- * topic-bearing rows get a new derived id (accepted pre-release: no production data
- * depends on today's topic-bearing ids yet).
+ * the topic-less formula.
  *
- * Accepted phase-1 edge (unchanged in spirit from before): this is a pure function of
+ * Accepted edge: this is a pure function of
  * (projectKey, scope, type, content_hash, topicKey) with no per-user salt, so two
  * different Nest users importing byte-identical content under the same topic (e.g. a
  * shared CLAUDE.md file, or one user copying another's ~/.engram directory) derive the
  * SAME sync_id. The server's PK-plus-RLS model rejects the second user's insert outright
  * rather than silently merging two people's memories — the failure mode is "the second
- * user's import errors on that one row," not data leakage — which is acceptable for phase
- * 1. A real per-user salt would remove the collision if this becomes a problem in
- * practice.
+ * user's import errors on that one row," not data leakage — which is acceptable. A real
+ * per-user salt would remove the collision if this becomes a problem in practice.
  */
 export function deriveImportSyncId(
   projectKey: string,
@@ -212,8 +200,8 @@ export function deriveImportSyncId(
   topicKey?: string | null
 ): string {
   const topic = topicKey ?? ''
-  // Empty-topic seed is byte-identical to the pre-fix formula (see doc comment above) —
-  // a no-topic row's derived id is unchanged by this fix. A topic-bearing row gets a
+  // The empty-topic seed has to stay byte-identical to the topic-less formula: existing
+  // no-topic rows already carry ids derived from it. A topic-bearing row gets a
   // seed segment that no no-topic row can ever collide with (an empty topicKey never
   // produces the literal string 'topic=...').
   const seed = topic
@@ -237,16 +225,16 @@ export function contentHash(title: string, content: string | null): string {
  * save() independently arrives at for the same raw title/content.
  */
 /**
- * Task 13 (2026-09-09): ¿cambió algo que REPLICA a la nube?
+ * ¿Cambió algo que REPLICA a la nube?
  *
  * `content_hash` cubre título y contenido a la vez (lo calcula computeContentIdentity abajo
- * sobre los dos), así que alcanza con eso más los tags. Todo lo demás que save() tocaba en un
+ * sobre los dos), así que alcanza con eso más los tags. Todo lo demás que save() toca en un
  * re-import es local y no viaja: `source_ref` no existe como columna del lado del servidor, y
- * `revision_count` / `duplicate_count` / `last_seen_at` ya estaban documentados como señales
- * de ranking que no se replican (ver el comentario de M23 en el Step 2 de save()).
+ * `revision_count` / `duplicate_count` / `last_seen_at` son señales de ranking que no se
+ * replican (ver el comentario en el Step 2 de save()).
  *
- * Sin este chequeo, un re-import de material idéntico generaba una mutación por fila. Y como
- * runLocalMemoryImport corre en cada arranque de la app, eso pasaba cada vez que se abría
+ * Sin este chequeo, un re-import de material idéntico generaría una mutación por fila. Y como
+ * runLocalMemoryImport corre en cada arranque de la app, eso pasaría cada vez que se abre
  * Nest, por cada memoria importada.
  */
 function hasReplicatedChange(
@@ -255,10 +243,10 @@ function hasReplicatedChange(
   incomingTags: string | null,
   incomingType: string
 ): boolean {
-  // El tipo entra en la comparación desde el 2026-09-11. Sin él, un re-import que sólo
-  // corrige la clasificación (la nota declaraba `decision` y la fila quedó en `pattern`) no
-  // contaba como cambio y se descartaba en silencio — y como el re-import corre en cada
-  // arranque, la fila se quedaba mal para siempre.
+  // El tipo entra en la comparación: sin él, un re-import que sólo corrige la clasificación
+  // (la nota declara `decision` y la fila quedó en `pattern`) no contaría como cambio y se
+  // descartaría en silencio — y como el re-import corre en cada arranque, la fila quedaría
+  // mal para siempre.
   return existing.content_hash !== incomingHash
     || existing.tags !== incomingTags
     || existing.type !== incomingType
@@ -275,7 +263,7 @@ export function computeContentIdentity(
 
 export interface SaveInput {
   projectKey: string
-  scope?: 'personal' | 'project' | 'team' // Phase 1: auto-capture always forces 'personal' at the call site
+  scope?: 'personal' | 'project' | 'team' // auto-capture always forces 'personal' at the call site
   topicKey?: string | null
   type: ObservationType
   title: string
@@ -292,11 +280,10 @@ export interface SaveInput {
    * Importadores: aplicar el `type` a una fila que YA existe, no sólo a una nueva.
    *
    * El camino de re-import identifica la fila por `(source, source_ref)` y actualiza
-   * título, contenido, tags y hash — pero NUNCA el tipo. Eso estaba bien mientras el
-   * importador estampaba un tipo fijo; desde que lee el que la nota declara, una nota que
-   * declaraba `decision` se quedaba con el `pattern` que se le puso la primera vez, para
-   * siempre. Y el re-import corre en CADA arranque (main.ts), así que "reimportar" no lo
-   * arreglaba: no hay nada que correr a mano, simplemente no se aplicaba.
+   * título, contenido, tags y hash — pero no el tipo. Como el importador lee el tipo que la
+   * nota declara, sin esto una nota que declara `decision` se quedaría con el `pattern` que se
+   * le puso la primera vez, para siempre. Y el re-import corre en CADA arranque (main.ts),
+   * así que "reimportar" no lo arreglaría.
    *
    * Va sólo cuando la nota DECLARA un tipo. Sin declaración el importador cae a `pattern`,
    * y escribir ese default pisaría un tipo puesto a propósito por otra vía.
@@ -311,7 +298,7 @@ export interface SaveInput {
 }
 
 /**
- * Spec 2026-09-11 — input de `crossProjectMemories()`. A diferencia de `SaveInput`/
+ * Input de `crossProjectMemories()`. A diferencia de `SaveInput`/
  * `MemoryGraphQuery`, `limit` es obligatorio (no hay default razonable: la pantalla que
  * pide "todos los proyectos" sobre una tabla de miles de filas SIEMPRE tiene que decidir
  * un tamaño de página).
@@ -426,9 +413,8 @@ export interface ObservationRow {
   topic_key_hmac: string | null
   type: string
   title: string
-  // M12: nullable so a tombstone can actually null the content, per §3.1 "A delete sets
-  // deleted=1, nulls content". The column was previously NOT NULL, which made that rule
-  // impossible to implement — deleteObservation() below is the only writer that sets
+  // Nullable so a tombstone can actually null the content, per §3.1 "A delete sets
+  // deleted=1, nulls content" — deleteObservation() below is the only writer that sets
   // this to null.
   content: string | null
   tags: string | null
@@ -460,10 +446,10 @@ export interface MutationLogRow {
   payload: string
   created_at: number
   pushed_at: number | null
-  // M21: set when the server reported this specific mutation as 'rejected' (plan limit,
+  // Set when the server reported this specific mutation as 'rejected' (plan limit,
   // revoked access, etc.) — surfaced once rather than silently discarded.
   last_error: string | null
-  // Task 8 (smoke/memory-bridge): non-null only for a REVERSIBLE server rejection
+  // Non-null only for a REVERSIBLE server rejection
   // (project_limit_reached, quota_exceeded — see memory-daemon.ts's REVERSIBLE_REJECTIONS).
   // Distinct from `pushed_at`: a blocked row is NOT pushed (it was never delivered) and
   // NOT pending (retrying it every cycle would just get rejected again) — it sits here
@@ -473,7 +459,7 @@ export interface MutationLogRow {
 
 export interface MarkPushedEntry {
   seq: number
-  /** Non-null only for a server-reported 'rejected' outcome — see M21. */
+  /** Non-null only for a server-reported 'rejected' outcome — see `last_error`. */
   error?: string | null
 }
 
@@ -619,15 +605,15 @@ const BASE_SCHEMA = `
     `
 
 /**
- * C3: version of the local schema, persisted in `PRAGMA user_version`.
+ * Version of the local schema, persisted in `PRAGMA user_version`.
  *
  * To add a step: raise this constant, add the MIGRATIONS entry keyed by the NEW number,
  * and never touch an already-published step. Every step runs inside a transaction and
  * should STILL be idempotent: SQLite does not roll back an ALTER TABLE if the process
  * dies halfway through a multi-statement `exec`.
  *
- * Version 1 is the base schema exactly as it shipped in Phase 1. A database created
- * before this change reports user_version = 0 just like an empty one, and adopting it is
+ * Version 1 is the base schema. A database created before versioning existed reports
+ * user_version = 0 just like an empty one, and adopting it is
  * correct precisely because all of step 1 is CREATE ... IF NOT EXISTS: running it over an
  * already-populated database writes nothing and does not touch a single row.
  */
@@ -643,16 +629,14 @@ export type TopicHasher = (projectKey: string, scope: string, topicKey: string) 
 
 export const SCHEMA_VERSION = 8
 
-// Task 8 (smoke/memory-bridge): the memory dir syncs across two machines (C3's whole
-// reason for existing), so a v1 database opened by a build that knows v2 is the routine
-// upgrade path for every existing user, not an edge case.
+// The memory dir syncs across two machines, so a v1 database opened by a build that knows v2 is the
+// routine upgrade path for every existing user, not an edge case.
 //
-// A FUNCTION step, not a plain SQL string like step 1: unlike `CREATE TABLE`/`CREATE
-// INDEX`, SQLite's `ALTER TABLE ... ADD COLUMN` has no `IF NOT EXISTS` clause at all —
-// confirmed against this repo's own better-sqlite3 (`near "EXISTS": syntax error`), not
-// assumed. C3's docstring above requires every step to survive a re-run (SQLite does not
-// roll back an ALTER on a mid-transaction crash), so idempotency has to be done by hand:
-// check `pragma table_info` first, and only ALTER if the column is actually missing.
+// A FUNCTION step, not a plain SQL string like step 1: unlike `CREATE TABLE`/`CREATE INDEX`,
+// SQLite's `ALTER TABLE ... ADD COLUMN` has no `IF NOT EXISTS` clause at all (`near "EXISTS":
+// syntax error`). The SCHEMA_VERSION docstring above requires every step to survive a re-run
+// (SQLite does not roll back an ALTER on a mid-transaction crash), so idempotency has to be done by
+// hand: check `pragma table_info` first, and only ALTER if the column is actually missing.
 const MIGRATIONS: Record<number, string | ((db: BaseSqlite) => void)> = {
   1: BASE_SCHEMA,
   2: (db) => {
@@ -671,7 +655,7 @@ const MIGRATIONS: Record<number, string | ((db: BaseSqlite) => void)> = {
       db.exec('ALTER TABLE mutation_log ADD COLUMN author_user_id TEXT;')
     }
   },
-  // Spec 2026-09-11 (pantalla de Memories legible): la lista cross-project
+  // La lista cross-project
   // (`crossProjectMemories()` abajo) ordena por `updated_at DESC` a través de TODOS los
   // project_key a la vez — algo que `idx_obs_project_updated` no ayuda a resolver, porque
   // su columna líder es `project_key` (sirve para "las más recientes DE este proyecto", no
@@ -682,7 +666,7 @@ const MIGRATIONS: Record<number, string | ((db: BaseSqlite) => void)> = {
   // tamaño de la página pedida. `deleted` como columna líder (selectividad basica: la
   // inmensa mayoría de las filas vivas están activas) + `updated_at DESC, lamport DESC` en
   // el mismo orden que el ORDER BY de la consulta le alcanza al planner para resolver
-  // filtro+orden+LIMIT sin sort adicional (confirmado con EXPLAIN QUERY PLAN, ver el test
+  // filtro+orden+LIMIT sin sort adicional (lo fija con EXPLAIN QUERY PLAN el test
   // "usa el índice global, no un sort completo" en memory-store.test.ts). `superseded_by
   // IS NULL` (el filtro por default, ver buildMemoryGraph) queda afuera del índice a
   // propósito: es un filtro residual barato aplicado fila por fila mientras se recorre en
@@ -693,8 +677,8 @@ const MIGRATIONS: Record<number, string | ((db: BaseSqlite) => void)> = {
   // Hace falta una tabla propia y no alcanza con reusar `topic_key`: el indice
   // `idx_obs_topic` es UNICO por (project_key, scope, topic_key) entre las filas vivas, asi
   // que dos memorias del mismo proyecto NO PUEDEN compartir tema — guardar la segunda con el
-  // mismo topic no crea una fila, REEMPLAZA a la primera por merge (outcome `topic_updated`,
-  // verificado). O sea que "conectar dos" via topic borraria una de las dos.
+  // mismo topic no crea una fila, REEMPLAZA a la primera por merge (outcome
+  // `topic_updated`). O sea que "conectar dos" via topic borraria una de las dos.
   //
   // `a`/`b` ordenados al insertar (a < b) mas el UNIQUE: una relacion a mano no tiene
   // direccion --"esta va con esta"-- y sin el orden la misma relacion entraria dos veces.
@@ -711,8 +695,6 @@ const MIGRATIONS: Record<number, string | ((db: BaseSqlite) => void)> = {
   // no trae el tema sino su hash. `findActiveTopicOwnerByHmac` lo busca contra ESTA
   // columna; sin ella el supersede por topico no encuentra nunca al dueño local, quedan
   // dos filas activas sobre el mismo slot y `idx_obs_topic` tumba el pull entero.
-  //
-  // El plan la numeraba 4; va 6 porque `memory_links` ya se llevo la 5.
   6: (db) => {
     const columns = db.prepare('PRAGMA table_info(observations)').all() as Array<{ name: string }>
     if (!columns.some((c) => c.name === 'topic_key_hmac')) {
@@ -728,13 +710,13 @@ const MIGRATIONS: Record<number, string | ((db: BaseSqlite) => void)> = {
   /**
    * El conjunto de memorias ilegibles pasa de un JSON en `meta` a una tabla.
    *
-   * El JSON costaba un `JSON.parse` de hasta 5000 ids, un `includes` lineal y un
+   * El JSON cuesta un `JSON.parse` de hasta 5000 ids, un `includes` lineal y un
    * `JSON.stringify` completo POR FILA — y no sólo en las ilegibles: `clearUndecryptableFor`
-   * corre en cada fila que SÍ abre, y parsea la lista entera para decidir que no hay nada que
-   * hacer. Medido en esta máquina: 1872ms para marcar 5000, y 0,68ms por fila sana con la
-   * lista llena. Un pull grande en una máquina sin la clave bloquea el proceso durante
-   * segundos, y el tope de 5000 hacía que además el número que ve el usuario mintiera para
-   * abajo en una cuenta más grande que eso.
+   * corre en cada fila que SÍ abre, y parsearía la lista entera para decidir que no hay nada
+   * que hacer (~1,9 s para marcar 5000, ~0,7 ms por fila sana con la lista llena). Un pull
+   * grande en una máquina sin la clave bloquearía el proceso durante segundos, y el tope de
+   * 5000 haría además que el número que ve el usuario mintiera para abajo en una cuenta más
+   * grande que eso.
    *
    * Con la tabla son un INSERT OR IGNORE y un DELETE por PK, y el conteo es un `count(*)`
    * sin tope.
@@ -759,9 +741,9 @@ const MIGRATIONS: Record<number, string | ((db: BaseSqlite) => void)> = {
   /**
    * El indice que vuelve barato leer el reloj de Lamport desde la base.
    *
-   * `nextLamport()` dejo de ser un contador en memoria (ver su comentario). Sin un indice
-   * sobre `lamport` a secas, `SELECT MAX(lamport)` es un scan completo: medido en 278 us con
-   * 20.000 filas, y creciendo con el total. Con el indice, SQLite lo resuelve como
+   * `nextLamport()` lee el maximo de la base, no un contador en memoria (ver su comentario).
+   * Sin un indice sobre `lamport` a secas, `SELECT MAX(lamport)` es un scan completo: ~278 us
+   * con 20.000 filas, y creciendo con el total. Con el indice, SQLite lo resuelve como
    * `SEARCH observations USING COVERING INDEX` y baja a 1 us.
    *
    * `idx_obs_deleted_updated` no sirve para esto: su columna lider es `deleted`, asi que el
@@ -833,10 +815,11 @@ export class MemoryStore {
   /**
    * Recalcula el HMAC de las filas `team` que tienen el tema en claro, tengan o no uno ya.
    *
-   * `backfillTopicHmacs` sólo llena NULLs, y las filas team guardadas antes de c492d21 tienen
-   * el HMAC de la clave PERSONAL: el supersede del pull, que busca por el HMAC de equipo, no
-   * las encuentra. `main.ts` llama esto cada vez que adopta una clave de equipo. Una fila que
-   * vino del pull no tiene tema en claro y su HMAC ya es el del servidor, así que no se toca.
+   * `backfillTopicHmacs` sólo llena NULLs, y las filas team guardadas por versiones anteriores
+   * pueden tener el HMAC de la clave PERSONAL: el supersede del pull, que busca por el HMAC de
+   * equipo, no las encuentra. `main.ts` llama esto cada vez que adopta una clave de equipo. Una
+   * fila que vino del pull no tiene tema en claro y su HMAC ya es el del servidor, así que no se
+   * toca.
    *
    * Idempotente: sólo escribe las filas cuyo valor cambia, y devuelve cuántas fueron.
    */
@@ -894,7 +877,7 @@ export class MemoryStore {
      * Esperar al otro escritor en vez de fallar al instante.
      *
      * Sin esto, dos procesos sobre la misma base —Nest y el paquete portátil, o dos Nest,
-     * que ya pasa hoy con la app instalada y un build de desarrollo abiertos a la vez— hacen
+     * como la app instalada y un build de desarrollo abiertos a la vez— hacen
      * que el segundo reciba `SQLITE_BUSY` inmediatamente y la escritura se pierda como un
      * error. Con el timeout, SQLite reintenta solo hasta que el primero suelta el lock.
      *
@@ -929,10 +912,10 @@ export class MemoryStore {
   private migrate(): void {
     let current = this.db.pragma('user_version', { simple: true }) as number
     // Refuse a database from the FUTURE. The loop below simply doesn't run when
-    // `current > SCHEMA_VERSION`, so the old behaviour was to no-op, adopt the higher
+    // `current > SCHEMA_VERSION`, so without this check it would no-op, adopt the higher
     // number as `schemaVersion` and then write against a schema this build has never
     // heard of. That is not hypothetical here: the memory dir is synced across two
-    // machines, so the day SCHEMA_VERSION becomes 2 the machine still on 1 opens a v2
+    // machines, so after a schema bump the machine still on the older build opens a newer
     // database. Throwing is caught by main.ts's existing try/catch around the memory
     // subsystem, which degrades to "memory disabled for this session" — the safe outcome.
     if (current > SCHEMA_VERSION) {
@@ -954,10 +937,10 @@ export class MemoryStore {
   /**
    * El reloj de Lamport, leido de la BASE y no de un contador en memoria.
    *
-   * Era `this.lamportCounter += 1`, cargado una sola vez al abrir con un `SELECT MAX`. Con un
-   * unico escritor eso es correcto y gratis. Con dos —Nest y el paquete portatil, o la app
-   * instalada y un build de desarrollo abiertos a la vez, que es algo que ya pasa— los dos
-   * arrancan del mismo numero y emiten lamports DUPLICADOS. Y el lamport es lo que desempata
+   * Un contador en memoria, cargado una sola vez al abrir con un `SELECT MAX`, es correcto y
+   * gratis con un unico escritor. Con dos —Nest y el paquete portatil, o la app instalada y
+   * un build de desarrollo abiertos a la vez— los dos arrancarian del mismo numero y
+   * emitirian lamports DUPLICADOS. Y el lamport es lo que desempata
    * un conflicto cuando dos escrituras comparten `updated_at`: duplicarlo no rompe nada
    * visible, hace que el desempate sea arbitrario y que las dos maquinas puedan elegir
    * ganadores distintos.
@@ -966,11 +949,10 @@ export class MemoryStore {
    * deleteObservation, promoteToTeam), asi que el segundo proceso lee el maximo que dejo el
    * primero.
    *
-   * **El costo esta medido** (2026-09-13, 20.000 filas): 278 us sin indice —un scan completo,
-   * que es el riesgo P-R1 de la spec confirmado— y **1 us con el indice** de la migracion 8,
-   * que lo vuelve un COVERING INDEX SEARCH. La alternativa de una fila contador en `meta`
-   * daba 8 us y ademas seria una segunda fuente de verdad que se puede desincronizar de las
-   * filas reales.
+   * **Costo** (20.000 filas): ~278 us sin indice —un scan completo, el riesgo P-R1 de la spec— y
+   * **~1 us con el indice** de la migracion 8, que lo vuelve un COVERING INDEX SEARCH. La
+   * alternativa de una fila contador en `meta` da ~8 us y ademas seria una segunda fuente de verdad
+   * que se puede desincronizar de las filas reales.
    */
   private nextLamport(): number {
     const fila = this.db
@@ -981,8 +963,8 @@ export class MemoryStore {
      * descarto (perdio el LWW) no queda en `observations`, pero la vimos. La disciplina de
      * Lamport dice que el reloj local pasa a ser al menos ese valor — si no, una escritura
      * local posterior podria recibir un lamport MENOR que uno que ya circulo, y un empate de
-     * `updated_at` entre las dos elegiria al equivocado. Eso es lo que el arreglo C4 cerro
-     * en su momento con el contador en memoria; aca vive en `meta`, que sobrevive al proceso.
+     * `updated_at` entre las dos elegiria al equivocado. La marca vive en `meta`, que
+     * sobrevive al proceso.
      */
     const visto = Number(this.metaGet('lamport_high_water') ?? 0)
     return Math.max(fila.m, visto) + 1
@@ -1009,17 +991,17 @@ export class MemoryStore {
   /**
    * Registra un proyecto, y MEJORA el que ya está si lo que llega es mejor que lo guardado.
    *
-   * Era insert-only, y eso dejaba un nombre de marcador de posición congelado para siempre.
+   * Con insert-only, un nombre de marcador de posición quedaría congelado para siempre.
    * El camino: una segunda máquina se entera de un proyecto por el roster de `/v1/status` o
    * por el cursor de un pull, y en los dos casos el nombre que tiene para ponerle es la
    * `project_key` — un hash— porque el `display_name` del roster viaja cifrado y desde ahí no
    * se puede abrir (el AAD ata cada ciphertext a SU observación, y el roster no trae
    * `sync_id`). Después el usuario clona el repo en esa máquina, Nest resuelve la MISMA
-   * `project_key` y llama con el nombre de la carpeta — y el insert-only lo tiraba. El
-   * usuario veía `a3f9c2e8…` en la UI para siempre, con el repo abierto al lado.
+   * `project_key` y llama con el nombre de la carpeta — y el insert-only lo tiraría. El
+   * usuario vería `a3f9c2e8…` en la UI para siempre, con el repo abierto al lado.
    *
-   * Lo mismo con `root_path` y `remote_url`: se perdían enteros, así que un proyecto que
-   * nació del roster nunca aprendía dónde está en el disco.
+   * Lo mismo con `root_path` y `remote_url`: se perderían enteros, así que un proyecto que
+   * nació del roster nunca aprendería dónde está en el disco.
    *
    * Las reglas son asimétricas a propósito, porque la información no es simétrica:
    *
@@ -1038,8 +1020,8 @@ export class MemoryStore {
     let existing = leer()
     if (!existing) {
       // `OR IGNORE`: otro proceso (Nest y el paquete corren `status` los dos) puede insertar
-      // el mismo proyecto entre el SELECT y esto. Un INSERT a secas explotaba con UNIQUE y
-      // `doStatus` perdía el resto del roster. Si perdimos la carrera, se sigue como si el
+      // el mismo proyecto entre el SELECT y esto. Un INSERT a secas explotaría con UNIQUE y
+      // `doStatus` perdería el resto del roster. Si perdimos la carrera, se sigue como si el
       // proyecto ya estuviera: lo que traemos de mejor se completa abajo.
       const puesto = this.db
         .prepare(
@@ -1084,7 +1066,7 @@ export class MemoryStore {
     this.db.prepare('UPDATE projects SET team_id = ? WHERE project_key = ?').run(teamId, projectKey)
   }
 
-  /** M17: enumerates known local projects so the daemon can pull with a per-project cursor for each. */
+  /** Enumerates known local projects so the daemon can pull with a per-project cursor for each. */
   /**
    * Conecta dos memorias a mano. Sin dirección: "esta va con esta".
    *
@@ -1167,15 +1149,15 @@ export class MemoryStore {
   /**
    * La ultima `key_epoch` que esta maquina supo de la cuenta. Vive en `meta` y no en la red
    * porque quien la consulta es el gate de fallar-cerrado del push, que corre en el arranque
-   * —antes del primer `fetchKeyState`— que es exactamente cuando el agujero original subia
-   * todo en claro.
+   * —antes del primer `fetchKeyState`—, y sin este valor en ese momento subiria todo en
+   * claro.
    *
    * Nunca BAJA: una epoca conocida que se olvida volveria a habilitar el push en claro, que
    * es lo que este valor existe para impedir.
    */
   rememberKeyEpoch(epoch: number): void {
     // El "nunca baja" lo decide la base, no un `knownKeyEpoch()` leído antes: con dos
-    // procesos, el que leyó la época vieja la pisaba con la suya, más chica.
+    // procesos, el que leyó la época vieja la pisaría con la suya, más chica.
     if (!Number.isFinite(epoch) || Math.floor(epoch) <= 0) return
     this.metaSubirSiEsMayor('known_key_epoch', Math.floor(epoch))
   }
@@ -1185,7 +1167,7 @@ export class MemoryStore {
   }
 
   /**
-   * Task 14 (spec §9.4): los equipos que el servidor dijo que cifran (`encrypted_teams` de
+   * Los equipos que el servidor dijo que cifran (spec §9.4) (`encrypted_teams` de
    * `/v1/sync/status`, o un rechazo `team_encryption_required` del push). Lo inferido de una
    * fila ilegible NO va acá: ver `rememberProvisionalEncryptedTeams`. Lo lee el gate del push
    * de equipo (memory-daemon.ts). Mismo contrato que `known_key_epoch`: vive en `meta` para
@@ -1210,11 +1192,11 @@ export class MemoryStore {
   }
 
   /**
-   * I1 (review de Tasks 13–14): lo que se aprende de una fila de equipo ilegible de un servicio
+   * Lo que se aprende de una fila de equipo ilegible de un servicio
    * VIEJO (sin `team_id` en la fila ni `encrypted_teams` en el status) va acá, no al conjunto de
    * arriba. Es una inferencia, no algo que dijo el servidor: la fila puede ser de OTRO equipo
    * (re-share de T1, que cifra, a T2, que no: el pull sirve las filas viejas como de T2). Si
-   * fuera "para siempre", T2 quedaba con todo su push retenido sin salida.
+   * fuera "para siempre", T2 quedaría con todo su push retenido sin salida.
    *
    * Arma el gate igual que lo confirmado (`encryptedTeamIds` devuelve la unión, también en el
    * arranque y sin red), pero el primer status que traiga `encrypted_teams` lo reemplaza —
@@ -1278,7 +1260,7 @@ export class MemoryStore {
   }
 
   /**
-   * M2 (review de Tasks 13–14): de qué equipos hay filas ilegibles anotadas. La tabla
+   * De qué equipos hay filas ilegibles anotadas. La tabla
    * `undecryptable` sólo guarda el `sync_id` (una fila ilegible no se aplica, así que no hay
    * observación local que cruzar), y sumarle una columna exige subir `SCHEMA_VERSION`. En `meta`,
    * como el resto de lo de equipo. `'*'` = una fila de equipo de equipo desconocido (servicio
@@ -1307,9 +1289,9 @@ export class MemoryStore {
   /**
    * Registra que una fila llego cifrada y esta maquina no pudo abrirla (spec §5.5.4).
    *
-   * Se guarda el CONJUNTO de `sync_id`, no un contador. Un contador monotono mentia de dos
-   * formas a la vez: sumaba de nuevo las mismas filas en cada re-pull (y `resetPullCursors`
-   * hace exactamente eso, a proposito), y nunca bajaba aunque la otra maquina borrara esas
+   * Se guarda el CONJUNTO de `sync_id`, no un contador. Un contador monotono mentiria de dos
+   * formas a la vez: sumaria de nuevo las mismas filas en cada re-pull (y `resetPullCursors`
+   * hace exactamente eso, a proposito), y nunca bajaria aunque la otra maquina borrara esas
    * memorias. El numero que la tarjeta le muestra al usuario tiene que ser cuantas memorias
    * no puede leer, no cuantas veces intento.
    */
@@ -1346,8 +1328,8 @@ export class MemoryStore {
    * Es el mecanismo de la migracion del §5.5.3: lo que ya esta en la nube en claro se
    * pisa, por `sync_id`, con la version cifrada.
    *
-   * Excepcion consciente a la regla de la Task 13 del plan de la fase 1 ("un re-import sin
-   * cambios no re-loguea mutaciones"): aca el contenido no cambió, cambió el FORMATO en que
+   * Excepcion consciente a la regla de que un re-import sin cambios no re-loguea mutaciones
+   * (ver hasReplicatedChange): aca el contenido no cambió, cambió el FORMATO en que
    * viaja, y esa es justamente la razon para re-loguear. Se llama una vez, a mano, desde la
    * activacion — nunca en un bucle automatico.
    *
@@ -1384,13 +1366,13 @@ export class MemoryStore {
   /**
    * Cuántas veces se llamó `resetPullCursors()` sobre ESTA BASE. Lo lee `doPull()` para
    * saber si un reset pasó MIENTRAS su request estaba en vuelo: en ese caso la respuesta trae
-   * los cursores viejos, y escribirlos deshace el reset (lo encontró e2e/16: el compañero
-   * adoptaba la clave de equipo y la fila que se había salteado por ilegible no volvía nunca).
+   * los cursores viejos, y escribirlos deshace el reset: el compañero que adopta la clave de
+   * equipo nunca recibiría la fila que se había salteado por ilegible (lo cubre e2e/16).
    *
-   * Va en `meta` y no en un campo de la instancia (M3 del handoff 2026-10-15): con dos
-   * procesos sobre la misma base —la app y el paquete portátil, que resetea al adoptar con
-   * `login`/`recover`— el contador en memoria no veía el reset del otro, y el pull en vuelo
-   * lo pisaba. Mismo motivo por el que el lamport se lee de la base (SCHEMA_VERSION 8).
+   * Va en `meta` y no en un campo de la instancia: con dos procesos sobre la misma base —la app y
+   * el paquete portátil, que resetea al adoptar con `login`/`recover`— un contador en memoria no
+   * vería el reset del otro, y el pull en vuelo lo pisaría. Mismo motivo por el que el lamport se
+   * lee de la base (SCHEMA_VERSION 8).
    */
   pullCursorResetCount(): number {
     return Number(this.metaGet('pull_cursor_resets') ?? 0)
@@ -1407,8 +1389,8 @@ export class MemoryStore {
    */
   ponerseAlDiaConLaClave(keyEpoch: number): boolean {
     // El chequeo y la marca van en la MISMA transacción IMMEDIATE. Afuera, dos procesos que
-    // arrancan a la vez con la maestra pasaban los dos el chequeo y re-bajaban todo dos
-    // veces; y si el proceso moría a mitad, quedaba el cursor en 0 sin la marca, o al revés.
+    // arrancan a la vez con la maestra pasarían los dos el chequeo y re-bajarían todo dos
+    // veces; y si el proceso muriera a mitad, quedaría el cursor en 0 sin la marca, o al revés.
     // Las transacciones de adentro (el backfill) pasan a ser savepoints.
     return this.db.transaction((): boolean => {
       if (this.metaGet('al_dia_con_la_epoca') === String(keyEpoch)) return false
@@ -1431,14 +1413,14 @@ export class MemoryStore {
    * acota el push: `pendingMutations()` sólo devuelve lo de esta cuenta.
    *
    * **La primera cuenta que entra reclama el store y adopta las filas sin autor.** Es lo
-   * correcto para la única máquina que existe hoy —una persona, todo lo capturado antes de
-   * loguearse es suyo— y es también lo que hace que un usuario que ya venía usando la
+   * correcto para el caso típico —una persona, todo lo capturado antes de loguearse es
+   * suyo— y es también lo que hace que un usuario que ya venía usando la
    * memoria local no pierda nada al conectar. Una SEGUNDA cuenta en la misma máquina no
    * adopta nada: sus escrituras se sellan con lo suyo y lo ajeno le queda invisible al
-   * push. Sin esto, su daemon empujaba a su nube las memorias de la primera.
+   * push. Sin esto, su daemon empujaría a su nube las memorias de la primera.
    *
    * Esto NO es aislamiento completo: en local las dos cuentas siguen leyendo la misma
-   * base. El aislamiento de verdad es una base por cuenta, que es el paso siguiente.
+   * base. El aislamiento de verdad lo da una base por cuenta (ver resolveStorePath).
    */
   setCurrentUser(userId: string | null): { claimed: boolean; adopted: number } {
     this.currentUserId = userId
@@ -1448,7 +1430,7 @@ export class MemoryStore {
     if (owner !== null) return { claimed: false, adopted: 0 }
 
     // El chequeo de arriba es el camino rápido, no la garantía: otro proceso puede reclamar
-    // el store entre ese `getOwnerUserId` y esta transacción, y el INSERT a secas explotaba
+    // el store entre ese `getOwnerUserId` y esta transacción, y un INSERT a secas explotaría
     // con UNIQUE. El `OR IGNORE` adentro del lock es el chequeo de verdad: si no insertó,
     // ya había dueño y no se adopta nada.
     const claim = this.db.transaction((): number | null => {
@@ -1488,10 +1470,10 @@ export class MemoryStore {
     const txn = this.db.transaction((): SaveMemoryResult => {
       // Step 0 (imports only): identity by (source, source_ref).
       if (input.sourceRef) {
-        // C3 fix: this lookup used to omit `AND superseded_by IS NULL`. Once a row lost
-        // a topic-collision merge (superseded_by set by the daemon's pull-apply path,
-        // §4.3 rule b), it was still the ONLY row addressable by this (source,
-        // source_ref) pair — every future re-import silently rewrote the dead row,
+        // `AND superseded_by IS NULL` is load-bearing. Once a row loses a topic-collision
+        // merge (superseded_by set by the daemon's pull-apply path, §4.3 rule b), without
+        // the filter it would still be the ONLY row addressable by this (source,
+        // source_ref) pair — every future re-import would silently rewrite the dead row,
         // whose content is permanently excluded from search()/context() by the
         // deleted=0/superseded_by IS NULL filters everywhere else. The importer would
         // "succeed" forever while the item stayed invisible.
@@ -1502,12 +1484,12 @@ export class MemoryStore {
           const tagsIncoming = input.tags ? JSON.stringify(input.tags) : bySourceRef.tags
           // El tipo sólo se pisa si el que importa lo declara (ver `applyType`).
           const typeIncoming = input.applyType ? input.type : bySourceRef.type
-          // Task 13: un re-import de material que NO cambió no es una escritura. Antes esto
-          // reescribía la fila y agregaba una mutación igual, y como runLocalMemoryImport
-          // corre en CADA arranque de la app (main.ts) y el importer de markdown también
-          // manda source_ref, cada apertura de Nest re-logueaba y re-pusheaba todo lo
-          // importado. De paso subía revision_count (que pasaba a mentir) y updated_at y
-          // lamport, con lo que la copia local ganaba LWW contra una copia de nube idéntica.
+          // Un re-import de material que NO cambió no es una escritura. Reescribir la fila
+          // agregaría una mutación igual, y como runLocalMemoryImport corre en CADA arranque
+          // de la app (main.ts) y el importer de markdown también manda source_ref, cada
+          // apertura de Nest re-loguearía y re-pushearía todo lo importado. De paso subiría
+          // revision_count (que pasaría a mentir) y updated_at y lamport, con lo que la copia
+          // local ganaría LWW contra una copia de nube idéntica.
           if (!hasReplicatedChange(bySourceRef, hash, tagsIncoming, typeIncoming)) {
             return { syncId: bySourceRef.sync_id, outcome: 'source_ref_updated', redacted }
           }
@@ -1527,7 +1509,7 @@ export class MemoryStore {
           return { syncId: updated.sync_id, outcome: 'source_ref_updated', redacted }
         }
 
-        // Defined fallthrough (C3): no ACTIVE row for this source_ref, but an INACTIVE
+        // Defined fallthrough: no ACTIVE row for this source_ref, but an INACTIVE
         // one (superseded or tombstoned) may still hold it — idx_obs_source_ref is a
         // hard UNIQUE(source, source_ref) constraint that does NOT exclude inactive
         // rows, so falling through to a plain INSERT below would violate it. Instead,
@@ -1552,7 +1534,7 @@ export class MemoryStore {
       // source_ref = null — Step 0's (source, source_ref) lookup can never find it again.
       // A deterministic sync_id (see deriveImportSyncId) is the only surviving identity
       // link, so this step is what turns "re-import after wipe+reconnect" back into a
-      // no-op update instead of either a duplicate insert (bug 2) or a PRIMARY KEY
+      // no-op update instead of either a duplicate insert or a PRIMARY KEY
       // collision at the Step 3 insert below (a caller-supplied sync_id that already
       // belongs to an active row must never reach a plain INSERT).
       if (input.syncId) {
@@ -1560,7 +1542,7 @@ export class MemoryStore {
         if (bySyncId && bySyncId.deleted === 0 && bySyncId.superseded_by === null) {
           const tagsIncoming = input.tags ? JSON.stringify(input.tags) : bySyncId.tags
           const nextSourceRef = input.sourceRef ?? bySyncId.source_ref
-          // Task 13, misma regla que el Step 0. La diferencia acá es que este camino SÍ puede
+          // Misma regla que el Step 0. La diferencia acá es que este camino SÍ puede
           // traer un source_ref distinto (dos máquinas importando la misma fila de engram
           // desde sus propias bases). Ese campo es LOCAL — el servidor no tiene esa columna,
           // ver el párrafo de arriba — así que un cambio de source_ref solo se aplica a disco
@@ -1594,7 +1576,7 @@ export class MemoryStore {
           this.appendMutation('upsert', updated)
           return { syncId: updated.sync_id, outcome: 'source_ref_updated', redacted }
         }
-        // Mirrors the C3 fallthrough above: an INACTIVE row (superseded/tombstoned)
+        // Mirrors the Step 0 fallthrough above: an INACTIVE row (superseded/tombstoned)
         // already occupies this sync_id (it IS the primary key, so this is a certainty,
         // not a possibility) — resolve to its active winner and report a duplicate
         // without touching it, for the same reason as Step 0's fallthrough.
@@ -1615,7 +1597,7 @@ export class MemoryStore {
         if (existing) {
           const tagsIncoming = input.tags ? JSON.stringify(input.tags) : existing.tags
           const nextSourceRef = input.sourceRef ?? existing.source_ref
-          // Misma regla que el Task 13 en los Steps 0 y 0.5: re-guardar un tema identico no es
+          // Misma regla que en los Steps 0 y 0.5: re-guardar un tema identico no es
           // una escritura. Este camino no pisa el tipo, por eso se compara contra el propio. Un
           // source_ref nuevo es LOCAL (el servidor no tiene esa columna): va a disco sin mutacion.
           if (!hasReplicatedChange(existing, hash, tagsIncoming, existing.type)) {
@@ -1647,10 +1629,10 @@ export class MemoryStore {
       // within 7 days. `topic_key IS ?` (not `=`) so two no-topic rows (both NULL) still
       // match each other, matching SQLite's NULL-safe comparison semantics.
       //
-      // Finding-1 fix: this used to omit topic_key from the match entirely, so a
-      // topic-bearing import whose Step 0/0.5/1 identity checks above correctly found NO
-      // existing row for ITS topic would still get silently folded into a content-only
-      // "duplicate" of a DIFFERENT topic's row here — defeating the very identity fix
+      // topic_key is part of the match: without it, a topic-bearing import whose Step
+      // 0/0.5/1 identity checks above correctly found NO existing row for ITS topic would
+      // still get silently folded into a content-only "duplicate" of a DIFFERENT topic's
+      // row here — defeating the very identity fix
       // deriveImportSyncId makes (see its doc comment): "same content under different
       // topics is deliberately DISTINCT identity" has to hold at every step of this
       // waterfall, not just at sync_id derivation, or two topic-bearing rows with
@@ -1666,7 +1648,7 @@ export class MemoryStore {
         | ObservationRow
         | undefined
       if (dupe) {
-        // M23 (accepted divergence, documented): this bump does NOT go through
+        // Accepted divergence: this bump does NOT go through
         // appendMutation/mutation_log, so duplicate_count/last_seen_at do not replicate
         // to the cloud copy of this row. Deliberate, not an oversight — these are pure
         // ranking-signal fields (§3.1: "The repeat is a ranking signal, not noise"), not
@@ -1688,7 +1670,7 @@ export class MemoryStore {
       const row: ObservationRow = {
         // Importers pass a deterministic id (deriveImportSyncId) so a later re-import can
         // find this exact row via the sync_id-match step above instead of inserting a
-        // duplicate; every other caller gets a fresh random one, as before.
+        // duplicate; every other caller gets a fresh random one.
         sync_id: input.syncId ?? generateSyncId('obs'),
         project_key: input.projectKey,
         scope,
@@ -1711,11 +1693,10 @@ export class MemoryStore {
         content_hash: hash,
         revision_count: 0,
         duplicate_count: 0,
-        // Bug 1 fix: an importer passes the ORIGINAL timestamps from its source system so
-        // imported history keeps its real dates instead of collapsing to the import
-        // moment (verified in production: 1992 rows landing within the same second).
-        // Every other caller (MCP/hook/pty/ui saves have no prior history to preserve)
-        // omits these and gets `now`, exactly as before.
+        // An importer passes the ORIGINAL timestamps from its source system so imported
+        // history keeps its real dates instead of collapsing to the import moment. Every
+        // other caller (MCP/hook/pty/ui saves have no prior history to preserve) omits
+        // these and gets `now`.
         last_seen_at: input.lastSeenAt ?? now,
         created_at: input.createdAt ?? now,
         updated_at: input.updatedAt ?? now,
@@ -1752,11 +1733,11 @@ export class MemoryStore {
   private applyRowUpdate(row: ObservationRow): void {
     this.db
       .prepare(
-        // `type` entra en el SET desde el 2026-09-11. No estaba, asi que un camino que
-        // construia la fila actualizada con un tipo distinto --el re-import que corrige la
-        // clasificacion que la nota declara-- armaba bien el objeto y despues el SQL lo
-        // descartaba en silencio. Los demas llamadores parten de la fila existente y no
-        // tocan el tipo, asi que para ellos esto escribe el mismo valor que ya tenian.
+        // `type` entra en el SET: sin el, un camino que construye la fila actualizada con un tipo
+        // distinto --el re-import que corrige la clasificacion que la nota declara-- armaria bien
+        // el objeto y despues el SQL lo descartaria en silencio. Los demas llamadores parten de la
+        // fila existente y no tocan el tipo, asi que para ellos esto escribe el mismo valor que ya
+        // tenian.
         `UPDATE observations SET
            title = @title, content = @content, tags = @tags, type = @type, content_hash = @content_hash,
            topic_key_hmac = @topic_key_hmac,
@@ -1792,7 +1773,7 @@ export class MemoryStore {
 
 
   /**
-   * Task 4: la observacion mas reciente de un tipo dado para un proyecto — usado para
+   * La observacion mas reciente de un tipo dado para un proyecto — usado para
    * reconstruir .nest/handoff.md en una maquina donde el worktree local no lo tiene
    * (type='handoff'), pero generico por si otro caso similar aparece despues.
    */
@@ -1857,7 +1838,7 @@ export class MemoryStore {
     supersededBy?: string | null
     serverSeq?: number | null
     /**
-     * C2: the `sync_id` of a LOCAL row that lost the topic collision against this incoming
+     * The `sync_id` of a LOCAL row that lost the topic collision against this incoming
      * one. It is marked `superseded_by = row.syncId` BEFORE the incoming row is written and
      * inside the SAME transaction, because `idx_obs_topic` does not allow two active rows
      * on the same (project_key, scope, topic_key): writing first and superseding after is
@@ -1870,32 +1851,30 @@ export class MemoryStore {
      */
     supersedeLocal?: string | null
   }): void {
-    // C4 fix: this used to write `row.lamport` into the row without ever advancing
-    // MemoryStore's own `lamportCounter`. A local save() right after a pull could then
-    // hand out a lamport LOWER than one just received, so a same-timestamp LWW tie
-    // between the two would pick the wrong winner and silently discard a newer local
-    // edit. Standard Lamport clock discipline: on receiving a stamped value, the local
-    // clock becomes at least that value, so every subsequent local write is guaranteed
-    // to be ordered after everything this device has ever seen.
+    // Standard Lamport clock discipline: on receiving a stamped value, the local clock
+    // becomes at least that value, so every subsequent local write is guaranteed to be
+    // ordered after everything this device has ever seen. Otherwise a local save() right
+    // after a pull could hand out a lamport LOWER than one just received, and a
+    // same-timestamp LWW tie between the two would pick the wrong winner and silently
+    // discard a newer local edit.
     // Ver `nextLamport()`: la marca de agua cubre el caso de una fila que vimos y
     // descartamos. Vive en `meta` y no en memoria porque con dos procesos el contador de uno
     // no es el del otro, y porque tiene que sobrevivir al cierre de la app. Se sube adentro
-    // de `applyAll` y con la comparación en el SQL: afuera, dos procesos que leían la misma
-    // marca vieja podían bajarla (uno escribía 10, el otro 8 encima).
+    // de `applyAll` y con la comparación en el SQL: afuera, dos procesos que leyeran la misma
+    // marca vieja podrían bajarla (uno escribe 10, el otro 8 encima).
 
-    // M13 fix: pulled content previously went straight to disk unredacted. A secret an
-    // agent saved on another device (before that device's own redaction ran — or from a
-    // pre-redaction historical row) must not land in this store's plaintext either.
-    // Defense in depth: redaction is meant to run once, at the point of original
-    // authorship, but a second pass here costs nothing and closes the gap for any
-    // upstream data that slipped through.
+    // Pulled content is redacted too. A secret an agent saved on another device (before that
+    // device's own redaction ran — or from a pre-redaction historical row) must not land in this
+    // store's plaintext either. Defense in depth: redaction is meant to run once, at the point of
+    // original authorship, but a second pass here costs nothing and closes the gap for any upstream
+    // data that slipped through.
     const { text: safeTitle } = redact(row.title)
     const safeContent = row.content !== null ? redact(row.content).text : null
 
     const applyAll = this.db.transaction(() => {
       if (Number.isFinite(row.lamport)) this.metaSubirSiEsMayor('lamport_high_water', row.lamport)
 
-      // C2: supersede the losing local row BEFORE writing the incoming one, in the same
+      // Supersede the losing local row BEFORE writing the incoming one, in the same
       // transaction — see the doc comment on `supersedeLocal` above for why this order
       // is not optional.
       if (row.supersedeLocal && row.supersedeLocal !== row.syncId) {
@@ -1964,12 +1943,10 @@ export class MemoryStore {
   }
 
   /**
-   * M12: originates a local delete/tombstone (§3.1 — "A delete sets deleted=1, nulls
-   * content, bumps updated_at, and appends a delete mutation"). Not currently wired to
-   * any MCP tool or UI affordance in Phase 1 (the doc's own Phase 1 tool scope is
-   * memory_save/search/context only) — this is the capability existing so a tombstone
-   * CAN be created and will replicate correctly through the existing mutation_log/push
-   * path once something calls it. Returns false if the row doesn't exist or is already
+   * Originates a local delete/tombstone (§3.1 — "A delete sets deleted=1, nulls content,
+   * bumps updated_at, and appends a delete mutation"). Not exposed as an MCP tool — this is
+   * the capability so a tombstone CAN be created and will replicate correctly through the
+   * existing mutation_log/push path. Returns false if the row doesn't exist or is already
    * deleted (idempotent no-op, not an error).
    */
   deleteObservation(syncId: string): boolean {
@@ -1977,8 +1954,8 @@ export class MemoryStore {
     if (!existing || existing.deleted) return false
     // Una transacción IMMEDIATE, como `save()`: el lamport se lee adentro (otro proceso no
     // puede escribir entre la lectura del máximo y la fila), y la fila y su mutación van
-    // juntas — sin eso, un fallo entre las dos dejaba la fila borrada en local y el borrado
-    // sin replicar nunca. (Cuarta revisión, 2026-10-08.)
+    // juntas — sin eso, un fallo entre las dos dejaría la fila borrada en local y el borrado
+    // sin replicar nunca.
     this.db.transaction(() => {
       const updated: ObservationRow = {
         ...existing,
@@ -1994,16 +1971,14 @@ export class MemoryStore {
   }
 
   /**
-   * Team Memory Layer 1, Parte 6 (lado cliente): promueve una observacion existente a
-   * scope 'team' — la UNICA forma de que una fila salga de 'personal'/'project' (junto con
-   * el endpoint POST /v1/projects/share del lado server, que decide si el PROYECTO puede
-   * llevar filas 'team' — ver server/src/share.ts). No pasa por una cola de aprobacion: el
-   * cambio de `observations.scope` es inmediato, sin gate humano en esta pasada (decision
-   * ya tomada en el plan). De todos modos deja un registro en `promotion_queue` con
-   * `status: 'approved'` — le da uso real a una tabla que hoy existe en el schema pero
-   * nadie escribe, y queda como historial auditable de que se promovio y por que.
-   * Idempotente por syncId: promover la misma fila dos veces (doble click, reintento de la
-   * tool MCP) pisa la fila de `promotion_queue` en vez de violar su PK.
+   * Promueve una observacion existente a scope 'team' — la UNICA forma de que una fila salga de
+   * 'personal'/'project' (junto con el endpoint POST /v1/projects/share del lado server, que decide
+   * si el PROYECTO puede llevar filas 'team' — ver server/src/share.ts). No pasa por una cola de
+   * aprobacion: el cambio de `observations.scope` es inmediato, sin gate humano. De todos modos
+   * deja un registro en `promotion_queue` con `status: 'approved'`, que queda como historial
+   * auditable de que se promovio y por que. Idempotente por syncId: promover la misma fila dos
+   * veces (doble click, reintento de la tool MCP) pisa la fila de `promotion_queue` en vez de
+   * violar su PK.
    *
    * No usa `applyRowUpdate()` (el UPDATE compartido de save()/deleteObservation()) a
    * proposito: esa funcion NO incluye `scope` en su SET list porque NINGUN otro caller
@@ -2051,7 +2026,7 @@ export class MemoryStore {
   }
 
   count(): number {
-    // M24 fix: superseded rows are kept (append-first, §4.3 rule b) but are not "active"
+    // Superseded rows are kept (append-first, §4.3 rule b) but are not "active"
     // items — every other read path (search/context/idx_obs_topic) already excludes
     // them via `superseded_by IS NULL`. This count is shown to the user as an item count
     // (§8.1 Connect Memory card); including dead losers of a topic-collision merge
@@ -2070,19 +2045,18 @@ export class MemoryStore {
   }
 
   /**
-   * Spec 2026-09-11 (pantalla de Memories legible), sección "Datos que hay que construir":
-   * la única consulta de lectura que faltaba. `search()`/`context()`/`latestByType()` toman
-   * `projectKey` porque asumen un repo abierto; esta es la contraparte para "mostrame las
-   * memorias de TODOS los proyectos juntas" que la pantalla necesita.
+   * La lectura cross-project de la pantalla de Memories. `search()`/`context()`/`latestByType()`
+   * toman `projectKey` porque asumen un repo abierto; esta es la contraparte para "mostrame
+   * las memorias de TODOS los proyectos juntas" que la pantalla necesita.
    *
    * - Ordena por `updated_at DESC, lamport DESC` — mismo criterio de desempate que
    *   search()/context() (ver su comentario más arriba: dos escrituras en el mismo
    *   milisegundo empatan bajo un ORDER BY updated_at puro).
-   * - Pagina por cursor (keyset), no por offset. Justificación en el reporte de esta tarea:
-   *   en resumen, esta tabla recibe escrituras continuas de agentes en background mientras
-   *   el usuario navega la lista — un OFFSET numérico se corre (salta o repite filas) cada
-   *   vez que algo nuevo se inserta por encima de la página que se está pidiendo; un cursor
-   *   basado en la clave de orden (updated_at, lamport) de la última fila vista no.
+   * - Pagina por cursor (keyset), no por offset: esta tabla recibe escrituras continuas de
+   *   agentes en background mientras el usuario navega la lista — un OFFSET numérico se corre
+   *   (salta o repite filas) cada vez que algo nuevo se inserta por encima de la página que se
+   *   está pidiendo; un cursor basado en la clave de orden (updated_at, lamport) de la última
+   *   fila vista no.
    * - Excluye `deleted = 1` siempre, y `superseded_by` no nulo salvo `includeSuperseded` —
    *   idéntico criterio a `buildMemoryGraph` (memory-graph.ts), no uno paralelo.
    * - Devuelve `nextCursor: null` cuando esta fue la última página — el llamador nunca tiene
@@ -2172,7 +2146,8 @@ export class MemoryStore {
    * MCP `memory_get` (docs/nest-memory-architecture.md §1.1): traer una memoria puntual por
    * su `sync_id`, para cuando un agente ya tiene el id (de un save/search previo) y quiere
    * su contenido completo. Envuelve `get()` con el mismo filtro `deleted = 0` que todo otro
-   * método de lectura — una fila borrada está tombstoneada (`content` nulled, ver M12), así
+   * método de lectura — una fila borrada está tombstoneada (`content` nulled, ver
+   * deleteObservation()), así
    * que "no existe" es la respuesta correcta, no un objeto con contenido vacío. Una fila
    * SUPERSEDED sí se devuelve (a diferencia de search()/context()): acá el llamador pidió
    * ESTE id puntual, no "la versión vigente de este tema" — negárselo porque otra fila lo
@@ -2211,11 +2186,11 @@ export class MemoryStore {
    *
    * Reusa el MISMO mecanismo de replicación que el Step 1 (topic upsert) de save():
    * `applyRowUpdate()` para el UPDATE en sitio, `content_hash` recalculado vía
-   * `computeContentIdentity()` (con su redacción — M13 aplica igual acá que en cualquier
-   * otra escritura), `revision_count` incrementado, `lamport` avanzado por `nextLamport()`,
-   * y `appendMutation('upsert', updated)` para que el cambio entre al `mutation_log` y
-   * replique como cualquier otra escritura. No es un mecanismo nuevo: es el mismo camino,
-   * con una identidad de entrada distinta (syncId explícito en vez de topic_key).
+   * `computeContentIdentity()` (con su redacción, igual que en cualquier otra escritura),
+   * `revision_count` incrementado, `lamport` avanzado por `nextLamport()`, y
+   * `appendMutation('upsert', updated)` para que el cambio entre al `mutation_log` y replique como
+   * cualquier otra escritura. No es un mecanismo nuevo: es el mismo camino, con una identidad de
+   * entrada distinta (syncId explícito en vez de topic_key).
    *
    * No-op (`updated: false`) — nunca tira — cuando: el syncId no existe, la fila está
    * borrada, o la fila está superseded (alguien más ya la reemplazó: escribir encima de la
@@ -2240,7 +2215,7 @@ export class MemoryStore {
     }
 
     // El lamport se lee ADENTRO de la transacción, como en `save()`: afuera, otro proceso
-    // podía escribir entre la lectura del máximo y esta fila y salir con el mismo número.
+    // podría escribir entre la lectura del máximo y esta fila y salir con el mismo número.
     const updated = this.db.transaction(() => {
       const fila: ObservationRow = {
         ...existing,
@@ -2260,7 +2235,7 @@ export class MemoryStore {
   }
 
   /**
-   * Task 2 (adopcion con aviso): lo que el renderer necesita para preguntar "encontramos N
+   * Lo que el renderer necesita para preguntar "encontramos N
    * memorias de tus proyectos X, Y — ¿son tuyas?" ANTES de que setCurrentUser() las adopte
    * en silencio. Mismos filtros que count() (deleted=0, no superseded) para no mostrarle al
    * usuario un numero que no coincide con lo que despues ve en la app.
@@ -2283,7 +2258,7 @@ export class MemoryStore {
 
   // ── Mutation log / offline queue (§4.5) ──────────────────────────────────
 
-  // Task 8: excludes `blocked_reason IS NOT NULL` — a reversibly-rejected mutation is
+  // Excludes `blocked_reason IS NOT NULL` — a reversibly-rejected mutation is
   // neither pushed nor eligible for the next retry cycle (that would just re-reject it
   // against the same still-standing limit). It comes back via unblockMutations().
   pendingMutations(limit = 200): MutationLogRow[] {
@@ -2300,7 +2275,7 @@ export class MemoryStore {
   }
 
   /**
-   * Task 8: a REVERSIBLE server rejection (project_limit_reached, quota_exceeded) is not
+   * A REVERSIBLE server rejection (project_limit_reached, quota_exceeded) is not
    * discarded the way markPushed() discards a terminal one. Leaves `pushed_at` NULL — it
    * was never delivered — and stamps `blocked_reason` so pendingMutations() stops
    * offering it up every cycle. Also records the reason as `last_error`, same convention
@@ -2325,8 +2300,8 @@ export class MemoryStore {
   /**
    * Cuántas memorias de ESTE equipo esperan sin subir porque a la máquina le falta la clave
    * de equipo (`reasons`: `TEAM_KEY_HOLD_REASONS` del daemon, que el store no importa). Lo
-   * muestra `TeamEncryptionCard`: sin esto la retención era invisible y la máquina sin
-   * autorizar no sabía que tenía algo pendiente.
+   * muestra `TeamEncryptionCard`: sin esto la retención sería invisible y la máquina sin
+   * autorizar no sabría que tiene algo pendiente.
    *
    * El equipo sale de `projects.team_id` local, el mismo criterio que usa el gate de
    * `doPush` para retenerlas.
@@ -2384,7 +2359,7 @@ export class MemoryStore {
    * payload ilegible se saltea. Más retenidas primero.
    *
    * Sólo lo de la cuenta actual, con el mismo filtro que `pendingMutations` (`author_user_id
-   * IS ?`): sin eso, tras cambiar de cuenta la nueva veía como «Local only» los repos de la
+   * IS ?`): sin eso, tras cambiar de cuenta la nueva vería como «Local only» los repos de la
    * anterior. Y cuenta memorias (`sync_id` distintos), no filas del log: editar tres veces una
    * memoria retenida deja tres upserts, pero sigue siendo UNA memoria en esta máquina.
    */
@@ -2424,14 +2399,12 @@ export class MemoryStore {
   }
 
   /**
-   * M21 fix: accepts either a bare seq (plain "mark pushed, no error") or `{seq, error}`
-   * so the daemon can record a server-reported 'rejected' outcome's message per §4.2:
-   * "Rejected ones ... are marked pushed with a local last_error so they don't loop
-   * forever, and surfaced once." Previously this only ever took bare seqs and the
-   * daemon discarded the server's per-mutation results entirely (`void body`), so a
-   * rejected mutation was marked pushed with NO record of why — indistinguishable from a
-   * normal success. Kept backward compatible with plain `number[]` so existing callers
-   * (tests, simple call sites) are unaffected.
+   * Accepts either a bare seq (plain "mark pushed, no error") or `{seq, error}` so the
+   * daemon can record a server-reported 'rejected' outcome's message per §4.2: "Rejected
+   * ones ... are marked pushed with a local last_error so they don't loop forever, and
+   * surfaced once." Without the error, a rejected mutation marked pushed would be
+   * indistinguishable from a normal success. Plain `number[]` stays accepted for simple
+   * call sites (tests).
    */
   markPushed(entries: Array<number | MarkPushedEntry>): void {
     if (entries.length === 0) return
@@ -2455,7 +2428,7 @@ export class MemoryStore {
   }
 
   /**
-   * M20: offline-queue maintenance. §4.5 "hard cap 50000, after which the daemon
+   * Offline-queue maintenance. §4.5 "hard cap 50000, after which the daemon
    * compacts the queue by collapsing multiple upsert ops for the same sync_id into the
    * latest one (safe: payload is a full snapshot)". Keeps only the highest-seq PENDING
    * 'upsert' mutation per sync_id; 'delete'/'promote' ops are left untouched (each is

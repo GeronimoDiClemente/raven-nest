@@ -36,19 +36,18 @@ const BACKOFF_MAX_MS = 5 * 60_000
 const QUIT_PUSH_BUDGET_MS = 2_000
 const PUSH_BATCH_SIZE = 200
 const PULL_PAGE_SIZE = 500
-// M20: §4.5 "hard cap 50 000, after which the daemon compacts the queue".
+// §4.5 "hard cap 50 000, after which the daemon compacts the queue".
 const QUEUE_HARD_CAP = 50_000
-// C6: without this, a hung backend wedges the daemon until the app restarts. The
-// in-flight dedupe (M19) caches the request promise, and a promise that never settles
+// Without this, a hung backend wedges the daemon until the app restarts. The
+// in-flight dedupe caches the request promise, and a promise that never settles
 // never runs its `.finally`, so pullInFlight/pushInFlight stay set forever and every
 // subsequent call returns the same dead promise. 30s is generous for a push of 200
 // mutations over a bad connection and is still a cutoff, not a wait.
 const FETCH_TIMEOUT_MS = 30_000
-// Task 1 (plan de memoria por cuenta multi-dispositivo), Step 3a: pause() waits for any
-// in-flight push()/pull() to settle before the hot-swap orchestrator (memory-account-switch.ts)
-// closes the old store and renames its directory. A push/pull that never settles (a fetch
-// stuck past FETCH_TIMEOUT_MS would already be a bug, but defense in depth costs nothing
-// here) must not wedge the swap forever — see the adversarial review's finding 3.
+// pause() waits for any in-flight push()/pull() to settle before the hot-swap orchestrator
+// (memory-account-switch.ts) closes the old store and renames its directory. A push/pull
+// that never settles (a fetch stuck past FETCH_TIMEOUT_MS would already be a bug, but
+// defense in depth costs nothing here) must not wedge the swap forever.
 const PAUSE_DRAIN_TIMEOUT_MS = 5_000
 
 // 'plan_required' is distinct from 'error': it is not a credential problem (spec §9.3),
@@ -57,7 +56,7 @@ const PAUSE_DRAIN_TIMEOUT_MS = 5_000
 // classifyAuthFailure() and its call sites in push()/pull()/status() below.
 export type DaemonStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
 
-// Task 8 (smoke/memory-bridge): a per-mutation rejection is TERMINAL or REVERSIBLE, and
+// A per-mutation rejection is TERMINAL or REVERSIBLE, and
 // treating them the same loses data. Terminal (missing_sync_id, observation_too_large,
 // team_scope_not_allowed, or anything unrecognized) can never succeed with this exact
 // payload — markPushed() records it and moves on so it doesn't loop forever. Reversible is
@@ -68,14 +67,13 @@ export type DaemonStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'plan_requi
 // via store.blockMutations() instead — held, not retried every cycle, until status()'s
 // unblock check (see doStatus() below) says the limit no longer applies.
 //
-// Team Memory Layer 2 (I1 de la review final de rama): `project_not_shared_with_team` se
-// suma a los reversibles. Es reversible POR DEFINICION — el usuario comparte el proyecto
-// (POST /v1/projects/share) y el mismo payload aplica — y tratarlo como terminal hacia que
-// el handoff que el usuario creyo compartir se descartara para siempre, incluso despues de
-// compartir el proyecto. `team_scope_not_allowed` SI se queda terminal: ahi el plan de la
+// `project_not_shared_with_team` es reversible POR DEFINICION — el usuario comparte el
+// proyecto (POST /v1/projects/share) y el mismo payload aplica — y tratarlo como terminal
+// haria que el handoff que el usuario creyo compartir se descartara para siempre, incluso
+// despues de compartir el proyecto. `team_scope_not_allowed` SI se queda terminal: ahi el plan de la
 // cuenta no admite `scope: 'team'`, y la fila ya se guardo local como corresponde.
 //
-// Task 14 (spec §9.4): `team_encryption_required` lo devuelve el servidor cuando una fila de
+// Spec §9.4: `team_encryption_required` lo devuelve el servidor cuando una fila de
 // equipo llega en claro a un equipo con `team_keys`. Reversible por definición: el mismo
 // payload, sellado con la clave de equipo, aplica en cuanto este device la adopte.
 export const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_exceeded', 'project_not_shared_with_team', 'team_encryption_required'])
@@ -83,7 +81,7 @@ export const REVERSIBLE_REJECTIONS = new Set(['project_limit_reached', 'quota_ex
 /** Spec 2b-1: el motivo con el que el servidor rechaza un proyecto por encima del tope del plan. */
 export const MOTIVO_TOPE_DE_PROYECTOS = 'project_limit_reached'
 
-/** Task 14: lo que libera `onTeamKeysChanged()`: la retención local (`team_key_missing`, el
+/** Lo que libera `onTeamKeysChanged()`: la retención local (`team_key_missing`, el
  * gate de `doPush`) y el rechazo equivalente del servidor. */
 export const TEAM_KEY_HOLD_REASONS = ['team_key_missing', 'team_encryption_required'] as const
 
@@ -102,7 +100,7 @@ export interface PushResultItem {
 export interface StatusRosterProject {
   project_key: string
   display_name?: string
-  /** Task 14: con qué equipo está compartido este proyecto en el servidor. Ausente en un
+  /** Con qué equipo está compartido este proyecto en el servidor. Ausente en un
    * servicio viejo. */
   team_id?: string | null
 }
@@ -131,7 +129,7 @@ export interface StatusResponseBody {
    * viejo, que es un caso distinto de `0` y se trata distinto — ver `doStatus`.
    */
   key_epoch?: number
-  /** Task 14: equipos con cifrado activo donde soy miembro, y si ESTE device tiene envoltura.
+  /** Equipos con cifrado activo donde soy miembro, y si ESTE device tiene envoltura.
    * Ausente en un servicio viejo: "no sé", no "ninguno" — no borra lo que el store ya sabe. */
   encrypted_teams?: Array<{ team_id: string; has_wrap: boolean }>
 }
@@ -147,7 +145,7 @@ export interface PulledRow extends LWWRow {
    */
   topicKeyHmac?: string | null
   scope: string
-  /** Local project_key (client-derived hash) — see mapRawPulledRow / C1. */
+  /** Local project_key (client-derived hash) — see mapRawPulledRow. */
   projectKey: string
   supersededBy: string | null
   title?: string
@@ -161,14 +159,14 @@ export interface PulledRow extends LWWRow {
   authorDisplay?: string
   contentHash?: string
   projectSeq?: number
-  /** Task 14: el equipo de la fila según el SERVIDOR (sólo `scope: 'team'`). Ausente en un
+  /** El equipo de la fila según el SERVIDOR (sólo `scope: 'team'`). Ausente en un
    * servicio viejo. `openPulledRow` lo usa para elegir la clave de equipo. */
   teamId?: string
 }
 
 export interface MemoryDaemonDeps {
   store: MemoryStore
-  /** C4: base of the sync service, not necessarily Supabase. See spec §5.4. */
+  /** Base of the sync service, not necessarily Supabase. See spec §5.4. */
   getSyncBaseUrl: () => string | null
   getToken: () => string | null
   getDeviceId: () => string | null
@@ -176,9 +174,7 @@ export interface MemoryDaemonDeps {
   fetchImpl?: typeof fetch
   /**
    * Las claves de cifrado de la cuenta, o `null` si el cifrado no esta activado en esta
-   * maquina. Opcional para que todo call site y todo test que existia antes del cifrado
-   * siga andando sin tocarse: sin esta dep, el daemon empuja y baja en claro, exactamente
-   * como hasta hoy.
+   * maquina. Opcional: sin esta dep, el daemon empuja y baja en claro.
    *
    * Es una FUNCION y no un valor: el usuario puede activar el cifrado con la app abierta y
    * el daemon tiene que ver la clave nueva sin que nadie lo reinicie.
@@ -191,8 +187,7 @@ export interface MemoryDaemonDeps {
    * Sin esto, cualquier camino que deje `getEnvelopeContext()` en `null` —una máquina sin
    * autorizar, un `safeStorage` que no abrió, un swap de cuenta que no recargó las claves—
    * hace que `sealMutationPayload` devuelva el payload TAL CUAL y el daemon suba título,
-   * contenido y tags en texto plano a una nube que el usuario cree cifrada. Ni el cliente ni
-   * el servidor miraban `key_epoch` al pushear: nadie lo frenaba.
+   * contenido y tags en texto plano a una nube que el usuario cree cifrada.
    */
   isEncryptionExpected?: () => boolean
   /**
@@ -200,19 +195,18 @@ export interface MemoryDaemonDeps {
    * sincronización de esta base. Si otro lo tiene, este daemon NO sincroniza — las
    * escrituras locales siguen encolándose en el `mutation_log` y no se pierde nada.
    *
-   * Cierra el caso de dos daemons sobre la misma cuenta, que ya existe hoy: la app
-   * instalada y un build de desarrollo comparten `~/.raven-nest`, o sea dos copias del
-   * token y dos pushers compitiendo (contra la decisión 2 de la arquitectura).
+   * Cierra el caso de dos daemons sobre la misma cuenta: la app instalada y un build de
+   * desarrollo comparten `~/.raven-nest`, o sea dos copias del token y dos pushers
+   * compitiendo (contra la decisión 2 de la arquitectura).
    *
-   * Opcional a propósito: sin esta dep el daemon sincroniza exactamente como antes, así
-   * que ningún call site ni test anterior al candado cambia.
+   * Opcional: sin esta dep el daemon sincroniza sin candado.
    */
   adquirirCandado?: () => ResultadoCandado
   /**
-   * Task 14 (spec §9.4): `doStatus` lo llama con los equipos cifrados del status, y lo ESPERA
+   * Spec §9.4: `doStatus` lo llama con los equipos cifrados del status, y lo ESPERA
    * (con tope) antes de seguir. Es donde main.ts readopta las claves de equipo que esta máquina
    * ya tiene envueltas, ANTES del pull y del push del mismo drain. Sin esto la clave de equipo
-   * (que vive sólo en memoria) recién volvía cuando el usuario abría la tarjeta.
+   * (que vive sólo en memoria) recién volvería cuando el usuario abriera la tarjeta.
    */
   onEncryptedTeams?: (teams: Array<{ teamId: string; hasWrap: boolean }>) => Promise<void> | void
   onStatusChange?: (status: DaemonStatus, detail?: string) => void
@@ -239,8 +233,8 @@ export class Backoff {
 }
 
 /**
- * Task 1, Step 3a: races `settle` against a timer, same shape as memory-ipc-server.ts's
- * own `withTimeout` (M26, for memory.search's pull-through fallback) — replicated here
+ * Races `settle` against a timer, same shape as memory-ipc-server.ts's own `withTimeout`
+ * (for memory.search's pull-through fallback) — replicated here
  * rather than imported because that one is a module-private helper in a different file
  * with its own reasoning about what it wraps. Never rejects: resolves `true` when
  * `settle` finished first (fulfilled OR rejected — pause() only cares that the in-flight
@@ -270,10 +264,10 @@ function parseServerTimestamp(value: unknown): number {
 }
 
 /**
- * C5: the store persists `tags` as a JSON string in a TEXT column, and a queued
- * mutation's payload is a raw snapshot of that row, so without this the push sends a
- * string where the contract expects an array (spec §5.2) and the pull discards anything
- * that isn't already an Array. Tags were lost in both directions with no error at all.
+ * The store persists `tags` as a JSON string in a TEXT column, and a queued mutation's
+ * payload is a raw snapshot of that row, so without this the push sends a string where
+ * the contract expects an array (spec §5.2) and the pull discards anything that isn't
+ * already an Array — tags would be lost in both directions with no error at all.
  */
 function normalizeTags(value: unknown): string[] | undefined {
   if (Array.isArray(value)) return value.filter((t): t is string => typeof t === 'string')
@@ -287,15 +281,13 @@ function normalizeTags(value: unknown): string[] | undefined {
 }
 
 /**
- * C1 fix: the RPCs return `to_jsonb(o)` — real Postgres column names (snake_case) and
- * real Postgres types (timestamptz -> an ISO 8601 string, not a ms-epoch number). The
- * previous code read `incoming.syncId`/`.updatedAt`/`.topicKey`/`.projectId` directly off
- * that raw object; every field was `undefined`, `store.get(undefined)` threw, the outer
- * try/catch swallowed it, the cursor never advanced, and NO row was EVER applied — pull
- * was completely broken. This is the mapping layer that was missing, plus timestamp
- * parsing. `project_key` is not a native column on memory_observations (the table only
- * has the cloud `project_id` UUID) — the memory-sync edge function denormalizes the
- * caller's local `project_key` onto every row before returning them (see
+ * The RPCs return `to_jsonb(o)` — real Postgres column names (snake_case) and real
+ * Postgres types (timestamptz -> an ISO 8601 string, not a ms-epoch number). Reading
+ * camelCase fields straight off that raw object yields `undefined` everywhere and no row
+ * is ever applied; this is the mapping layer, plus timestamp parsing. `project_key` is not
+ * a native column on memory_observations (the table only has the cloud `project_id` UUID)
+ * — the memory-sync edge function denormalizes the caller's local `project_key` onto every
+ * row before returning them (see
  * supabase/functions/memory-sync/index.ts's pull handler), specifically so this mapping
  * never needs a separate id->key lookup.
  */
@@ -316,13 +308,9 @@ export function mapRawPulledRow(raw: Record<string, unknown>): PulledRow {
     originAi: (raw.origin_ai as string | undefined) ?? undefined,
     originAccount: (raw.origin_account as string | undefined) ?? undefined,
     gitBranch: (raw.git_branch as string | undefined) ?? undefined,
-    // Task 9 (smoke/memory-bridge), Parte B: this was missing entirely — `PulledRow`
-    // already declared `authorUserId`, `applyPulledRow` already threaded it through to
-    // `applyIncomingObservation` (which correctly persists it, see memory-store.ts), but
-    // nothing here ever READ it off the raw wire payload, so every pulled row silently
-    // landed with `author_user_id = null` regardless of who actually authored it —
-    // defeating the one thing `countUnclaimedRows()`/`pendingMutations()` need it for
-    // (telling "no author" apart from "an author who isn't me", see memory-store.ts's
+    // Without this every pulled row lands with `author_user_id = null` regardless of who
+    // authored it, which defeats `countUnclaimedRows()`/`pendingMutations()` (telling "no
+    // author" apart from "an author who isn't me", see memory-store.ts's
     // `author_user_id IS NULL` filters). `author_id` (not `author_user_id`) matches the
     // wire field name the server would use for the raw column (see server/src/push.ts's
     // `observations.author_id`) — same convention as `author_display` right below.
@@ -343,34 +331,34 @@ export class MemoryDaemon {
   private lastFocusPullAt = 0
   private consecutiveAuthFailures = 0
   private backoff = new Backoff()
-  // Renamed from `status` (the field) to `currentStatus` so the public `status()` method
-  // (§5.3.1, GET /v1/sync/status) can have that name — the field and the method are
-  // unrelated: this one is the daemon's idle/syncing/paused/error indicator surfaced via
-  // getStatus()/onStatusChange, not the sync service's health-check response.
+  // Not `status`: that name belongs to the public `status()` method (§5.3.1,
+  // GET /v1/sync/status). The field and the method are unrelated: this one is the daemon's
+  // idle/syncing/paused/error indicator surfaced via getStatus()/onStatusChange, not the
+  // sync service's health-check response.
   private currentStatus: DaemonStatus = 'idle'
   private currentDetail: string | undefined
   private running = false
-  // Task 1, Step 3a: set for the duration of a hot-swap (pause() -> ... -> resume()).
+  // Set for the duration of a hot-swap (pause() -> ... -> resume()).
   // Every trigger entry point that can schedule a NEW push/pull (as opposed to one
   // already in flight, which pause() drains separately) must no-op while this is true —
   // otherwise a timer or a chained setImmediate() can fire mid-swap and touch a store
   // that is mid-close/mid-rename or already reassigned to a different account's file.
   private swapping = false
-  // M18: 3 consecutive auth failures used to only stop the BACKOFF chain from
-  // re-scheduling itself — every OTHER trigger (a fresh on-write debounce, pane-exit,
-  // window focus, the 5-minute interval) still called push()/pull() directly and hit
-  // the revoked-token endpoint again. This flag is checked at the top of both push()
-  // and pull(), so every entry point is gated the same way. Cleared by
+  // Set after 3 consecutive auth failures. Stopping only the BACKOFF chain isn't enough —
+  // every OTHER trigger (a fresh on-write debounce, pane-exit, window focus, the 5-minute
+  // interval) calls push()/pull() directly and would hit the revoked-token endpoint again.
+  // This flag is checked at the top of both push() and pull(), so every entry point is
+  // gated the same way. Cleared by
   // onNetworkRegain() — the reconnect flow's actual "the user acted" signal.
   private authBlocked = false
-  // Task 8: the plan last reported by status(), used only to detect a CHANGE — a project
+  // The plan last reported by status(), used only to detect a CHANGE — a project
   // cap the client has no way to evaluate itself (unlike a byte quota, it doesn't know the
   // new plan's limit), so any change is treated as "might have lifted project_limit_reached"
   // and unblocks on spec. Worst case the very next push is rejected again and re-blocks it.
   // Starts undefined so the very FIRST status() response never counts as "a change".
   private lastSeenPlan: string | undefined
   // La ultima cuota que reporto el servidor. El cliente NO la calcula: los limites de
-  // nube los hace cumplir el servicio y el cliente los muestra (corte comercial, Task 3).
+  // nube los hace cumplir el servicio y el cliente los muestra.
   // Se retiene entre respuestas porque un `status` sin el campo significa "no vino este
   // tick", no "el usuario ya no tiene cuota".
   private lastQuota: { used_bytes: number; max_bytes: number } | null = null
@@ -382,22 +370,21 @@ export class MemoryDaemon {
   // está por encima del tope. De la cuenta del store actual: `setStore` los vacía.
   private lastKeptProjectKey: string | null = null
   private lastOverLimit = false
-  // M19: concurrent triggers (e.g. a debounced push firing at the same moment as the
-  // 5-minute interval's drain) used to fire independent overlapping requests — double
-  // POSTs of the same batch, or a later pull's cursor write racing an earlier one's.
-  // These in-flight promises are returned to a second caller instead of starting a
+  // Concurrent triggers (e.g. a debounced push firing at the same moment as the 5-minute
+  // interval's drain) would otherwise fire independent overlapping requests — double POSTs
+  // of the same batch, or a later pull's cursor write racing an earlier one's. These
+  // in-flight promises are returned to a second caller instead of starting a
   // second request.
   private pushInFlight: Promise<void> | null = null
   private pullInFlight: Promise<void> | null = null
-  // Task 8 (smoke/memory-bridge) adversarial review, bug found in drain(): status()'s own
-  // network fetch is awaited BUT — unlike push()/pull() — was never tracked here, so a
-  // status() in flight was invisible to pause()'s drain-wait (see pause() below). drain()
-  // calls status() BEFORE pull()/push(), so the exact window this closes is: pause() called
-  // while a drain()'s status() fetch is still in the air and pushInFlight/pullInFlight are
-  // both still null (pull()/push() haven't been reached yet) — pause() used to see an empty
-  // in-flight list and return immediately, and the swap would close/rename the store while
-  // status()'s eventual `this.deps.store`-reading continuation was still pending against it.
-  // Same set/clear-in-finally shape as pushInFlight/pullInFlight (M19), just for status().
+  // status()'s own network fetch is awaited, so it has to be tracked like push()/pull() or
+  // it is invisible to pause()'s drain-wait (see pause() below). drain() calls status()
+  // BEFORE pull()/push(), so the window this closes is: pause() called while a drain()'s
+  // status() fetch is still in the air and pushInFlight/pullInFlight are both still null —
+  // without it pause() would see an empty in-flight list and return immediately, and the
+  // swap would close/rename the store while status()'s eventual `this.deps.store`-reading
+  // continuation was still pending against it. Same set/clear-in-finally shape as
+  // pushInFlight/pullInFlight, just for status().
   /**
    * Si ya hubo un `status` exitoso en esta sesión. `scheduleMutationPush()` (debounce de 3s
    * sobre CADA escritura del MCP) y `onQuit()` llaman `push()` directo, sin pasar por el
@@ -417,9 +404,7 @@ export class MemoryDaemon {
   // §11.4 / spec §5.3.1: the server's call, not a client constant. `status()` reads
   // `next_poll_ms` off every response and, when it names a different number, reschedules
   // the interval to it via applyPollInterval(). Starts at the hard-coded fallback because
-  // nothing has answered a status() call yet — see spec §5.3.1's "next_poll_ms — the only
-  // real cost lever, which had no reader until this change" for why this used to just be
-  // INTERVAL_MS forever, unread server value or not.
+  // nothing has answered a status() call yet.
   private pollIntervalMs = INTERVAL_MS
 
   constructor(deps: MemoryDaemonDeps) {
@@ -451,14 +436,14 @@ export class MemoryDaemon {
   }
 
   /**
-   * Task 1, Step 3a: the daemon side of a hot-swap. Called by the swap orchestrator
+   * The daemon side of a hot-swap. Called by the swap orchestrator
    * (memory-account-switch.ts) BEFORE it closes the current store — stops scheduling any
    * new push/pull (via `swapping`, checked by every trigger entry point below) and waits
    * for whatever push/pull is already in flight to settle, so the swap's close()+rename
    * never races a request still reading/writing the old file.
    *
    * Bounded by PAUSE_DRAIN_TIMEOUT_MS: a push/pull that never settles must not wedge the
-   * swap forever (adversarial review finding 3) — this resolves regardless, just with a
+   * swap forever — this resolves regardless, just with a
    * warning logged, and the swap proceeds. Idempotent-ish in the sense that calling it
    * again while already swapping just re-drains whatever is in flight at that moment; the
    * orchestrator's own mutex (queued in main.ts) is what actually prevents overlapping
@@ -484,7 +469,7 @@ export class MemoryDaemon {
   }
 
   /**
-   * Task 1, Step 3a: the other half of pause() — clears `swapping` and restarts the
+   * The other half of pause() — clears `swapping` and restarts the
    * interval timer. `start()` is already idempotent (no-ops if `running` is true), so
    * this is safe to call even if something else already restarted the daemon.
    */
@@ -497,7 +482,7 @@ export class MemoryDaemon {
   }
 
   /**
-   * Task 1, Step 3a: the actual "hot" part of the hot-swap — reassigns the store this
+   * The actual "hot" part of the hot-swap — reassigns the store this
    * daemon reads/writes without recreating the daemon (which would lose backoff state,
    * pending timers' closures, etc.). Must only be called while paused (swapping === true)
    * so no in-flight push/pull is mid-request against the OLD store when this reassigns
@@ -508,7 +493,7 @@ export class MemoryDaemon {
    * Cada swap de cuenta avanza la generación. Es lo que permite descartar la respuesta de un
    * pull que salió con la cuenta ANTERIOR: `pause()` espera el drain sólo 5s y el timeout del
    * fetch es 30s, así que con una red lenta el swap ocurre con un pull en vuelo, y sus filas
-   * —con el `author_user_id` de la cuenta vieja— terminaban escritas en la base de la nueva.
+   * —con el `author_user_id` de la cuenta vieja— terminarían escritas en la base de la nueva.
    */
   private generacionDeStore = 0
 
@@ -551,8 +536,8 @@ export class MemoryDaemon {
   }
 
   /**
-   * §6.3: ¿le toca sincronizar a ESTE proceso? Sin la dep del candado, siempre sí — el
-   * comportamiento de antes. Con la dep, lo pide una vez y después lo refresca.
+   * §6.3: ¿le toca sincronizar a ESTE proceso? Sin la dep del candado, siempre sí. Con la
+   * dep, lo pide una vez y después lo refresca.
    *
    * Cuando otro lo tiene, el estado queda en `paused` con quién lo tiene adentro del
    * detalle. No es `error`: no hay nada roto ni nada que reintentar más rápido, y las
@@ -595,7 +580,7 @@ export class MemoryDaemon {
    * Un daemon sin `start()` —el del paquete portátil— tiene operaciones sueltas, y el
    * candado protege una operación, no una sesión. Lo suelta al terminar la última que
    * esté en vuelo, incluidas las que encadena solo (`setImmediate` en push y pull):
-   * esas corren DESPUÉS del `stop()` de quien las disparó, y antes se quedaban con el
+   * esas corren DESPUÉS del `stop()` de quien las disparó, y sin esto se quedarían con el
    * candado hasta que el proceso muriera — horas, con un MCP abierto en el editor.
    */
   private soltarCandadoSiQuedoOcioso(): void {
@@ -630,7 +615,7 @@ export class MemoryDaemon {
 
   /**
    * El ultimo plan que reporto `status()`, o undefined si todavia no contesto ninguno.
-   * Expuesto para el gate de I1 (prender el hilo de equipo con un plan que no permite
+   * Expuesto para el gate de equipo (prender el hilo de equipo con un plan que no permite
    * `scope: 'team'` produce filas que el servidor rechaza y el daemon descarta como
    * terminales). Undefined significa "no se sabe", NO "no permitido" — ver
    * `planAllowsTeamSharing`.
@@ -639,7 +624,7 @@ export class MemoryDaemon {
     return this.lastSeenPlan
   }
 
-  // M26: exposed so memory-ipc-server.ts's pull-through search fallback (a zero-result
+  // Exposed so memory-ipc-server.ts's pull-through search fallback (a zero-result
   // memory_search triggers an immediate pull()) can decide WITHOUT calling pull() at all
   // whether one is worth attempting — pull() already no-ops when offline (doPull()'s own
   // isOnline() check), but skipping the call entirely on a disconnected/offline machine
@@ -651,7 +636,7 @@ export class MemoryDaemon {
 
   /** §4.1 "On write" trigger — debounce 3s, max-wait 30s so a chatty session still pushes. */
   scheduleMutationPush(): void {
-    if (this.swapping) return // Task 1 Step 3a: no new timers while a store hot-swap is in flight
+    if (this.swapping) return // no new timers while a store hot-swap is in flight
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null
@@ -670,28 +655,28 @@ export class MemoryDaemon {
 
   /** §4.1 "Window focus" trigger — rate-limited to once per 30s. */
   onWindowFocus(): void {
-    if (this.swapping) return // Task 1 Step 3a: no new pull while a store hot-swap is in flight
+    if (this.swapping) return // no new pull while a store hot-swap is in flight
     const now = Date.now()
     if (now - this.lastFocusPullAt < FOCUS_PULL_RATE_LIMIT_MS) return
     this.lastFocusPullAt = now
     void this.pull()
   }
 
-  /** §4.1 "Network regain" trigger — full drain. Also the "user acted" reset for M18. */
+  /** §4.1 "Network regain" trigger — full drain. Also the "user acted" reset for authBlocked. */
   onNetworkRegain(): void {
-    if (this.swapping) return // Task 1 Step 3a: no new drain while a store hot-swap is in flight
+    if (this.swapping) return // no new drain while a store hot-swap is in flight
     this.backoff.reset()
     this.consecutiveAuthFailures = 0
     this.authBlocked = false
     void this.drain()
   }
 
-  /** Task 14: main.ts lo llama cada vez que entra una clave de equipo a memoria (activar,
+  /** main.ts lo llama cada vez que entra una clave de equipo a memoria (activar,
    * adoptar, recuperar, readopción de arranque): libera lo retenido y empuja ya. */
   onTeamKeysChanged(): void {
     if (this.swapping) {
-      // M7: durante un swap no se toca el store (puede estar cerrándose), pero perder el aviso
-      // dejaba lo retenido esperando a la próxima clave. Queda anotado con la generación de
+      // Durante un swap no se toca el store (puede estar cerrándose), pero perder el aviso
+      // dejaría lo retenido esperando a la próxima clave. Queda anotado con la generación de
       // store en que llegó, y `resume()` lo aplica sólo si el swap conservó ese store: si lo
       // cambió, la clave era de la cuenta anterior (main.ts vacía `teamMasterKeys` al cambiar).
       this.teamKeysPendientesDeGeneracion = this.generacionDeStore
@@ -701,12 +686,12 @@ export class MemoryDaemon {
     void this.push()
   }
 
-  /** M7: generación de store en que llegó un `onTeamKeysChanged()` durante un swap, o null. */
+  /** Generación de store en que llegó un `onTeamKeysChanged()` durante un swap, o null. */
   private teamKeysPendientesDeGeneracion: number | null = null
 
   /** §4.1 "Pane exit" trigger. */
   onPaneExit(): void {
-    if (this.swapping) return // Task 1 Step 3a: no new push while a store hot-swap is in flight
+    if (this.swapping) return // no new push while a store hot-swap is in flight
     void this.push()
   }
 
@@ -719,11 +704,10 @@ export class MemoryDaemon {
   }
 
   private async drain(): Promise<void> {
-    // M20: offline-queue maintenance — previously pruneAckedMutations() had zero call
-    // sites (dead code) and there was no cap enforcement at all, so the queue could grow
-    // unbounded. Runs once per drain cycle (interval tick or an explicit
-    // onNetworkRegain()) — cheap, and every trigger eventually funnels through here or
-    // through push()/pull() directly, so this cadence is frequent enough per §4.5.
+    // Offline-queue maintenance, so the queue can't grow unbounded. Runs once per drain
+    // cycle (interval tick or an explicit onNetworkRegain()) — cheap, and every trigger
+    // eventually funnels through here or through push()/pull() directly, so this cadence
+    // is frequent enough per §4.5.
     this.deps.store.pruneAckedMutations()
     if (this.deps.store.pendingMutationCount() > QUEUE_HARD_CAP) {
       this.deps.store.compactMutationLog()
@@ -742,12 +726,11 @@ export class MemoryDaemon {
   }
 
   /**
-   * C6 part 2: `fetch` settles as soon as the RESPONSE HEADERS arrive, so the original
-   * `.finally(() => clearTimeout(timer))` disarmed the abort right there — before
-   * `await response.json()` had read a single byte. A server that answers 200 + headers
-   * and then stalls the body left that `.json()` promise pending forever, which is
-   * exactly the wedge C6 was written to close, just moved one step later: the in-flight
-   * dedupe (M19) caches a promise that never settles, so pushInFlight/pullInFlight stay
+   * `fetch` settles as soon as the RESPONSE HEADERS arrive, so disarming the abort there
+   * would happen before `await response.json()` had read a single byte. A server that
+   * answers 200 + headers and then stalls the body would leave that `.json()` promise
+   * pending forever — the same wedge FETCH_TIMEOUT_MS exists to close, one step later: the
+   * in-flight dedupe caches a promise that never settles, so pushInFlight/pullInFlight stay
    * set and every later call returns the same dead promise.
    *
    * So the timer stays ARMED across the handoff and the caller disarms it with
@@ -783,8 +766,8 @@ export class MemoryDaemon {
    *
    * Never throws: a non-JSON or empty body — e.g. a 403 from a proxy sitting in front of
    * the service rather than from the service itself — falls back to `'unauthorized'`,
-   * which is exactly the pre-existing treatment for an unrecognized 401/403. That keeps
-   * the real auth breaker (M18) as the safe default: an unparseable body must never be
+   * the treatment for any unrecognized 401/403. That keeps the real auth breaker
+   * (authBlocked) as the safe default: an unparseable body must never be
    * silently treated as a non-auth-failure code and skip the breaker.
    */
   private async classifyAuthFailure(
@@ -794,15 +777,13 @@ export class MemoryDaemon {
       const body = (await response.json()) as { error?: unknown }
       if (body?.error === 'plan_required') return 'plan_required'
       if (body?.error === 'not_in_beta') return 'not_in_beta'
-      // Task 9 (smoke/memory-bridge): server/src/auth.ts returns this 403 when the
-      // authenticated device isn't among the N oldest machines the plan's device cap
-      // allows. A perfectly valid token — the account just registered one machine too
-      // many — so this must NOT count toward consecutiveAuthFailures/authBlocked (M18)
-      // any more than plan_required or not_in_beta do. Reintroduced the exact "any other
-      // 401/403 reads as a bad token" bug those two already fixed: before this, the
-      // FOURTH machine on a Free account read "your credentials are revoked" and the
-      // daemon stopped retrying — even after a slot freed up, since authBlocked only
-      // clears on onNetworkRegain(), not on its own.
+      // server/src/auth.ts returns this 403 when the authenticated device isn't among the
+      // N oldest machines the plan's device cap allows. A perfectly valid token — the
+      // account just registered one machine too many — so this must NOT count toward
+      // consecutiveAuthFailures/authBlocked any more than plan_required or not_in_beta do.
+      // Otherwise the extra machine reads "your credentials are revoked" and the daemon
+      // stops retrying — even after a slot frees up, since authBlocked only clears on
+      // onNetworkRegain(), not on its own.
       if (body?.error === 'device_limit_reached') return 'device_limit'
     } catch {
       // Not JSON, or no body at all — treat like any other unrecognized 401/403.
@@ -811,7 +792,7 @@ export class MemoryDaemon {
   }
 
   push(): Promise<void> {
-    // M19: dedupe concurrent callers onto the same in-flight request.
+    // Dedupe concurrent callers onto the same in-flight request.
     if (this.pushInFlight) return this.pushInFlight
     const run = this.doPush().finally(() => {
       this.pushInFlight = null
@@ -826,15 +807,13 @@ export class MemoryDaemon {
     // mutaciones quedan en el `mutation_log` y las empuja quien lo tenga.
     if (!this.meTocaSincronizar()) return
     const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
-    // La cuenta con la que ESTE push sale. `doPull` ya descartaba su respuesta si cambiaba;
-    // acá faltaba, y el modo de falla es distinto y peor: el orquestador CIERRA el store
-    // viejo antes de poner el nuevo, así que `markPushed` sobre él tira "The database
-    // connection is not open" — y como el `catch` también escribe en ese store, la excepción
-    // se escapa de `doPush`. Verificado: `push()` rechaza y el estado queda en `syncing`
-    // para siempre; en producción el llamador es `void this.push()`, o sea una unhandled
-    // rejection y una UI que dice "sincronizando" hasta que se reinicie la app.
+    // La cuenta con la que ESTE push sale. Si cambia en vuelo, el orquestador ya CERRÓ el
+    // store viejo, así que `markPushed` sobre él tira "The database connection is not open"
+    // — y como el `catch` también escribe en ese store, la excepción se escaparía de
+    // `doPush`: `push()` rechaza, el estado queda en `syncing` para siempre y, con el
+    // llamador `void this.push()`, es una unhandled rejection.
     const generacionAlSalir = this.generacionDeStore
-    if (this.authBlocked) return // M18: gate every entry point, not just the backoff chain
+    if (this.authBlocked) return // gate every entry point, not just the backoff chain
     if (!isOnline()) {
       this.setStatus('paused', 'offline')
       return
@@ -860,18 +839,17 @@ export class MemoryDaemon {
      * `status`. `status()` dedupea por `statusInFlight`, así que si el drain ya lo disparó
      * esto se cuelga del mismo request en vez de hacer uno nuevo.
      *
-     * Si el status falla, el push ESPERA. Hasta el 2026-10-08 seguía igual, con el argumento
-     * de que bloquearlo dejaba al usuario sin sincronizar por un servicio caído; pero si el
-     * servicio está caído el push falla igual. El caso que importa es el otro: un 502 en el
-     * status (un redeploy) y un push que sí entra, en una máquina que todavía no aprendió la
-     * época — subía título y contenido en claro a una cuenta cifrada. Esperar no pierde nada:
-     * la cola es durable y el próximo drain vuelve a pedir el status. (Cuarta revisión.)
+     * Si el status falla, el push ESPERA. Seguir no ganaría nada —si el servicio está caído
+     * el push falla igual— y el caso que importa es el otro: un 502 en el status (un
+     * redeploy) y un push que sí entra, en una máquina que todavía no aprendió la época,
+     * subiría título y contenido en claro a una cuenta cifrada. Esperar no pierde nada: la
+     * cola es durable y el próximo drain vuelve a pedir el status.
      *
      * Sólo cuando hay gate que armar. Sin `isEncryptionExpected` cableado no hay nada que
      * saber —`seEsperaCifrado` sería false igual, más abajo— así que pedir un status sería
      * una request por nada. En la app real `main.ts` siempre lo pasa.
      */
-    // Task 14: también con filas de EQUIPO pendientes, haya o no gate personal cableado (el
+    // También con filas de EQUIPO pendientes, haya o no gate personal cableado (el
     // paquete portátil no lo cablea): no se puede decidir sobre una fila de equipo sin saber
     // si su equipo cifra, y eso lo dice el status.
     const hayDeEquipo = pending.some((m) => {
@@ -880,8 +858,8 @@ export class MemoryDaemon {
     if (!this.primerStatusOk && (this.deps.isEncryptionExpected || hayDeEquipo)) {
       await this.status()
       // Cubre también el swap de cuenta durante la espera: `setStore` lo vuelve a false y un
-      // status que vuelve con otra generación no lo levanta. Sin esto el gate leía
-      // `knownKeyEpoch()` del store ya cerrado, fuera del `try`, y `push()` rechazaba.
+      // status que vuelve con otra generación no lo levanta. Sin esto el gate leería
+      // `knownKeyEpoch()` del store ya cerrado, fuera del `try`, y `push()` rechazaría.
       if (!this.primerStatusOk) return
     }
 
@@ -895,10 +873,8 @@ export class MemoryDaemon {
      * Es `<` y no `!==`: una maestra MÁS nueva que la época recordada no es un peligro, es un
      * store que todavía no se enteró (la época recordada sólo sube, ver `rememberKeyEpoch`).
      *
-     * Hasta el 2026-09-24 esto no se hacía porque "un `keys.bin` viejo trae `keyEpoch: 0`".
-     * No existe tal archivo: el campo está desde el primer commit de `memory-key-store.ts`, y
-     * los tres caminos que guardan una maestra (activar, adoptar, recuperar) guardan su época
-     * al lado. Encontrado por la cuarta revisión adversarial (2026-09-21).
+     * Los tres caminos que guardan una maestra (activar, adoptar, recuperar) guardan su época
+     * al lado, así que `keyEpoch` es confiable acá.
      */
     const seEsperaCifrado = this.deps.isEncryptionExpected?.() ?? false
     const contexto = this.deps.getEnvelopeContext?.() ?? null
@@ -908,7 +884,7 @@ export class MemoryDaemon {
     }
 
     /**
-     * Task 14 (spec §9.4) — el gate fail-closed del push de EQUIPO. Una fila `scope: 'team'`
+     * Spec §9.4 — el gate fail-closed del push de EQUIPO. Una fila `scope: 'team'`
      * de un equipo que cifra, sin su clave en este device, NO sale: `sealMutationPayload` la
      * devolvería tal cual (en claro), indistinguible para el servidor de un equipo que nunca
      * cifró. Se RETIENE con `blockMutations` (mismo mecanismo reversible que
@@ -938,7 +914,7 @@ export class MemoryDaemon {
     if (aSubir.length === 0) {
       this.setStatus('idle')
       // Lo retenido ya no vuelve en pendingMutations(): si quedaba otra cosa detrás, se sigue.
-      // `setImmediate` por lo mismo que el encadenado M22 de más abajo.
+      // `setImmediate` por lo mismo que el encadenado de lotes de más abajo.
       if (retenidas.length > 0 && store.pendingMutationCount() > 0) {
         setImmediate(() => { if (!this.swapping) void this.push() })
       }
@@ -946,17 +922,16 @@ export class MemoryDaemon {
     }
 
     this.setStatus('syncing')
-    // C6 part 2: disarmed in this try's `finally`, i.e. only AFTER `response.json()` has
+    // Disarmed in this try's `finally`, i.e. only AFTER `response.json()` has
     // consumed the body — see fetchWithTimeout().
     let release: (() => void) | null = null
     try {
       const deviceId = this.deps.getDeviceId()
-      // Gap #2 fix (cloud display_name defaulting to the raw project_key hash, see
-      // CLAUDE.md task notes): the edge function reads `payload.project_display_name`
-      // (supabase/functions/memory-sync/index.ts, push handler) but no writer ever put
-      // it there — store.save()/appendMutation() persist a plain ObservationRow
-      // snapshot with no display-name field. Resolved HERE, at push time, rather than
-      // by threading displayName through save()/applyRowUpdate/insertRow and
+      // The cloud display_name: the edge function reads `payload.project_display_name`
+      // (supabase/functions/memory-sync/index.ts, push handler) and without it falls back
+      // to the raw project_key hash. store.save()/appendMutation() persist a plain
+      // ObservationRow snapshot with no display-name field, so it's resolved HERE, at push
+      // time, rather than by threading displayName through save()/applyRowUpdate/insertRow and
       // re-serializing every queued mutation_log payload: a project's display name can
       // change locally (rename, or ensureProject learning a remote_url later) after a
       // mutation was already queued, and a push-time join against the CURRENT
@@ -972,10 +947,10 @@ export class MemoryDaemon {
           mutations: aSubir.map((m: MutationLogRow) => {
             const payload = JSON.parse(m.payload) as Record<string, unknown>
             const projectKey = (payload.project_key as string | undefined) ?? GLOBAL_PROJECT_KEY
-            // C5: `source_ref` carries an absolute path with the user's real name
-            // (memory-importers/markdown.ts:51) and the server doesn't even store it —
-            // it only rode along to end up in the logs of whatever proxy sits in
-            // between. Pruned here, the end that controls the wire.
+            // `source_ref` carries an absolute path with the user's real name
+            // (memory-importers/markdown.ts) and the server doesn't even store it — it
+            // would only end up in the logs of whatever proxy sits in between. Pruned
+            // here, the end that controls the wire.
             const { source_ref: _dropped, ...rest } = payload
             // El cifrado va ULTIMO en la cadena, despues de la redaccion de secretos (que
             // corre en `save()`, del lado local) y despues del join del display name: si
@@ -1012,7 +987,7 @@ export class MemoryDaemon {
         if (code === 'plan_required') {
           // spec §9.3: the token is fine — the account's plan just doesn't include cloud
           // sync. NOT an auth failure: must not touch consecutiveAuthFailures/authBlocked,
-          // or the daemon would stay dead (M18's gate at the top of every entry point)
+          // or the daemon would stay dead (the authBlocked gate at every entry point)
           // even after the user upgrades, until the app is restarted. Leaving authBlocked
           // false keeps every trigger — the interval, window focus, on-write debounce,
           // pane exit — retrying normally, so sync resumes on its own the moment the
@@ -1033,8 +1008,8 @@ export class MemoryDaemon {
           return
         }
         if (code === 'device_limit') {
-          // Task 9: same shape as not_in_beta — no click-to-fix affordance in this UI today
-          // (that would be "remove another device", not implemented), so this stays a
+          // Same shape as not_in_beta — no click-to-fix affordance in this UI (that would
+          // be "remove another device"), so this stays a
           // generic 'error' with its own detail. Must not touch the auth breaker: the
           // token is fine, the account just has one machine too many registered, and a
           // freed slot should resume sync on its own via status()'s unblock check — not
@@ -1066,19 +1041,15 @@ export class MemoryDaemon {
       }
       const results = body.results ?? []
 
-      // M21 fix: this used to unconditionally `store.markPushed(pending.map(seq))` and
-      // discard `body.results` entirely (`void body`) — no distinction between what the
-      // server actually applied/superseded/rejected vs. what it may never have touched
-      // at all, and rejected mutations left no error trail. Per §4.2: accepted mutations
-      // are marked pushed. A rejected one is TERMINAL or REVERSIBLE (Task 8, see
-      // REVERSIBLE_REJECTIONS above) — terminal is marked pushed too, with the reason, so
-      // it doesn't loop forever; reversible is blocked instead of marked pushed, so it
+      // Per §4.2: accepted mutations are marked pushed. A rejected one is TERMINAL or
+      // REVERSIBLE (see REVERSIBLE_REJECTIONS above) — terminal is marked pushed too, with
+      // the reason, so it doesn't loop forever; reversible is blocked instead of marked pushed, so it
       // isn't discarded. A mutation with NO matching result (the whole call errored before
       // reaching it, or the server response is malformed) is left in the queue for retry.
       const resultBySyncId = new Map(results.map((r) => [r.sync_id, r]))
       const toMark: Array<number | { seq: number; error?: string | null }> = []
       const toBlock: Array<{ seq: number; reason: string }> = []
-      // Final review #3: ¿este push cambió el roster? Ver `rosterQuedoViejo` más abajo.
+      // ¿Este push cambió el roster? Ver `rosterQuedoViejo` más abajo.
       const rosterConocido = this.lastCloudProjectKeys === null ? null : new Set(this.lastCloudProjectKeys)
       let aceptoUnProyectoNuevo = false
       let recibioElTope = false
@@ -1102,11 +1073,11 @@ export class MemoryDaemon {
         const reason = result.error ?? 'rejected'
         if (reason === MOTIVO_TOPE_DE_PROYECTOS) recibioElTope = true
         if (reason === 'team_encryption_required') {
-          // M1 (review de Tasks 13–14): el servidor acaba de decir que el equipo de este proyecto
-          // cifra. Se aprende como CONFIRMADO (viene del servidor, no de una inferencia) y la
-          // fila queda retenida por el gate (`team_key_missing`): si no, cada liberación
-          // (`onTeamKeysChanged`, un share aprendido) la volvía a mandar en claro por TLS para
-          // que el servidor la rechazara otra vez. Sin `team_id` local no hay equipo que anotar:
+          // El servidor acaba de decir que el equipo de este proyecto cifra. Se aprende como
+          // CONFIRMADO (viene del servidor, no de una inferencia) y la fila queda retenida por
+          // el gate (`team_key_missing`): si no, cada liberación (`onTeamKeysChanged`, un
+          // share aprendido) la volvería a mandar en claro por TLS para que el servidor la
+          // rechazara otra vez. Sin `team_id` local no hay equipo que anotar:
           // queda como rechazo, y el roster del próximo status la devuelve al gate.
           let pk = GLOBAL_PROJECT_KEY
           try { pk = (JSON.parse(m.payload).project_key as string | undefined) ?? GLOBAL_PROJECT_KEY } catch { /* default */ }
@@ -1127,9 +1098,9 @@ export class MemoryDaemon {
       this.setStatus('idle')
 
       /**
-       * Final review #3 (Ruling 6): en el drain del connect el status corre ANTES del push, así
-       * que un Free que conecta con 2+ repos tenía el roster vacío hasta el próximo poll (15 min
-       * en Free): «0 of 1 · Local only: api, web» con `raven-nest` ya en la nube. Se pide un
+       * En el drain del connect el status corre ANTES del push, así que un Free que conecta con
+       * 2+ repos tendría el roster vacío hasta el próximo poll (15 min en Free): «0 of 1 · Local
+       * only: api, web» con un repo ya en la nube. Se pide un
        * status sólo cuando el push CAMBIÓ el roster: aceptó un proyecto que el roster no tenía,
        * o recibió `project_limit_reached` con un roster que todavía no llega al tope (o sea,
        * viejo). Un rechazo con el roster ya en el tope no enseña nada: no se pide nada.
@@ -1144,30 +1115,29 @@ export class MemoryDaemon {
         if (generacionAlSalir !== this.generacionDeStore) return
       }
 
-      // M22 fix: a full PUSH_BATCH_SIZE batch used to just sit idle after a successful
-      // push until the NEXT external trigger (5-min interval, a fresh mutation debounce,
-      // etc.) — per §4 the daemon is supposed to *drain* the queue, not push one batch per
-      // trigger. A ~2000-mutation initial migration measured ~25 minutes to finish because
-      // of this. Chain the next batch immediately, but only when THIS batch made real
+      // Per §4 the daemon *drains* the queue, not one batch per trigger: without chaining, a
+      // full PUSH_BATCH_SIZE batch would sit idle until the NEXT external trigger (5-min
+      // interval, a fresh mutation debounce, etc.), and a large initial migration would take
+      // tens of minutes. Chain the next batch immediately, but only when THIS batch made real
       // progress (`toMark` or `toBlock` non-empty, i.e. the server acknowledged at least
       // one mutation either way) — chaining on a zero-progress response (malformed body /
       // nothing matched) would hot-loop the same unacknowledged batch against the server
       // instead of leaving it to the existing retry/backoff path. `toBlock` counts as
-      // progress too (Task 8): if this whole batch got blocked by ONE project's limit,
+      // progress too: if this whole batch got blocked by ONE project's limit,
       // there may still be pendingMutationCount() > 0 left over from OTHER projects that
       // have nothing to do with that limit — worth draining right away rather than waiting
       // for the next external trigger. `setImmediate` (not `queueMicrotask`) is deliberate:
       // doPush() is still executing here, so `push()`'s `.finally` hasn't cleared
       // `pushInFlight` yet — a microtask-scheduled call lands BEFORE that `.finally` runs
       // (queued earlier in the same microtask flush) and would see pushInFlight still set,
-      // silently deduping into a no-op per M19. A macrotask runs after the entire microtask
+      // silently deduping into a no-op. A macrotask runs after the entire microtask
       // queue (including that `.finally`) has drained, so by the time it fires
       // pushInFlight is guaranteed clear and the chained push() actually starts a new
       // request instead of returning the just-finished promise.
       if ((toMark.length > 0 || toBlock.length > 0) && store.pendingMutationCount() > 0) {
-        // Task 1 Step 3a: this macrotask can still fire AFTER pause()'s drain-wait already
+        // This macrotask can still fire AFTER pause()'s drain-wait already
         // observed pushInFlight settle (the .finally() that clears pushInFlight runs as a
-        // microtask before this setImmediate's macrotask does — see the M22 comment above
+        // microtask before this setImmediate's macrotask does — see the comment above
         // for why this is a macrotask at all) but BEFORE the swap actually closes/renames
         // the store. Re-check swapping here, at the moment this callback actually runs, not
         // just at schedule time — a swap started in that exact window must not have this
@@ -1179,8 +1149,8 @@ export class MemoryDaemon {
       }
     } catch (err) {
       // Anotar el error NO puede ser lo que tumbe el push: si el store se cerró en el medio
-      // (swap de cuenta), este `setSyncState` lanza y la excepción original se pierde
-      // reemplazada por una de SQLite, escapándose del catch que existía para contenerla.
+      // (swap de cuenta), este `setSyncState` lanza y la excepción original se perdería
+      // reemplazada por una de SQLite, escapándose del catch que existe para contenerla.
       try {
         store.setSyncState('__account__', { lastError: err instanceof Error ? err.message : String(err) })
       } catch { /* el store de la cuenta anterior ya no está: el error igual se reporta abajo */ }
@@ -1194,7 +1164,7 @@ export class MemoryDaemon {
   /**
    * spec §5.3.1: the ONLY place a device can learn a project exists. `handlePull` returns
    * rows only for cursors the device already sent — correct, deliberate, and it's what
-   * keeps M25's fix intact (see doPull's own `cursors` comment below) — so a project this
+   * prevents the pull hot loop (see doPull's own `cursors` comment below) — so a project this
    * device has never seen locally can never appear in a pull response no matter how long
    * it waits, and a freshly installed device with an empty `projects` table would pull
    * nothing, forever, with no error and no symptom. `status()` closes that from the other
@@ -1202,15 +1172,14 @@ export class MemoryDaemon {
    * registers anything not already known via `store.ensureProject()`. That project then
    * has a sync_state cursor of 0 and shows up in `store.listProjects()` — and therefore in
    * doPull()'s `cursors` — on the very next pull. No row is ever handed back for a cursor
-   * the device didn't ask for, so nothing here reintroduces the hot loop M25 fixed.
+   * the device didn't ask for, so nothing here reintroduces that hot loop.
    *
    * Uses the same fetchWithTimeout() push/pull already go through, so a hung status
-   * endpoint can't wedge the daemon any differently than a hung push or pull already
-   * could (C6).
+   * endpoint can't wedge the daemon any differently than a hung push or pull could.
    */
   status(): Promise<StatusResponseBody | null> {
-    // Same in-flight dedupe/tracking shape as push()/pull() (M19) — see statusInFlight's
-    // own comment for why this was the missing half of the Task 8 pause() race.
+    // Same in-flight dedupe/tracking shape as push()/pull() — see statusInFlight's own
+    // comment for why pause() needs it.
     if (this.statusInFlight) return this.statusInFlight
     const run = this.doStatus().finally(() => { this.statusInFlight = null })
     this.statusInFlight = run
@@ -1225,7 +1194,7 @@ export class MemoryDaemon {
    */
   async keepProject(projectKey: string): Promise<{ ok: true } | { ok: false; error: string }> {
     const { getSyncBaseUrl, getToken, isOnline } = this.deps
-    // P6: misma guarda que doStatus. Si la cuenta cambia mientras vuela el pedido, la
+    // Misma guarda que doStatus. Si la cuenta cambia mientras vuela el pedido, la
     // respuesta es de la cuenta anterior: no se toca la cola ni se pide status del store nuevo.
     const generacionAlSalir = this.generacionDeStore
     const url = getSyncBaseUrl()
@@ -1254,7 +1223,7 @@ export class MemoryDaemon {
     if (generacionAlSalir !== this.generacionDeStore) return { ok: false, error: 'account_changed' }
     this.deps.store.unblockMutations([MOTIVO_TOPE_DE_PROYECTOS])
     // Un status que ya volaba salió ANTES de la elección y trae el elegido viejo: colgarse de
-    // ese (el dedupe de `status()`) dejaba la UI con el proyecto anterior pegado hasta el
+    // ese (el dedupe de `status()`) dejaría la UI con el proyecto anterior pegado hasta el
     // próximo poll. Se lo espera y se pide uno nuevo, que ya ve lo que el servidor guardó.
     if (this.statusInFlight) await this.statusInFlight.catch(() => null)
     // Esperar abre otra ventana para un cambio de cuenta: la elección ya quedó guardada en el
@@ -1348,7 +1317,7 @@ export class MemoryDaemon {
     // Misma razón que en doPush: `unblockMutations` y `ensureProject` escriben, y el store
     // de la cuenta anterior está cerrado para cuando vuelve esta respuesta.
     const generacionAlSalir = this.generacionDeStore
-    if (this.authBlocked) return null // M18: gate every entry point, not just push/pull
+    if (this.authBlocked) return null // gate every entry point, not just push/pull
     if (!isOnline()) return null
     const url = getSyncBaseUrl()
     const token = getToken()
@@ -1375,11 +1344,11 @@ export class MemoryDaemon {
           return null
         }
         if (code === 'device_limit') {
-          // Task 9: see doPush()'s identical branch — not a credential problem, breaker untouched.
+          // See doPush()'s identical branch — not a credential problem, breaker untouched.
           this.setStatus('error', 'device_limit')
           return null
         }
-        // Feeds the SAME shared counter/flag doPush() trips on 401/403 (M18), rather than
+        // Feeds the SAME shared counter/flag doPush() trips on 401/403, rather than
         // keeping an independent one — status() must not gate push/pull any differently
         // than a push auth failure already does, and both push() and pull() already check
         // this exact flag at entry.
@@ -1402,15 +1371,15 @@ export class MemoryDaemon {
       /**
        * ACÁ se arma el gate fail-closed del push, y tiene que ser acá.
        *
-       * Antes la época conocida sólo se escribía desde los handlers de la tarjeta de cifrado
-       * —o sea, sólo si el usuario ABRÍA el overlay Memories— y desde `applyPulledRow` al ver
-       * una fila que no se puede abrir. Ninguno de los dos corre en el camino normal de una
-       * máquina que todavía no tiene la clave, así que el gate no llegaba a armarse y el push
-       * subía título y contenido EN CLARO a una cuenta cifrada, con estado `idle`.
+       * Las otras señales —los handlers de la tarjeta de cifrado, que sólo corren si el
+       * usuario ABRE el overlay Memories, y `applyPulledRow` al ver una fila que no se puede
+       * abrir— no corren en el camino normal de una máquina que todavía no tiene la clave.
+       * Sin esto el gate no se arma y el push sube título y contenido EN CLARO a una cuenta
+       * cifrada, con estado `idle`.
        *
-       * Y no era una carrera: activar el cifrado no re-cifra lo ya subido, así que una cuenta
+       * Y no es una carrera: activar el cifrado no re-cifra lo ya subido, así que una cuenta
        * que venía sincronizando en claro deja al servidor lleno de filas legibles — la segunda
-       * máquina nunca baja algo que no pueda abrir y la época se queda en 0 para siempre.
+       * máquina nunca baja algo que no pueda abrir y la época se quedaría en 0 para siempre.
        *
        * `status` es el único camino que corre en TODO drain, antes del pull y del push.
        *
@@ -1425,7 +1394,7 @@ export class MemoryDaemon {
 
       this.applyPollInterval(body.next_poll_ms)
 
-      // Task 8: re-admit mutations blocked by a REVERSIBLE server rejection once the limit
+      // Re-admit mutations blocked by a REVERSIBLE server rejection once the limit
       // that caused it no longer applies — see doPush()'s REVERSIBLE_REJECTIONS split.
       //
       // project_limit_reached can't be evaluated from numbers the client has: it doesn't
@@ -1481,8 +1450,8 @@ export class MemoryDaemon {
         for (const project of body.projects) {
           const projectKey = project?.project_key
           if (typeof projectKey !== 'string' || projectKey === '') continue
-          // Task 14: espejo de `projects.team_id` del servidor. Sin esto, la OTRA máquina de
-          // quien compartió nunca sabía a qué equipo van sus filas de equipo: las sellaba sin
+          // Espejo de `projects.team_id` del servidor. Sin esto, la OTRA máquina de quien
+          // compartió nunca sabría a qué equipo van sus filas de equipo: las sellaría sin
           // clave (en claro) aunque tuviera la de equipo. Sólo se escribe si cambió (un roster
           // que no cambia sigue haciendo CERO escrituras por tick), y nunca se pisa con null:
           // dejar de compartir no existe en v1, y bajar a null desarmaría el gate. Va también
@@ -1500,16 +1469,16 @@ export class MemoryDaemon {
           // EFFECTIVE ones — so a roster that never changes can't turn this into a
           // repeated-write (or repeated-pull) loop of its own.
           /**
-           * El nombre que devuelve el servidor viene CIFRADO desde que
-           * `project_display_name` entró en `SEALED_FIELDS`, y desde acá NO se puede abrir:
+           * El nombre que devuelve el servidor puede venir CIFRADO (`project_display_name`
+           * está en `SEALED_FIELDS`), y desde acá NO se puede abrir:
            * el AAD ata cada ciphertext a SU observación (`fieldAad(syncId, field)`) y el
            * roster no trae ningún `sync_id`. Así que cuando viene cifrado se usa la
            * `project_key`, que es un hash pero es verdad.
            *
            * Sin esto, una máquina que todavía no conocía ese proyecto —una segunda PC, o la
-           * misma después de un wipe— creaba el proyecto local llamado `nmc1:pQx8…`: el
-           * usuario veía eso en la UI en lugar del nombre de su repo, y en el push siguiente
-           * ese string se volvía a cifrar sobre sí mismo. Cada ciclo agregaba una capa.
+           * misma después de un wipe— crearía el proyecto local llamado `nmc1:pQx8…`: el
+           * usuario vería eso en la UI en lugar del nombre de su repo, y en el push siguiente
+           * ese string se volvería a cifrar sobre sí mismo. Cada ciclo agregaría una capa.
            */
           const nombreRemoto = typeof project.display_name === 'string' ? project.display_name : ''
           const displayName = nombreRemoto && !isCiphertext(nombreRemoto) ? nombreRemoto : projectKey
@@ -1524,10 +1493,10 @@ export class MemoryDaemon {
       }
 
       /**
-       * Final review #1: el destrabe por cambio de plan (más arriba) sólo ve un cambio que
+       * El destrabe por cambio de plan (más arriba) sólo ve un cambio que
        * ocurre DENTRO de este proceso. Un Free que paga Cloud y reinicia Nest, o que cambia a
        * una cuenta que ya es Cloud, arranca con `lastSeenPlan` undefined: el primer status no
-       * cuenta como cambio y lo retenido por el tope quedaba retenido para siempre.
+       * cuenta como cambio y lo retenido por el tope quedaría retenido para siempre.
        *
        * Con el tope que informa el servidor no hace falta adivinar: si el roster (sin
        * `__global__`, que no ocupa lugar) tiene menos proyectos que el tope, hay lugar y lo
@@ -1541,12 +1510,12 @@ export class MemoryDaemon {
         store.unblockMutations([MOTIVO_TOPE_DE_PROYECTOS])
       }
 
-      // Task 14 (spec §9.4): qué equipos cifran, sin depender de que se abra la UI.
+      // Spec §9.4: qué equipos cifran, sin depender de que se abra la UI.
       if (Array.isArray(body.encrypted_teams)) {
         const equipos = body.encrypted_teams
           .filter((t): t is { team_id: string; has_wrap: boolean } => typeof t?.team_id === 'string' && t.team_id !== '')
           .map((t) => ({ teamId: t.team_id, hasWrap: t.has_wrap === true }))
-        // I1: el campo presente es la fuente de verdad. Lo que lista queda confirmado para
+        // El campo presente es la fuente de verdad. Lo que lista queda confirmado para
         // siempre (como `known_key_epoch`); lo inferido de filas ilegibles (provisorio) se
         // descarta. Si eso soltó algún equipo, lo que el gate retuvo por él vuelve a la cola: el
         // gate de `doPush` re-evalúa y re-retiene lo que siga aplicando.
@@ -1557,7 +1526,7 @@ export class MemoryDaemon {
           // Esperado (para que la readopción gane al pull y al push de este drain) pero con
           // tope, y sin dejar que un throw del hook se lleve puesto el status (`withTimeout`
           // nunca rechaza). Después no se escribe nada en el store, así que no hace falta
-          // re-chequear la generación (M6: había un `if (...) return body` seguido de `return body`).
+          // re-chequear la generación.
           await withTimeout(Promise.resolve().then(() => hook(equipos)), TEAM_READOPT_TIMEOUT_MS)
         }
       }
@@ -1588,7 +1557,7 @@ export class MemoryDaemon {
   }
 
   pull(): Promise<void> {
-    // M19: dedupe concurrent callers onto the same in-flight request.
+    // Dedupe concurrent callers onto the same in-flight request.
     if (this.pullInFlight) return this.pullInFlight
     const run = this.doPull().finally(() => {
       this.pullInFlight = null
@@ -1606,7 +1575,7 @@ export class MemoryDaemon {
     // La cuenta con la que ESTE pull sale. Si cambia antes de que vuelva la respuesta, las
     // filas que traiga son de otra cuenta y no se escriben.
     const generacionAlSalir = this.generacionDeStore
-    if (this.authBlocked) return // M18
+    if (this.authBlocked) return // gate every entry point
     if (!isOnline()) {
       this.setStatus('paused', 'offline')
       return
@@ -1615,23 +1584,18 @@ export class MemoryDaemon {
     const token = getToken()
     if (!url || !token) return
 
-    // M17 fix: this used to send a single `{__account__: cursor}` cursor and keep only
-    // `Object.values(body.cursors)[0]` from the response — with more than one local
-    // project, every project past the first permanently never advanced its cursor (or
-    // advanced the WRONG project's cursor onto the account-wide one), silently missing
-    // all of its pulled rows forever. Each known local project now gets its own cursor,
-    // read from and written back to its own sync_state partition (keyed by project_key,
-    // matching how push() already scopes mutations per project).
+    // Each known local project gets its own cursor, read from and written back to its own
+    // sync_state partition (keyed by project_key, matching how push() scopes mutations per
+    // project). A single account-wide cursor would leave every project past the first
+    // never advancing (or advance the WRONG project's cursor), silently missing its rows.
     const projects = store.listProjects()
-    // spec §5.3.1: this used to be the OTHER half of the "a fresh device pulls nothing,
-    // ever" bug — `store.listProjects()` reflects only what this device already has
-    // locally, so a device that has never written anything of its own returned here on
-    // every single pull, forever, with no error and no symptom. It is no longer fatal:
-    // status() runs immediately before this, in the same drain() cycle (see drain()'s own
-    // comment), and registers every project in the account's roster via ensureProject()
-    // BEFORE this line runs — so a fresh device's very first drain() already has a
-    // non-empty `projects` here. It stays as a real early return rather than falling
-    // through to an empty-cursors request: a project-less device (one that hasn't
+    // spec §5.3.1: `store.listProjects()` reflects only what this device already has
+    // locally, so on its own a device that has never written anything would return here
+    // on every pull, forever. status() runs immediately before this, in the same drain()
+    // cycle (see drain()'s own comment), and registers every project in the account's
+    // roster via ensureProject() BEFORE this line runs — so a fresh device's very first
+    // drain() already has a non-empty `projects` here. It stays as a real early return
+    // rather than falling through to an empty-cursors request: a project-less device (one that hasn't
     // connected, or whose account genuinely has no projects yet) would otherwise send
     // `{cursors: {}}` on every pull, which the server already treats as "nothing to
     // report" (pull.ts's own `keys.length === 0` short-circuit) — so removing this line
@@ -1649,12 +1613,12 @@ export class MemoryDaemon {
     }
     // Lo que viene de proyectos de OTRA persona compartidos con un equipo lleva sus propios
     // cursores, uno por proyecto de origen. Con el cursor del proyecto solo, una memoria de
-    // equipo no llegaba nunca a quien ya tuviera más memorias propias en ese repo que el
+    // equipo no llegaría nunca a quien ya tuviera más memorias propias en ese repo que el
     // autor (ver `pullConCursoresDeEquipo` en server/src/pull.ts). Se manda siempre, aunque
     // esté vacío: que el campo exista es lo que le dice al servicio que este cliente los lleva.
     const teamCursors = store.getTeamCursors()
 
-    // C6 part 2: disarmed in this try's `finally`, i.e. only AFTER `response.json()` has
+    // Disarmed in this try's `finally`, i.e. only AFTER `response.json()` has
     // consumed the body — see fetchWithTimeout().
     let release: (() => void) | null = null
     try {
@@ -1678,17 +1642,13 @@ export class MemoryDaemon {
           return
         }
         if (code === 'device_limit') {
-          // Task 9: see doPush()'s identical branch — not a credential problem, breaker untouched.
+          // See doPush()'s identical branch — not a credential problem, breaker untouched.
           this.setStatus('error', 'device_limit')
           return
         }
-        // Coherence fix: doPull() used to have NO 401/403 handling at all — it fell
-        // through to the generic `!response.ok` throw below, landed in the catch block,
-        // and never touched consecutiveAuthFailures. Three real revoked-token responses
-        // from pull() alone never tripped the breaker, unlike push()/status() already did
-        // — an inconsistency across the three entry points that gate identically on
-        // `authBlocked` (M18) but disagreed on what counted toward it. Feeds the same
-        // shared counter/flag push()/status() use.
+        // Feeds the same shared counter/flag push()/status() use: the three entry points
+        // gate identically on `authBlocked`, so they have to agree on what counts toward
+        // it — three revoked-token responses from pull() alone must trip the breaker too.
         this.consecutiveAuthFailures += 1
         if (this.consecutiveAuthFailures >= 3) {
           this.authBlocked = true
@@ -1714,7 +1674,7 @@ export class MemoryDaemon {
       // Alguien llamó `resetPullCursors()` con este request en vuelo (adoptar o recuperar una
       // clave, ver main.ts). Los cursores de esta respuesta son relativos a los que salieron
       // ANTES del reset: escribirlos lo deshace, y el drain de quien reseteó ya se acopló a
-      // este mismo pull (M19), así que nadie vuelve a pedir lo que se salteó por ilegible.
+      // este mismo pull (dedupe), así que nadie vuelve a pedir lo que se salteó por ilegible.
       // Las filas sí se aplican (el upsert por sync_id es idempotente); los cursores no, y se
       // pide un pull nuevo, que sale con los cursores en 0. `setImmediate` por lo mismo que
       // el encadenado de abajo: `pullInFlight` recién se limpia en el `.finally` de `pull()`.
@@ -1727,34 +1687,24 @@ export class MemoryDaemon {
       }
 
       const now = Date.now()
-      // Tracked while writing back cursors below — used by the M25 chain guard.
+      // Tracked while writing back cursors below — used by the chain guard further down.
       let cursorAdvanced = false
       for (const [projectKey, cursor] of Object.entries(body.cursors ?? {})) {
         if (typeof cursor === 'number') {
           if (cursor > (cursors[projectKey] ?? 0)) cursorAdvanced = true
-          // M25 hot-loop fix: the server (supabase/functions/memory-sync/index.ts's pull
+          // Hot-loop guard: the server (supabase/functions/memory-sync/index.ts's pull
           // handler) iterates EVERY account project, not just the ones THIS device sent a
-          // cursor for, and defaults an unsent cursor to 0 — so an account-owned project
-          // this device never registered locally (`projectKey` absent from `cursors`,
-          // built from store.listProjects() above) restarts from 0 on every single pull.
-          // setSyncState below WOULD persist its returned cursor, but that partition is
-          // keyed by project_key with no FK to `projects` — persisting a sync_state row
-          // for a project_key `projects` doesn't know about is exactly the pre-existing
-          // inconsistency this heals: without a matching `projects` row, listProjects()
-          // (and therefore the cursors object built at the top of every doPull() call,
-          // including the very next chained one) never includes it, so the persisted
-          // cursor is never SENT back — the client always resends 0 for it, the server
-          // always reports "progress" from 0, `cursorAdvanced` is always true, and with
-          // >= PULL_PAGE_SIZE rows in that project the M25 chain above loops forever
-          // re-fetching the same page. Field evidence: a device's local `projects` table
-          // had 2 rows while pulling 6 account partitions. Registering the project here —
-          // BEFORE persisting its cursor — means the NEXT request (including this same
-          // chained one) builds its cursors from a `listProjects()` that now includes it,
-          // so the cursor actually gets sent and progress persists instead of resetting.
-          // ensureProject() is idempotent and always inserts enrolled=1 (matching its
-          // documented default) — verified nothing reads `enrolled` as a push/pull gate
-          // today (see main.ts's own ensureProject call site for the same reasoning), so
-          // this can't silently change sync behavior for the project once it exists.
+          // cursor for, and defaults an unsent cursor to 0. sync_state has no FK to
+          // `projects`, so persisting the cursor alone isn't enough: without a matching
+          // `projects` row, listProjects() (and therefore the cursors built at the top of
+          // every doPull(), including the next chained one) never includes it, the client
+          // always resends 0, `cursorAdvanced` is always true, and with >= PULL_PAGE_SIZE
+          // rows in that project the page chain below loops forever re-fetching the same
+          // page. Registering the project here — BEFORE persisting its cursor — makes the
+          // NEXT request send the cursor, so progress persists instead of resetting.
+          // ensureProject() is idempotent and inserts enrolled=1; nothing reads `enrolled`
+          // as a push/pull gate (see main.ts's own ensureProject call site), so this can't
+          // change sync behavior for the project once it exists.
           if (!(projectKey in cursors)) {
             store.ensureProject({ projectKey, displayName: projectKey })
           }
@@ -1774,14 +1724,11 @@ export class MemoryDaemon {
       this.consecutiveAuthFailures = 0
       this.backoff.reset()
 
-      // M25 fix: doPull() suffered the exact same disease M22 fixed on the push side — it
-      // fetched ONE page (limit: PULL_PAGE_SIZE) and returned, so a backlog bigger than
-      // one page only advanced on the NEXT external trigger (the 5-minute interval). A
-      // ~2000-row first sync measured ~20+ minutes to catch up this way, one page every 5
-      // minutes. Chain the next pull immediately when this page came back full —
-      // `body.rows.length === PULL_PAGE_SIZE` — mirroring M22's own "this trigger's shape"
-      // signal. Not `has_more`: the memory-sync edge function's pull handler always
-      // returns `has_more: false` (dead/unused on the server today) — do not trust it.
+      // Same as the push side: one page (limit: PULL_PAGE_SIZE) per trigger would leave a
+      // backlog bigger than a page advancing only on the NEXT external trigger (the
+      // 5-minute interval), one page every 5 minutes. Chain the next pull immediately when
+      // this page came back full. Not `has_more`: the memory-sync edge function's pull
+      // handler always returns `has_more: false` (unused on the server) — do not trust it.
       //
       // Guard: only chain when a cursor actually advanced. The edge function loops one
       // `memory_sync_pull` RPC call per LOCAL project and concatenates every project's
@@ -1794,18 +1741,18 @@ export class MemoryDaemon {
       // and "that project's cursor advanced" are the same fact reported two different
       // ways. Comparing each response cursor against the cursor WE SENT for that project
       // (captured in `cursors` above, before the fetch) is the honest per-project check:
-      // it can't be fooled by the aggregate-length coincidence, and — same reasoning as
-      // M22 — it can't hot-loop, because a response that advances no project's cursor can
-      // never chain again. `setImmediate` (not `queueMicrotask`), same reason as M22:
+      // it can't be fooled by the aggregate-length coincidence, and — same reasoning as the
+      // push chain — it can't hot-loop, because a response that advances no project's cursor
+      // can never chain again. `setImmediate` (not `queueMicrotask`), same reason as push:
       // doPull() is still executing here, so pull()'s `.finally` hasn't cleared
-      // `pullInFlight` (M19) yet — a microtask-scheduled call would run before that
+      // `pullInFlight` yet — a microtask-scheduled call would run before that
       // `.finally` and see `pullInFlight` still set, silently deduping into a no-op. A
       // macrotask fires only after the microtask queue (including that `.finally`) drains.
       // `>=` y no `===`: con cursores de equipo la respuesta son dos páginas juntas (lo
       // propio y lo ajeno, cada una con su `limit`), así que una página llena de cualquiera
       // de las dos deja el total en PULL_PAGE_SIZE o más.
       if (body.rows.length >= PULL_PAGE_SIZE && cursorAdvanced) {
-        // Task 1 Step 3a: same race as M22's chained push above — re-check swapping at the
+        // Same race as the chained push in doPush() — re-check swapping at the
         // moment this macrotask actually runs, not just at schedule time.
         setImmediate(() => {
           if (this.swapping) return
@@ -1837,26 +1784,24 @@ export class MemoryDaemon {
       // que si puede leer. Cuando la maquina se autorice, `resetPullCursors()` las
       // vuelve a traer.
       // Por `sync_id`: la misma fila re-pulleada no se cuenta de nuevo. `resetPullCursors`
-      // vuelve a traer todo a proposito, asi que contar aplicaciones hacia que el numero
+      // vuelve a traer todo a proposito, asi que contar aplicaciones haria que el numero
       // creciera sin que hubiera una sola memoria ilegible mas.
       this.deps.store.markUndecryptable(incoming.syncId)
       /**
        * VER una fila cifrada es la prueba de que la cuenta tiene el cifrado activo, y arma el
        * fail-closed del push sin depender de nadie.
        *
-       * Sin esto, la epoca conocida solo se escribia desde el handler de estado de la tarjeta
-       * — o sea que solo se armaba si el usuario ABRIA el overlay Memories. Una maquina nueva
-       * que conecta la nube corre import + drain y empuja TODO en claro a una cuenta cifrada,
-       * que es exactamente el agujero que el gate existe para tapar, abierto justo en la
-       * maquina que importa: la que no tiene la clave. Y esta linea corre en el mismo drain,
-       * antes del push.
+       * No puede depender del handler de estado de la tarjeta, que solo corre si el usuario
+       * ABRE el overlay Memories: una maquina nueva que conecta la nube corre import + drain y
+       * empujaria TODO en claro a una cuenta cifrada, justo en la maquina que importa: la que
+       * no tiene la clave. Esta linea corre en el mismo drain, antes del push.
        */
       if (incoming.scope === 'team') {
-        // Task 14: una fila de EQUIPO ilegible no dice que la CUENTA cifre. Armar la época
-        // personal dejaba a un miembro sin cifrado personal con todo el push en `needs_key`
-        // para siempre. Lo de equipo lo cubre el gate de equipo de doPush.
+        // Una fila de EQUIPO ilegible no dice que la CUENTA cifre. Armar la época personal
+        // dejaría a un miembro sin cifrado personal con todo el push en `needs_key` para
+        // siempre. Lo de equipo lo cubre el gate de equipo de doPush.
         //
-        // I1 (review de Tasks 13–14): y tampoco PRUEBA que el equipo de la fila cifre. Si el
+        // Y tampoco PRUEBA que el equipo de la fila cifre. Si el
         // proyecto se re-compartió de T1 (cifra) a T2 (no cifra), el pull sirve las filas
         // viejas, selladas con T1, como de T2. Con `teamId` (servicio nuevo) el status trae
         // `encrypted_teams` y ésa es la fuente de verdad: de acá no se aprende nada. Sin
@@ -1865,7 +1810,7 @@ export class MemoryDaemon {
         // reemplaza.
         const teamId = incoming.teamId ?? this.deps.store.teamIdForProjectKey?.(incoming.projectKey) ?? null
         if (!incoming.teamId && teamId) this.deps.store.rememberProvisionalEncryptedTeams?.([teamId])
-        // M2: de qué equipo es lo ilegible, para que adoptar la clave de OTRO no re-baje todo.
+        // De qué equipo es lo ilegible, para que adoptar la clave de OTRO no re-baje todo.
         this.deps.store.markUndecryptableTeam?.(teamId ?? '*')
       } else {
         this.deps.store.rememberKeyEpoch(Math.max(1, this.deps.getEnvelopeContext?.()?.keyEpoch ?? 0))
@@ -1888,7 +1833,7 @@ export class MemoryDaemon {
     }
     // Topic collision check against a DIFFERENT sync_id sharing the same topic slot.
     let supersededBy: string | null = null
-    // C2: the case that was missing. If the incoming row WINS, the local one must be
+    // If the incoming row WINS, the local one must be
     // superseded inside the same transaction as the insert; otherwise both stay active on
     // the same slot, idx_obs_topic blows up, the exception bubbles to doPull()'s catch,
     // the cursor never advances and the device never syncs again.

@@ -1,9 +1,8 @@
 // El MCP del paquete portátil en una máquina sin Nest corriendo: lee Y escribe.
 //
-// Hasta el 2026-10-02 `npx @nestmux/memory mcp` usaba `MemoryReadonlyClient`, que es el modo de
-// Nest cerrado PARA QUIEN TIENE NEST: lee del disco y manda a abrir la app para escribir. En
-// una máquina que nunca tuvo Nest eso dejaba al paquete inútil — no había base que leer,
-// porque nadie la creaba, y `memory_save` respondía "abrí Nest".
+// No sirve `MemoryReadonlyClient`, que es el modo de Nest cerrado PARA QUIEN TIENE NEST: lee del
+// disco y manda a abrir la app para escribir. En una máquina que nunca tuvo Nest no habría base
+// que leer y `memory_save` respondería "abrí Nest".
 //
 // El spec del portátil (§5.2 y §6) dice qué hacer, y por qué es seguro:
 //

@@ -1,11 +1,10 @@
-// I4 de la review final (2026-10-15): la huella se ata a lo que efectivamente se envuelve.
+// La huella se ata a lo que efectivamente se envuelve.
 //
-// Autorizar (personal o de equipo) mostraba en la tarjeta la huella de la pública que el
-// servidor decía que era de cada máquina, el usuario la comparaba, y el handler volvía a pedir
-// la lista y envolvía para la pública de ESE segundo fetch. Un servidor hostil podía mostrar la
-// pública real para la comparación y servir la suya para el envoltorio: el usuario verificaba
-// una clave y autorizaba otra. Ahora la UI manda la huella que mostró, y si la pública del
-// fetch no da esa misma huella no se envuelve nada.
+// Al autorizar (personal o de equipo) el handler vuelve a pedir la lista de públicas antes de
+// envolver. Si envolviera para lo que diga ESE segundo fetch, un servidor hostil podría mostrar
+// la pública real para la comparación y servir la suya para el envoltorio: el usuario
+// verificaría una clave y autorizaría otra. Por eso la UI manda la huella que mostró, y si la
+// pública del fetch no da esa misma huella no se envuelve nada.
 import { huellaDeClave } from './memory-key-wrap'
 
 export interface DestinoDeAutorizacion {

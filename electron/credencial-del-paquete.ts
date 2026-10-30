@@ -17,11 +17,10 @@ export interface CredencialDelPaquete {
   token: string
   deviceId: string
   /**
-   * El servicio que emitió el token. Opcional porque las credenciales de antes de 5dc84c5
-   * (2026-10-19) no lo traen — pero esas NO "siguen hablándole al default": antes de ese
-   * commit `login` exigía `NEST_MEMORY_SYNC_URL` seteada (no había default todavía), así
-   * que una credencial vieja se conectó a lo que esa variable dijera en su momento, no a
-   * un valor fijo. Sin `baseUrl` guardado, `urlDelServicio` resuelve de nuevo cada vez
+   * El servicio que emitió el token. Opcional porque las credenciales más viejas no lo
+   * traen — y esas NO "siguen hablándole al default": se emitieron contra lo que
+   * `NEST_MEMORY_SYNC_URL` dijera en su momento, no contra un valor fijo. Sin `baseUrl`
+   * guardado, `urlDelServicio` resuelve de nuevo cada vez
    * (env actual → default de Nest) — y si el env ya no está seteado, puede terminar
    * hablándole a un servicio distinto del que emitió el token, en silencio.
    */

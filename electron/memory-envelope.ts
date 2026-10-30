@@ -21,7 +21,7 @@ export interface EnvelopeContext {
    * compartió el proyecto. En el pull es sólo el fallback contra un servicio viejo que no
    * manda `team_id` en la fila. */
   teamKeys?: (projectKey: string) => MemoryKeys | null
-  /** PULL (Task 14): `team_id -> clave de equipo`. El `team_id` lo manda el servidor en cada
+  /** PULL: `team_id -> clave de equipo`. El `team_id` lo manda el servidor en cada
    * fila de equipo; el `projects.team_id` local NO sirve acá, porque sólo existe si ESTE
    * device compartió su copia del proyecto, y un compañero no tiene por qué haberlo hecho. */
   teamKeysById?: (teamId: string) => MemoryKeys | null
@@ -30,18 +30,16 @@ export interface EnvelopeContext {
 /**
  * Los campos de texto que se cifran, en el orden de la tabla del §5.2.
  *
- * `origin_account` se sumó el 2026-09-12 y NO estaba en esa tabla — ni como cifrado ni como
- * "en claro a propósito". Era una fuga que nadie decidió: `pty-manager.ts` inyecta
+ * `origin_account` no está en esa tabla y se cifra igual: `pty-manager.ts` inyecta
  * `NEST_MEMORY_ACCOUNT = "<ai>:<accountName>"`, y `accountName` sale del directorio
  * `accounts/<ai>/<cuenta>` — que en una máquina real ES el email del usuario, con el punto
- * cambiado por coma. O sea que cada observación guardada por un agente subía el mail en
- * claro. El servidor sólo lo almacena y lo devuelve: no lo consulta ni filtra por él, así
+ * cambiado por coma. En claro, cada observación guardada por un agente subiría el mail. El
+ * servidor sólo lo almacena y lo devuelve: no lo consulta ni filtra por él, así
  * que cifrarlo no rompe nada del lado del servicio.
  */
 const SEALED_FIELDS = ['title', 'content', 'project_display_name', 'content_hash', 'origin_account'] as const
 
-// El cifrado de scope `team` está implementado: ver
-// `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md` para la decisión vigente.
+// El cifrado de scope `team`: ver `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md`.
 
 /** 32 hex en minuscula es exactamente lo que devuelve `hmacTopicKey`. */
 export function looksLikeTopicHmac(value: string): boolean {
@@ -61,9 +59,9 @@ function keysParaFila(ctx: EnvelopeContext | null, projectKey: string, scope: st
 /**
  * El `topic_key_hmac` que `save()` escribe en la base local. Tiene que ser el MISMO que
  * `sealMutationPayload` sube y el pull baja: el supersede del pull busca al dueño local por
- * ese valor (`findActiveTopicOwnerByHmac`). Antes `main.ts` usaba siempre la personal, y en
- * filas `team` no coincidía con el HMAC de equipo — dos versiones de un tema de autores
- * distintos quedaban vivas en la app. `null` para una fila team sin clave de equipo: sube con
+ * ese valor (`findActiveTopicOwnerByHmac`). Usar siempre la personal no coincidiría en filas
+ * `team` con el HMAC de equipo, y dos versiones de un tema de autores distintos quedarían
+ * vivas en la app. `null` para una fila team sin clave de equipo: sube con
  * el tema en claro y baja sin HMAC, y `backfillTopicHmacs` la completa si después llega.
  */
 export function localTopicHmac(
@@ -80,7 +78,7 @@ export function sealMutationPayload(
   ctx: EnvelopeContext | null,
   payload: Record<string, unknown>
 ): Record<string, unknown> {
-  // Equipo sin cifrado activo (o sin contexto): en claro, como hoy.
+  // Equipo sin cifrado activo (o sin contexto): en claro.
   const keys = keysParaFila(ctx, String(payload.project_key ?? ''), String(payload.scope ?? 'personal'))
   if (!keys) return payload
 
@@ -133,9 +131,9 @@ export interface OpenedRow {
 
 export function openPulledRow(ctx: EnvelopeContext | null, row: PulledRow): OpenedRow {
   const esTeam = row.scope === 'team'
-  // Con `teamId` (servicio nuevo, Task 14) manda el servidor, sin fallback: si no tengo ESA
-  // clave, la fila es ilegible, aunque el proyecto local apunte a otro equipo. Sin `teamId`
-  // (servicio viejo) queda el comportamiento anterior, por `project_key` local.
+  // Con `teamId` manda el servidor, sin fallback: si no tengo ESA clave, la fila es ilegible,
+  // aunque el proyecto local apunte a otro equipo. Sin `teamId` (servicio viejo) se resuelve
+  // por `project_key` local.
   const keysDeTeam = !esTeam
     ? null
     : row.teamId
@@ -143,7 +141,7 @@ export function openPulledRow(ctx: EnvelopeContext | null, row: PulledRow): Open
       : (ctx?.teamKeys?.(row.projectKey) ?? null)
   const keys = esTeam ? keysDeTeam : ctx?.keys
   // Fila team sin clave de equipo disponible: si YA viene en claro (equipo nunca activó
-  // cifrado), pasa igual que antes. Si viene cifrada (nmc1:) y no hay clave, es undecryptable
+  // cifrado), pasa tal cual. Si viene cifrada (nmc1:) y no hay clave, es undecryptable
   // — mismo tratamiento que una personal sin autorizar. `abrir()` de abajo ya distingue los
   // dos casos por `isCiphertext`, así que sólo hace falta pasarle `keys` (o nada).
 
@@ -164,10 +162,9 @@ export function openPulledRow(ctx: EnvelopeContext | null, row: PulledRow): Open
   abierto.title = abrir(row.title, 'title') ?? undefined
   abierto.content = abrir(row.content, 'content') ?? null
   abierto.contentHash = abrir(row.contentHash, 'content_hash') ?? undefined
-  // `origin_account` entro a SEALED_FIELDS el 2026-09-12 y este lado se olvido: la fila
-  // subia cifrada y bajaba sin abrirse, asi que el `nmc1:…` se escribia en la base LOCAL
-  // como si fuera el nombre de la cuenta. Un campo que se sella tiene que abrirse acá; los
-  // dos lados salen de la misma lista y hay un test que lo fija.
+  // Un campo que se sella tiene que abrirse acá: si no, el `nmc1:…` se escribe en la base
+  // LOCAL como si fuera el nombre de la cuenta. Los dos lados salen de la misma lista y hay
+  // un test que lo fija.
   if (row.originAccount !== undefined) {
     abierto.originAccount = abrir(row.originAccount, 'origin_account') ?? undefined
   }
@@ -198,7 +195,7 @@ export function openPulledRow(ctx: EnvelopeContext | null, row: PulledRow): Open
       abierto.topicKey = null
       abierto.topicKeyHmac = row.topicKey
     } else if (keys) {
-      // Misma corrección que en `sealMutationPayload`: con `keys` (la de equipo si
+      // Igual que en `sealMutationPayload`: con `keys` (la de equipo si
       // corresponde) y no incondicionalmente `ctx.keys`, para que dos miembros de un
       // equipo deriven el MISMO HMAC de tópico sobre la MISMA clave compartida.
       abierto.topicKeyHmac = hmacTopicKey(keys, row.projectKey, row.scope, row.topicKey)

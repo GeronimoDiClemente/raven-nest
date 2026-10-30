@@ -44,25 +44,23 @@ export function importMarkdownFile(
   const raw = readFileSync(filePath, 'utf8')
   // Dos formatos distintos bajo el mismo importer. Un CLAUDE.md es un documento largo que
   // hay que cortar en secciones; una nota de `memory/` es UN hecho por archivo con
-  // frontmatter, y cortarla por `##` la tira entera (60 de 63 archivos reales no tienen
-  // ninguno). El label ya distingue cuál es cuál.
+  // frontmatter, y cortarla por `##` la tira entera (casi ninguna tiene uno). El label ya
+  // distingue cuál es cuál.
   const chunks = sourceLabel === 'claude-memory'
     ? chunkMemoryNote(raw, sourceLabel, basename(filePath))
     : chunkMarkdown(raw, sourceLabel)
   const scope = 'personal' as const
   for (const chunk of chunks) {
     // El tipo sale de la nota si lo declara; `pattern` es el ULTIMO recurso, no el default
-    // de todo. Hasta el 2026-09-11 esta linea era `const type = 'pattern' as const` para
-    // todos los chunks, y el resultado medido en una cuenta real fue 120 de 120 memorias
-    // con el mismo tipo: agrupar el grafo por tipo pintaba todo de un color, porque el
-    // tipo habia dejado de significar algo.
+    // de todo: con `pattern` para todos los chunks, agrupar el grafo por tipo pinta todo de
+    // un color, porque el tipo deja de significar algo.
     const declarado = tipoValido(chunk.declaredType)
     const type = declarado ?? 'pattern'
     // Content-derived identity (see deriveImportSyncId in memory-store.ts): the same
     // convention text imported from two machines under different absolute paths (or via
     // a different importer entirely) converges on one row instead of two, the same
     // cross-device guarantee the engram importer relies on. chunk.topicKey is part of the
-    // seed (Finding 1 fix) — it's deterministic from headingPath/sourceLabel, so both
+    // seed — it's deterministic from headingPath/sourceLabel, so both
     // devices still derive the same sync_id for the same chunk.
     const { hash } = computeContentIdentity(chunk.title, chunk.content)
     store.save({
@@ -100,8 +98,7 @@ function listDirs(dir: string): string[] {
 /**
  * El nombre que Claude Code le da a la carpeta de un proyecto dentro de
  * `{accountDir}/.claude/projects/`: el path absoluto con **todo lo que no es alfanumérico
- * convertido en `-`**. Verificado el 2026-09-03 contra cuatro carpetas reales de esta
- * máquina, incluida una con `@` y `,` en el nombre.
+ * convertido en `-`** (incluidos `@` y `,`).
  *
  * La función va en un solo sentido a propósito: del slug NO se puede volver al path (un `-`
  * real y un `/` producen el mismo carácter). Por eso el matcheo se hace slugificando los
@@ -153,11 +150,9 @@ export function importAllMarkdownSources(store: MemoryStore, sources: MarkdownIm
     const memoryMd = join(accountDir, '.claude', 'MEMORY.md')
     if (existsSync(memoryMd)) candidates.push({ path: memoryMd, projectKey: sources.globalProjectKey, label: 'claude-memory' })
 
-    // Donde viven de verdad. `{accountDir}/.claude/memory/` de arriba es una ruta que este
-    // importer buscaba y que Claude Code no usa: las memorias van en una carpeta POR
-    // PROYECTO, `{accountDir}/.claude/projects/<slug>/memory/`. Medido en la Mac del
-    // 2026-09-03: cero archivos en la vieja, 63 en la nueva — o sea que el import del primer
-    // connect traía nada. La ruta vieja se conserva por si alguna versión la usó.
+    // Donde viven de verdad. Claude Code no usa `{accountDir}/.claude/memory/` de arriba:
+    // las memorias van en una carpeta POR PROYECTO, `{accountDir}/.claude/projects/<slug>/
+    // memory/`. La ruta de arriba se conserva por si alguna versión la usó.
     //
     // Y como cada carpeta ES un proyecto, sus memorias van al project_key de ese repo en vez
     // de amontonarse en `__global__`. El slug no se parsea (no se puede: es ambiguo); se
@@ -189,7 +184,7 @@ export function importAllMarkdownSources(store: MemoryStore, sources: MarkdownIm
     if (!stat.isFile()) continue
 
     // La clave del dedupe lleva el project_key. Sin él, dos proyectos con un `MEMORY.md` de
-    // contenido idéntico perdían uno de los dos — el dedupe existe para el CLAUDE.md global
+    // contenido idéntico perderían uno de los dos — el dedupe existe para el CLAUDE.md global
     // symlinkeado en cada cuenta, que siempre cae en el mismo project_key, así que sumarle
     // el proyecto no afloja ese caso y deja de tirar memorias de proyectos distintos.
     const hash = `${fileHash(candidate.path)}|${candidate.projectKey}`

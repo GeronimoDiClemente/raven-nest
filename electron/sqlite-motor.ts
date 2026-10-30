@@ -6,10 +6,9 @@
 //    núcleo compartido con el paquete portátil, que corre bajo Node pelado. Lo fija
 //    `paquete-sin-nativas.test.ts`, que camina el grafo de imports.
 // 2. El arranque que registra el motor —`main.ts` en Electron, el `setupFiles` en los tests—
-//    necesita registrarlo SIN cargar `memory-store.ts`. Cuando el registro vivía adentro de
-//    ese archivo, el setup de los tests lo importaba y lo cargaba antes de que un test
-//    pudiera instalar su `vi.mock('fs')`: el módulo quedaba con el `fs` real y tres tests de
-//    migración dejaron de ver el fallo que simulaban. Un archivo intermedio y vacío de
+//    necesita registrarlo SIN cargar `memory-store.ts`. Si el registro viviera adentro de ese
+//    archivo, el setup de los tests lo cargaría antes de que un test pueda instalar su
+//    `vi.mock('fs')`, y el módulo quedaría con el `fs` real. Un archivo intermedio y vacío de
 //    dependencias corta esa cadena.
 import type { AbridorDeBase } from './sqlite-forma'
 

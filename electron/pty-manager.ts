@@ -30,22 +30,17 @@ export interface ShellOverride {
  */
 export interface PtyMemoryIntegration {
   socketPath: string
-  /** C2: shared secret injected as NEST_MEMORY_TOKEN — see memory-local-auth.ts. */
+  /** Shared secret injected as NEST_MEMORY_TOKEN — see memory-local-auth.ts. */
   authToken: string
   isEnabled: () => boolean
   /**
-   * M11 fix: this used to be `getClaudeSettingsFlagArgs`, a READ-ONLY check of whether
-   * `.nest/memory-settings.json` already existed — nothing ever actually called
-   * `provisionClaudeAccount` here. An account created before Connect Memory, or one
-   * whose provisioning failed once (disk error, race with account creation), silently
-   * never got the `--settings` flag or working hooks, forever, with no retry. Per
-   * §2.5 ("defensively from PtyManager.create() before spawn"), this is now the
-   * (idempotent) provisioning call itself — every AI pane spawn is the one integration
-   * point that can self-heal a missing/stale provisioning state.
+   * The (idempotent) provisioning call itself, not a read-only check. Per §2.5
+   * ("defensively from PtyManager.create() before spawn"), every AI pane spawn is the one
+   * integration point that can self-heal a missing/stale provisioning state — an account
+   * created before Connect Memory, or one whose provisioning failed once (disk error, race
+   * with account creation), would otherwise never get the `--settings` flag or hooks.
    *
-   * Generalized (multi-AI memory registry, Step 1): this used to be
-   * `ensureClaudeProvisioned(accountDir): string[]`, hardcoded to Claude. Dispatch by
-   * binary name now lives in the caller (main.ts, via `adapterForBin` from
+   * Dispatch by binary name lives in the caller (main.ts, via `adapterForBin` from
    * memory-cli-adapters.ts), so pty-manager.ts calls this the same way for every AI
    * type and needs no change when a Gemini/Codex adapter is registered — an
    * unrecognized `bin` simply comes back as `{args: [], env: {}}`, a no-op.
@@ -56,7 +51,7 @@ export interface PtyMemoryIntegration {
 const BUFFER_MAX_LINES = 10_000
 
 /**
- * Minor hardening: `launchCmd` is typed literally into the shell via `ptyProcess.write()`
+ * `launchCmd` is typed literally into the shell via `ptyProcess.write()`
  * (see below), so a `--settings <path>` argument must be safely quoted for the
  * platform's shell — a path or account name containing a literal `"` would otherwise
  * break out of the quoted argument. PowerShell escapes an embedded `"` inside a
@@ -87,8 +82,7 @@ export function parseAccountDir(accountDir: string): { aiType: string; accountNa
  * node whose agent has no saved account (main.ts's `accountDirForAgent` returns '' and
  * PtyManager deliberately does NOT redirect HOME, so the CLI keeps its own credentials).
  *
- * MEMORY_INTEGRATIONS_CONTRACT §3.2: the memory block used to live inside
- * `if (accountDir && cmd)`, so those nodes fell out of memory entirely. They need a
+ * MEMORY_INTEGRATIONS_CONTRACT §3.2: those nodes get memory too, so they need a
  * place to hold the Nest-owned hooks/MCP files, and it must NOT be the user's real home
  * — provisioning there would write `mcpServers.nest_memory` into the machine's global
  * ~/.claude.json. This dir is inside Nest's own storage root, shaped like any account
@@ -109,7 +103,7 @@ export class PtyManager extends EventEmitter {
   private lastSize = new Map<string, { cols: number; rows: number }>()
   // Un drag o un resize de split hace pasar al pane por decenas de tamanos
   // REALES distintos, uno por frame. Mandarlos todos hace repintar la TUI en
-  // cada paso (el banner de Claude Code se multiplicaba, cada copia con un
+  // cada paso (el banner de Claude Code se multiplica, cada copia con un
   // ancho distinto), asi que esperamos a que el tamano se quede quieto y
   // mandamos solo el ultimo.
   private static readonly MIN_COLS = 20
@@ -221,15 +215,14 @@ export class PtyManager extends EventEmitter {
     // AI pane passes through, same reasoning as the HOME rewrite above. env is injected
     // for every AI type; provisioning itself is dispatched generically by binary name
     // through the adapter registry (memory-cli-adapters.ts, via `ensureProvisioned` on
-    // this integration). Phase 1 only registers 'claude' there, so a bin with no
-    // adapter comes back as `{args: [], env: {}}` and launchCmd is left untouched —
-    // same observable behavior as before this file knew Codex/Gemini could exist.
+    // this integration). A bin with no adapter comes back as `{args: [], env: {}}` and
+    // launchCmd is left untouched.
     //
-    // §3.2 fix: this deliberately sits OUTSIDE the `accountDir` branch above. Memory is
+    // §3.2: this deliberately sits OUTSIDE the `accountDir` branch above. Memory is
     // not a consequence of the HOME redirection — a headless graph node runs with the
-    // real HOME and an empty accountDir, and used to be skipped in silence.
+    // real HOME and an empty accountDir, and still gets memory.
     if (cmd && this.memory) {
-      // §3.1 fix: match the BINARY, not the whole command. The graph orchestrator
+      // §3.1: match the BINARY, not the whole command. The graph orchestrator
       // launches nodes with `claude --model <x>` (graph-tick.ts `launchCommand`), and a
       // plain `cmd === 'claude'` comparison would miss exactly those.
       const bin = cmd.split(' ')[0]
@@ -258,7 +251,7 @@ export class PtyManager extends EventEmitter {
 
         // §2.5 "the shared-config hazard": hooks load ONLY via the isolated
         // --settings file, never by writing accountDir/.claude/settings.json.
-        // M11: ensureProvisioned (RE-)PROVISIONS the account, not just checks it.
+        // ensureProvisioned (RE-)PROVISIONS the account, not just checks it.
         if (this.memory.isEnabled()) {
           const { args: extraArgs, env: extraEnv } = this.memory.ensureProvisioned(bin, memoryHome)
           Object.assign(env, extraEnv)

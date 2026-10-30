@@ -25,8 +25,8 @@ export function lineaDeSync(e: {
       ? `Local only — ${cambios} queued. Run \`${comando('login')}\` to sync them.`
       : `Local only. Run \`${comando('login')}\` to sync across machines.`
   }
-  // `servicioDelPaquete` (desde 5dc84c5) siempre resuelve a algo — env, lo guardado, o el
-  // default de Nest — así que "sin servicio configurado" ya no es un estado alcanzable acá.
+  // `servicioDelPaquete` siempre resuelve a algo — env, lo guardado, o el default de Nest —
+  // así que "sin servicio configurado" no es un estado alcanzable acá.
   // Va ANTES de la cola normal: con la cuenta cifrada y sin la maestra no sube nada, así que
   // prometer que sube «la próxima vez» deja al usuario esperando algo que no va a pasar.
   if (e.esperandoAutorizacion) {

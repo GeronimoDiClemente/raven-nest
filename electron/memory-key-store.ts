@@ -72,9 +72,9 @@ export function saveKeyMaterial(
   const path = keyFilePath(ravenHomeDir, userId)
   mkdirSync(dirname(path), { recursive: true })
   // Atomico: escribir a un temporal y renombrar. Directo sobre el archivo final, un corte de
-  // luz o un crash a mitad de escritura dejaba un `keys.bin` TRUNCADO — y un archivo
+  // luz o un crash a mitad de escritura deja un `keys.bin` TRUNCADO — y un archivo
   // truncado no se distingue de "todavia no hay claves", asi que el arranque siguiente
-  // generaba un par nuevo y lo pisaba, destruyendo para siempre la unica privada capaz de
+  // generaria un par nuevo y lo pisaria, destruyendo para siempre la unica privada capaz de
   // abrir la envoltura publicada en el servidor.
   const tmp = `${path}.tmp`
   writeFileSync(tmp, safe.encryptString(JSON.stringify(material)), { mode: 0o600 })
@@ -89,9 +89,9 @@ export function saveKeyMaterial(
  *
  * **Nunca pisa un archivo que existe pero no se pudo leer.** `loadKeyMaterial` devuelve
  * `null` ante cualquier problema —JSON roto, safeStorage que dejo de abrir tras restaurar el
- * llavero, archivo truncado— y confundir eso con "primer arranque" destruia la maestra: se
- * generaba un par nuevo encima y la privada que era lo unico capaz de abrir la envoltura
- * publicada en el servidor desaparecia. El archivo se renombra a `.roto` y se deja: un
+ * llavero, archivo truncado— y confundir eso con "primer arranque" destruiria la maestra: se
+ * generaria un par nuevo encima y desapareceria la privada, lo unico capaz de abrir la
+ * envoltura publicada en el servidor. El archivo se renombra a `.roto` y se deja: un
  * respaldo del llavero puede volver a abrirlo, un archivo pisado no vuelve nunca.
  */
 export function ensureKeyMaterial(
@@ -106,11 +106,10 @@ export function ensureKeyMaterial(
    * Si `safeStorage` no esta disponible AHORA, no se toca nada.
    *
    * `loadKeyMaterial` devuelve `null` tanto por un archivo ilegible como porque el llavero
-   * del sistema no abrio en este momento — y esos dos casos necesitan lo contrario. La
-   * version anterior de esta funcion apartaba el archivo en los dos, asi que un llavero
-   * caido un instante (la sesion todavia no desbloqueada, DPAPI que tarda) apartaba un
-   * `keys.bin` SANO y generaba un par nuevo: exactamente la destruccion que este arreglo
-   * existia para impedir, con un disparador mas facil que el original.
+   * del sistema no abrio en este momento — y esos dos casos necesitan lo contrario. Apartar
+   * el archivo en los dos haria que un llavero caido un instante (la sesion todavia no
+   * desbloqueada, DPAPI que tarda) apartara un `keys.bin` SANO y generara un par nuevo:
+   * exactamente la destruccion que lo de abajo existe para impedir.
    */
   if (!safe.isEncryptionAvailable()) {
     throw new Error(

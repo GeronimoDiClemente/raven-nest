@@ -14,9 +14,9 @@ function assertSafe(aiType: string, name?: string): void {
   if (name === undefined) return
   // '' and '.' resolve to the aiType root itself: delete() with either would
   // rmSync EVERY account of that type. join() swallows empty segments, so the
-  // traversal checks below never see them. (PR #14, main)
+  // traversal checks below never see them.
   //
-  // Quote characters are additionally rejected (minor, Nest Memory review round 1):
+  // Quote characters are additionally rejected:
   // an account name becomes part of `accountDir`, which the Nest Memory provisioner can
   // pass through `--settings <accountDir>/.nest/memory-settings.json` on the literal
   // shell command line PtyManager writes into the pane (see quoteShellArg there). This

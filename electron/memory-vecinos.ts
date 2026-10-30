@@ -131,7 +131,7 @@ export function vecinosDeMemoria(db: BaseSqlite, syncId: string): VecinoDeMemori
   const misAlias = parsearAlias(fila.content ?? '')
   // Y por el ÚLTIMO tramo del topic, que es por donde resuelve `resolverWikilink` cuando el
   // topic trae prefijo (`claude-memory/release-yml` ← `[[release-yml]]`): el topic entero
-  // no aparece en el texto de quien linkea, y sin esto el backlink se perdía en el caso más
+  // no aparece en el texto de quien linkea, y sin esto el backlink se pierde en el caso más
   // común del corpus real.
   const tramo = fila.topic_key?.includes('/') ? fila.topic_key.slice(fila.topic_key.lastIndexOf('/') + 1) : null
   for (const frase of [fila.title, fila.topic_key, tramo, ...misAlias]) {

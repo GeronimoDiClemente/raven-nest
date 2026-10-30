@@ -9,9 +9,8 @@ import { dirname } from 'path'
 import { timingSafeEqual } from 'crypto'
 // Deliberately NOT importing isWin from ./platform — that module imports `electron`
 // (for getIconsDir()) at module scope, which makes ANY importer unloadable outside a
-// real Electron process (e.g. under plain-Node vitest, as memory-ipc-server.test.ts
-// discovered — "Electron failed to install correctly" when this file pulled it in
-// transitively). This check is a one-liner; inlining it avoids the whole chain.
+// real Electron process (e.g. under plain-Node vitest: "Electron failed to install
+// correctly"). This check is a one-liner; inlining it avoids the whole chain.
 const isWin = process.platform === 'win32'
 import { MemoryStore } from './memory-store'
 import { resolveProjectKey } from './memory-project-key'
@@ -34,7 +33,7 @@ import type {
   UpdateMemoryParams,
 } from './memory-protocol'
 import { generateSyncId } from './memory-store'
-// M26: type-only import — memory-daemon.ts has no `electron` import in its own chain
+// Type-only import — memory-daemon.ts has no `electron` import in its own chain
 // (same reasoning as the isWin inlining above for MemoryStore), so this doesn't
 // reintroduce the "unloadable outside real Electron" problem the isWin comment warns
 // about. `Pick<...>` (not the whole class) is what MemoryIpcServerDeps.daemon actually
@@ -49,7 +48,7 @@ export interface GitInfoResolver {
   (cwd: string): GitInfo | null | Promise<GitInfo | null>
 }
 
-// M22: an unbounded per-connection buffer lets a misbehaving or malicious local client
+// An unbounded per-connection buffer lets a misbehaving or malicious local client
 // grow memory without limit by never sending a newline. 1 MiB comfortably covers any
 // real request (the largest payload is a memory_save title+content) with headroom.
 const MAX_LINE_BYTES = 1024 * 1024
@@ -57,7 +56,7 @@ const MAX_LINE_BYTES = 1024 * 1024
 // dropped after this so a hung/leaked socket doesn't accumulate server-side.
 const CONNECTION_IDLE_TIMEOUT_MS = 30_000
 
-// M26: how long a zero-result memory_search will wait on a triggered daemon pull before
+// How long a zero-result memory_search will wait on a triggered daemon pull before
 // giving up and answering from local data anyway. The daemon's own pull interval is 5
 // minutes (memory-daemon.ts's INTERVAL_MS) — this fallback exists BECAUSE that's too
 // slow for "I just saved this on my other laptop, search for it now"; 8s is long enough
@@ -67,19 +66,17 @@ const CONNECTION_IDLE_TIMEOUT_MS = 30_000
 // sets it, so this default is what actually runs.
 const DEFAULT_SEARCH_PULL_TIMEOUT_MS = 8_000
 
-// Task 1 (plan de memoria por cuenta multi-dispositivo), Step 3b: how long suspend()
-// waits for MemoryIpcServer's OWN in-flight dispatch() call(s) to drain before giving up
-// and proceeding anyway. Independent from memory-daemon.ts's PAUSE_DRAIN_TIMEOUT_MS —
-// that one drains push()/pull() network calls; this one drains in-progress LOCAL
-// dispatch() invocations, which is the guarantee the adversarial review's finding 4
-// asked for (see suspend()'s own doc comment below). Overridable via deps for tests
-// only, mirrors DEFAULT_SEARCH_PULL_TIMEOUT_MS / searchPullTimeoutMs (M26) just above —
+// How long suspend() waits for MemoryIpcServer's OWN in-flight dispatch() call(s) to
+// drain before giving up and proceeding anyway. Independent from memory-daemon.ts's
+// PAUSE_DRAIN_TIMEOUT_MS — that one drains push()/pull() network calls; this one drains
+// in-progress LOCAL dispatch() invocations (see suspend()'s own doc comment below).
+// Overridable via deps for tests only, like DEFAULT_SEARCH_PULL_TIMEOUT_MS just above —
 // production wiring (main.ts) never sets it, so this default is what actually runs.
 const DEFAULT_SUSPEND_DRAIN_TIMEOUT_MS = 5_000
 const SUSPEND_POLL_INTERVAL_MS = 10
 
 /**
- * M26: the subset of MemoryDaemon the pull-through search fallback needs. Narrower than
+ * The subset of MemoryDaemon the pull-through search fallback needs. Narrower than
  * the whole class so memory-ipc-server.test.ts can pass a plain `{ pull, isOnline }`
  * fake instead of constructing (or fully mocking) a real MemoryDaemon.
  */
@@ -88,23 +85,23 @@ export type MemoryIpcServerDaemon = Pick<MemoryDaemon, 'pull' | 'isOnline'>
 export interface MemoryIpcServerDeps {
   store: MemoryStore
   socketPath: string
-  /** C2: shared secret every request must present — see memory-local-auth.ts. */
+  /** Shared secret every request must present — see memory-local-auth.ts. */
   authToken: string
   resolveGitInfo?: GitInfoResolver
   onMutation?: () => void // called after any write — the daemon uses this to schedule a debounced push
-  // M26: optional so a degraded memory subsystem (main.ts's try/catch around
+  // Optional so a degraded memory subsystem (main.ts's try/catch around
   // `new MemoryStore(...)` — a construction failure there leaves `memory` null and skips
-  // this entirely) and existing tests that don't care about the fallback keep working
-  // unchanged. When absent, memory.search behaves exactly as it did before M26.
+  // this entirely) and tests that don't care about the fallback keep working. When absent,
+  // memory.search answers from local data only, with no pull-through fallback.
   daemon?: MemoryIpcServerDaemon
-  /** M26: test-only override of DEFAULT_SEARCH_PULL_TIMEOUT_MS — see that constant. */
+  /** Test-only override of DEFAULT_SEARCH_PULL_TIMEOUT_MS — see that constant. */
   searchPullTimeoutMs?: number
-  /** Task 1 Step 3b: test-only override of DEFAULT_SUSPEND_DRAIN_TIMEOUT_MS — see that constant. */
+  /** Test-only override of DEFAULT_SUSPEND_DRAIN_TIMEOUT_MS — see that constant. */
   suspendDrainTimeoutMs?: number
 }
 
 /**
- * M26: races `promise` against a timer so a hanging daemon.pull() can never hang the
+ * Races `promise` against a timer so a hanging daemon.pull() can never hang the
  * memory_search tool call it was triggered from. Deliberately resolves (never rejects)
  * on both the timeout AND a pull() rejection (bad network, 401, etc.) — either way the
  * caller falls back to whatever is already on disk, and memory-daemon.ts already records
@@ -133,7 +130,7 @@ function tokensMatch(a: string, b: string): boolean {
 export class MemoryIpcServer {
   private server: Server | null = null
   private readonly deps: MemoryIpcServerDeps
-  // Task 1 Step 3b: hot-swap support — see suspend()/resume()/setStore() below and their
+  // Hot-swap support — see suspend()/resume()/setStore() below and their
   // use in dispatch()'s guard + increment/decrement.
   private swapping = false
   private inFlightDispatches = 0
@@ -170,15 +167,15 @@ export class MemoryIpcServer {
   }
 
   /**
-   * Task 1 Step 3b: the IPC-server side of a hot-swap (see memory-daemon.ts's pause() for
+   * The IPC-server side of a hot-swap (see memory-daemon.ts's pause() for
    * the daemon side, and memory-account-switch.ts for the orchestrator that calls both).
    * Rejects every NEW request from this point on — dispatch()'s `if (this.swapping)`
    * guard at its top — and waits for whatever dispatch() call(s) were already in flight
    * when this was called to actually finish.
    *
    * That in-flight count is this class's OWN tracking (`inFlightDispatches`), not
-   * borrowed from the daemon's pushInFlight/pullInFlight (adversarial review finding 4):
-   * a dispatch can be sitting in the M26 pull-through search fallback — awaiting
+   * borrowed from the daemon's pushInFlight/pullInFlight: a dispatch can be sitting in
+   * the pull-through search fallback — awaiting
    * `daemon.pull()` — without the daemon itself being paused yet, so only a counter
    * local to dispatch() itself can guarantee nothing is still touching `this.deps.store`
    * once this resolves.
@@ -205,13 +202,13 @@ export class MemoryIpcServer {
     }
   }
 
-  /** Task 1 Step 3b: the other half of suspend() — reopens the door to new requests. */
+  /** The other half of suspend() — reopens the door to new requests. */
   resume(): void {
     this.swapping = false
   }
 
   /**
-   * Task 1 Step 3b: reassigns the store this server reads/writes without recreating the
+   * Reassigns the store this server reads/writes without recreating the
    * server (which would mean re-listen()ing the socket). Must only be called while
    * suspended — after suspend()'s await has actually returned — so no in-flight
    * dispatch() is mid-request against the OLD store when this reassigns `deps.store` out
@@ -252,17 +249,16 @@ export class MemoryIpcServer {
     } catch {
       return
     }
-    // C2: reject before dispatch — an invalid/missing token never reaches the store.
+    // Reject before dispatch — an invalid/missing token never reaches the store.
     if (typeof request.token !== 'string' || !tokensMatch(request.token, this.deps.authToken)) {
       const response: MemoryResponse = { id: request.id, ok: false, error: 'unauthorized' }
       socket.write(`${JSON.stringify(response)}\n`)
       return
     }
-    // M26: dispatch() is now async (memory.search may await a bounded pull-through
-    // fallback, and the methods that resolve a project key await git via resolveGitInfo).
-    // One line per connection in practice (client.ts opens
-    // a fresh socket per call), so there's no request-ordering concern from not awaiting
-    // this inline.
+    // dispatch() is async (memory.search may await a bounded pull-through fallback, and
+    // the methods that resolve a project key await git via resolveGitInfo). One line per
+    // connection in practice (client.ts opens a fresh socket per call), so there's no
+    // request-ordering concern from not awaiting this inline.
     this.dispatch(request).then(
       (result) => {
         const response: MemoryResponse = { id: request.id, ok: true, result }
@@ -331,16 +327,16 @@ export class MemoryIpcServer {
   }
 
   private async dispatch(request: MemoryRequest): Promise<unknown> {
-    // Task 1 Step 3b: reject before touching the store at all — a hot-swap in progress
+    // Reject before touching the store at all — a hot-swap in progress
     // (see suspend() below) must never let a new request read/write a store that's about
     // to be (or already is) closed/renamed out from under it. 'store_swapping' is a
     // string convention, not a `code` field — MemoryResponseErr only carries
     // `error: string` (memory-protocol.ts) — and client.ts (electron/memory-mcp/client.ts)
     // retries ONLY on this exact message, with a short fixed backoff.
     if (this.swapping) throw new Error('store_swapping')
-    // Task 1 Step 3b: this class's OWN in-flight tracking (adversarial review finding 4)
-    // — NOT borrowed from the daemon's pushInFlight/pullInFlight. A dispatch can be
-    // sitting in the M26 pull-through search fallback (awaiting daemon.pull()) without
+    // This class's OWN in-flight tracking — NOT borrowed from the daemon's
+    // pushInFlight/pullInFlight. A dispatch can be sitting in the pull-through search
+    // fallback (awaiting daemon.pull()) without
     // the daemon itself being paused yet; this counter is the only real guarantee that
     // nothing is still executing dispatch() against `this.deps.store` when suspend()
     // resolves. Incremented here, before the switch; decremented in the `finally` below
@@ -380,7 +376,7 @@ export class MemoryIpcServer {
           const items = store.search(projectKey, params.query, limit)
           if (items.length > 0) return { items } as SearchMemoryResult
 
-          // M26 pull-through search: a LOCAL zero-result miss is exactly the shape of "an
+          // Pull-through search: a LOCAL zero-result miss is exactly the shape of "an
           // agent asks about something just saved on another device" — sync only lands
           // locally on the daemon's own ~5-minute interval (memory-daemon.ts's
           // INTERVAL_MS), so without this the answer is a false "nothing here" for up to
@@ -388,7 +384,7 @@ export class MemoryIpcServer {
           // MISS, it never runs (or overrides) a local HIT — see the `items.length > 0`
           // return above. Skip entirely (no pull attempt at all) when there's no daemon
           // wired or it reports offline/disconnected — daemon.pull() already dedupes
-          // concurrent callers via pullInFlight (M19) and chains full pages via M25, so
+          // concurrent callers via pullInFlight and chains full pages, so
           // calling it here piggybacks on whatever pull is already in flight rather than
           // starting a redundant one.
           const daemon = this.deps.daemon
@@ -413,9 +409,9 @@ export class MemoryIpcServer {
           return { ok }
         }
 
-        // Team Memory Layer 1, Parte 6/7 (lado cliente): promueve una observacion
-        // existente a scope 'team' — ver el doc comment de promoteToTeam() en
-        // memory-store.ts para el diseño completo (idempotencia, promotion_queue, etc.).
+        // Promueve una observacion existente a scope 'team' — ver el doc comment de
+        // promoteToTeam() en memory-store.ts para el diseño completo (idempotencia,
+        // promotion_queue, etc.).
         case 'memory.promote': {
           const params = request.params as PromoteMemoryParams
           const result = store.promoteToTeam(params.syncId, params.reason ?? null)
@@ -526,9 +522,8 @@ export class MemoryIpcServer {
 
         case 'hook.preCompact': {
           const params = request.params as HookPreCompactParams
-          // Antes escribía un placeholder que decía "rollup pending on session close" — y ese
-          // rollup NUNCA llegaba, porque `Stop` no escribía nada. Ahora guarda el resumen de
-          // verdad: si la sesión se compacta, lo hablado hasta acá ya quedó.
+          // Guarda el resumen de verdad, no un placeholder: si la sesión se compacta, lo
+          // hablado hasta acá ya quedó.
           await this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'precompact')
           this.deps.onMutation?.()
           return { ok: true }

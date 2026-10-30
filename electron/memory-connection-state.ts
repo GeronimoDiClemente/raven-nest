@@ -10,17 +10,15 @@ import { randomUUID, randomBytes } from 'crypto'
 export interface MemoryConnectionState {
   connected: boolean
   /**
-   * C1: local capture, independent of the cloud. Defaults to true because that is the
-   * promise the free plan's card already makes ("Local memory active") and which used to
-   * be false: all three capture points in main.ts hung off `connected`, so without
-   * pressing Connect nothing was saved at all, silently. `connected` now gates only the
-   * sync daemon, nothing else.
+   * Local capture, independent of the cloud. Defaults to true because that is the promise
+   * the free plan's card makes ("Local memory active"). `connected` gates only the sync
+   * daemon, nothing else.
    */
   localEnabled: boolean
   deviceId: string | null
   connectedAt: number | null
   /**
-   * C4: base of the sync service. `null` means "use the one from the build" (the
+   * Base of the sync service. `null` means "use the one from the build" (the
    * MAIN_VITE_SYNC_URL env var, or the default in base-de-sync.ts), which is what keeps
    * an existing installation working without anyone touching a file. Lives here and not in settings-store.ts
    * because it is memory-subsystem state, same as deviceId, and because pointing at a
@@ -28,9 +26,9 @@ export interface MemoryConnectionState {
    */
   syncBaseUrl: string | null
   /**
-   * C8: this machine's real hostname. The renderer only has `navigator.platform`, which
-   * reports 'Win32' on any Windows machine — a user's two PCs were reaching the server
-   * with the same name and collapsing into one device, with cursors stomping each other.
+   * This machine's real hostname. The renderer only has `navigator.platform`, which
+   * reports 'Win32' on any Windows machine — a user's two PCs would reach the server with
+   * the same name and collapse into one device, with cursors stomping each other.
    * The hostname only exists in the main process, so it is resolved and persisted here.
    *
    * Getting this name TO the server is part of the new backend: the spec's §5.3 puts
@@ -71,8 +69,7 @@ export function getMemoryConnectionState(ravenHomeDir: string): MemoryConnection
 }
 
 // Atomic write (tmp + rename), matching the house pattern in session-store.ts /
-// local-paths-store.ts (docs/GUIA-TESTEO-BAUTISTA.md: "escribí atómico... el patrón
-// está en electron/session-store.ts (PR #15): copiá ese"). A per-call random tmp
+// local-paths-store.ts. A per-call random tmp
 // filename — not just a fixed `.tmp` suffix — so two concurrent IPC handlers writing
 // this same file (e.g. memory:connect and memory:ensureDeviceId) can't clobber each
 // other's in-flight write (local-paths-store.ts's variant of the pattern).

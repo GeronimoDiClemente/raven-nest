@@ -1,5 +1,4 @@
-// Codex CLI memory provisioning (docs/nest-memory-architecture.md §2.5, §9 — the "Phase 2
-// adapter" the doc's Claude-only section anticipates).
+// Codex CLI memory provisioning (docs/nest-memory-architecture.md §2.5, §9).
 //
 // Deliberately a separate file from memory-provisioner.ts, same reason that file's own
 // header and memory-provisioner-gemini.ts's header give: no shared-config hazard applies
@@ -9,41 +8,28 @@
 // DESIGN NOTE — how this diverges from both Claude and Gemini, and why.
 //
 // docs/nest-memory-architecture.md §2.5 lists `codex` -> `{accountDir}/.codex/config.toml`,
-// implying HOME-based resolution like Claude. That row is WRONG on Windows — verified
-// empirically (see below), not assumed. Codex ignores HOME/USERPROFILE entirely for
+// implying HOME-based resolution like Claude. That row is WRONG on Windows: Codex ignores
+// HOME/USERPROFILE entirely for
 // locating its config; only the explicit CODEX_HOME env var redirects it. That makes Codex
 // closer to Gemini's GEMINI_CLI_HOME (an explicit env var is the only isolation lever) than
 // to Claude's implicit HOME resolution.
 //
 // UNLIKE Gemini, though, there is no pre-existing Codex identity home for Nest to collide
-// with: pty-manager.ts has no `cmd === 'codex'` block and never sets CODEX_HOME anywhere
-// (confirmed by grep across pty-manager.ts — zero matches for "codex" in any case). So this
-// module CAN do what the original task spec asked for and what Gemini's module explicitly
-// could NOT: mint a brand-new, 100%-Nest-owned home at `{accountDir}/.nest/codex-home`, and
+// with: pty-manager.ts never sets CODEX_HOME anywhere. So this module CAN do what Gemini's
+// module explicitly could NOT: mint a brand-new, 100%-Nest-owned home at
+// `{accountDir}/.nest/codex-home`, and
 // have provision()/deprovision() treat config.toml as fully owned (overwrite wholesale,
 // delete wholesale) — no surgical merge needed, same simplicity as Claude's `.nest/`.
 //
-// VERIFIED INCIDENT (already resolved, kept here so it isn't rediscovered the hard way):
-// while confirming that HOME/USERPROFILE do NOT isolate Codex's config, running
-// `codex mcp add smoketest -- echo hello` with HOME/USERPROFILE pointed at a tmp dir still
-// wrote to the REAL `C:\Users\gerod\.codex\config.toml` (a file that did not exist before).
-// It was deleted immediately and `.codex/`'s other contents (memories/, skills/, log/, an
-// install from earlier) were confirmed unchanged. Lesson encoded in this module: CODEX_HOME
-// must always be passed as an explicit env var override, never inferred from HOME.
+// TRAP: with HOME/USERPROFILE pointed at a tmp dir, `codex mcp add` still writes to the
+// user's REAL `~/.codex/config.toml`. CODEX_HOME must always be passed as an explicit env var
+// override, never inferred from HOME.
 //
-// TOML FORMAT (verified against codex-cli 0.140.0 installed on this machine, via
-// `codex mcp add` for the mcp_servers block and `codex doctor` for the hooks block — not
-// assumed): Codex's own `mcp add` generates `command`/`args` as TOML LITERAL strings
+// TOML FORMAT: Codex's own `mcp add` generates `command`/`args` as TOML LITERAL strings
 // (single-quoted) rather than basic strings, presumably because that needs no escaping for
-// Windows backslash paths. Hand-writing the hooks block with basic (double-quoted) strings
-// and manually escaping backslashes produced a config `codex doctor` rejected outright
-// ("config could not be loaded"). Switching every path-bearing hook `command` to a TOML
-// literal string as well fixed it — re-verified end-to-end with `codex doctor` against a
-// throwaway CODEX_HOME (config.toml parse: ok, MCP servers: 1, no load error) and with
-// `codex mcp list` (nest_memory listed with the right command/args/env) before this module
-// was written. `--dangerously-bypass-hook-trust` was independently confirmed to be a real,
-// accepted root-level flag (not just documented in --help) via
-// `codex --dangerously-bypass-hook-trust features list` (exit 0, `hooks stable true`).
+// Windows backslash paths. A hooks block with basic (double-quoted) strings and manually
+// escaped backslashes is rejected outright by `codex doctor` ("config could not be loaded"),
+// so every path-bearing hook `command` is a TOML literal string as well.
 import { existsSync, mkdirSync, rmSync } from 'fs'
 import { join } from 'path'
 import { writeFileAtomic, writeWrapperScript, type ProvisionerPaths } from './memory-provisioner'
@@ -68,7 +54,7 @@ function tomlLiteral(value: string): string {
 
 /** Codex's per-Nest-account isolated home — see file header for why this is a NEW home
  *  (unlike Gemini's reuse of an existing identity home) and why CODEX_HOME must be passed
- *  explicitly rather than relying on HOME/USERPROFILE (verified: Codex ignores both). */
+ *  explicitly rather than relying on HOME/USERPROFILE (Codex ignores both). */
 function codexHomeDir(accountDir: string): string {
   return join(accountDir, '.nest', 'codex-home')
 }
@@ -98,11 +84,9 @@ function buildConfigToml(paths: ProvisionerPaths, wrapper: string): string {
   return lines.join('\n') + '\n'
 }
 
-/** Confirmed as a real, accepted root-level (interactive CLI) option via `codex --help`
- *  (listed directly under `Usage: codex [OPTIONS] [PROMPT]`, not only under `codex exec`)
- *  and via an actual invocation (`codex --dangerously-bypass-hook-trust features list`,
- *  exit 0) — not merely present in --help text. Always included alongside CODEX_HOME,
- *  mirroring how Claude's adapter only adds `--settings` when memory provisioning ran. */
+/** A root-level (interactive CLI) option, not only a `codex exec` one. Always included
+ *  alongside CODEX_HOME, mirroring how Claude's adapter only adds `--settings` when memory
+ *  provisioning ran. */
 const BYPASS_HOOK_TRUST_ARGS = ['--dangerously-bypass-hook-trust']
 
 /**

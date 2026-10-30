@@ -1,10 +1,10 @@
 // Local IPC access control for Nest Memory — see docs/nest-memory-architecture.md §1.1
-// and the C2 fix note in memory-protocol.ts.
+// and the C2 note in memory-protocol.ts.
 //
 // Why this exists: on Windows, Node's `net` module offers no way to attach a custom
 // DACL to a named pipe, and no way to read the connecting process's user SID to verify
 // it before serving a request — both would require a full native (Win32 API) transport
-// layer, which is a much larger and riskier undertaking than this fix warrants. Instead,
+// layer, which is a much larger and riskier undertaking than this warrants. Instead,
 // every request carries a shared-secret token that only a process running as the SAME
 // Windows/POSIX user can read, because the token file inherits the same per-user
 // filesystem permissions every other secret in this app already relies on
@@ -66,11 +66,10 @@ export function ensureLocalAuthMaterial(ravenHomeDir: string): LocalAuthMaterial
     token: randomBytes(32).toString('hex'),
   }
   mkdirSync(join(ravenHomeDir, '.raven-nest', 'memory'), { recursive: true })
-  // Atomic write (tmp + rename) — house pattern from session-store.ts/local-paths-store.ts
-  // (docs/GUIA-TESTEO-BAUTISTA.md). A crash mid-write must never leave a truncated,
-  // unparseable pipe-auth.json — that would silently regenerate fresh (harmless, just a
-  // reconnect-required blip) rather than the historically worse "half-written secret on
-  // disk" failure mode. mode 0600 is set on the tmp file so the final path (same inode
+  // Atomic write (tmp + rename), same pattern as session-store.ts/local-paths-store.ts.
+  // A crash mid-write must never leave a truncated pipe-auth.json — worst case it
+  // regenerates fresh (just a reconnect-required blip), never a half-written secret on
+  // disk. mode 0600 is set on the tmp file so the final path (same inode
   // after rename) inherits it — never briefly world-readable between write and chmod.
   const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
   writeFileSync(tmp, JSON.stringify(material), { mode: 0o600 })

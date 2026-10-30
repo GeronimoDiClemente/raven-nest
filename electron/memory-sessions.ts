@@ -1,7 +1,7 @@
 // Spec §2.2 / §7.1 ("fail loudly, no silent drops"). El cruce entre lo que Nest CREE que
-// tiene memoria (los panes a los que pty-manager.ts:231 les inyecto NEST_MEMORY_SOCKET) y
+// tiene memoria (los panes a los que pty-manager.ts les inyecta NEST_MEMORY_SOCKET) y
 // lo que el bridge VIO de verdad (la tabla `sessions`, que solo se escribe cuando
-// hook.sessionStart llega a memory-ipc-server.ts:407). La diferencia entre esos dos
+// hook.sessionStart llega a memory-ipc-server.ts). La diferencia entre esos dos
 // conjuntos es el fallo mudo.
 //
 // Puro a proposito: sin PTY, sin socket, sin SQLite. main.ts junta los dos lados y llama.

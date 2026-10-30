@@ -1,10 +1,9 @@
-// Puente de datos para el grafo navegable de memorias (estilo Obsidian). Ver
-// .superpowers/sdd/2026-09-09-migracion-tailwind-shadcn/grafo-datos-brief.md.
+// Puente de datos para el grafo navegable de memorias (estilo Obsidian).
 //
 // Función pura sobre una instancia de Database: no abre nada, no conoce Electron. Así se
 // testea con una db en memoria sin pasar por MemoryStore.
 //
-// Hallazgo verificado contra el schema (memory-store.ts BASE_SCHEMA, idx_obs_topic): el
+// Por el schema (memory-store.ts BASE_SCHEMA, idx_obs_topic): el
 // índice único `ON observations(project_key, scope, topic_key) WHERE topic_key IS NOT NULL
 // AND deleted = 0 AND superseded_by IS NULL` garantiza que, en datos reales, nunca hay dos
 // filas VIVAS (no borradas, no reemplazadas) con el mismo topic_key dentro del mismo
@@ -35,9 +34,8 @@ export type MemoryEdgeKind =
 
 export interface MemoryGraphNode {
   syncId: string
-  /** De que proyecto viene. La consulta ya lo traia (se usa para escopear las aristas
-   *  `topic` y `branch`), pero no salia del modulo — y sin el, la UI no puede agrupar por
-   *  proyecto, que es como Obsidian hace legible un grafo grande. */
+  /** De que proyecto viene. Sin el, la UI no puede agrupar por proyecto, que es como
+   *  Obsidian hace legible un grafo grande. */
   projectKey: string
   /** El nombre legible del proyecto, o `null` si nunca pasó por `ensureProject()`. La UI
    *  cae a `projectKey` — que es un hash — sólo cuando esto falta. */
@@ -45,11 +43,9 @@ export interface MemoryGraphNode {
   /**
    * Las etiquetas de la memoria.
    *
-   * Viajaban sólo en la consulta aparte de `computeSimilarEdges`, para que un fixture con
-   * una tabla `observations` mínima no se rompiera mientras no pidiera aristas `similar`.
-   * Ahora suben a la consulta principal porque la UI agrupa por tag —el equivalente más
-   * fiel de un Group de Obsidian, que es una CONSULTA y no un campo— y para eso necesita
-   * saber qué tags hay sin pedir nada más.
+   * Van en la consulta principal porque la UI agrupa por tag —el equivalente más fiel de un
+   * Group de Obsidian, que es una CONSULTA y no un campo— y para eso necesita saber qué tags
+   * hay sin pedir nada más.
    */
   tags: string[]
   title: string
@@ -107,9 +103,8 @@ export interface MemoryGraphQuery {
   limit: number // default 300
   /** Arista `similar` (tags compartidos, ponderados). A diferencia de revision/topic/branch
    *  — hechos que alguien afirmo (una supersesion explicita, un topic_key, una rama) — esta
-   *  es INFERENCIA sobre contenido. Optional + default false (no encaja con el comentario de
-   *  arriba de "sin campos opcionales": ese diseño es para las tres aristas-hecho, que un
-   *  caller siempre tiene que decidir; esta es aparte y opt-in). Ver computeSimilarEdges. */
+   *  es INFERENCIA sobre contenido, asi que es opt-in: optional + default false. Ver
+   *  computeSimilarEdges. */
   includeSimilar?: boolean
   /** Tope de aristas `similar` por nodo (los K vecinos mas parecidos, no todos). Default:
    *  DEFAULT_SIMILAR_MAX_PER_NODE. */
@@ -120,8 +115,7 @@ export interface MemoryGraphQuery {
 }
 
 /** K vecinos `similar` mas parecidos por nodo. 5: alcanza para navegar ("ver relacionados")
- *  sin que un tag popular convierta el grafo en un peloton negro de todos-contra-todos —
- *  ver el ejemplo de "bug" con 200 observaciones en el brief. */
+ *  sin que un tag popular convierta el grafo en un peloton negro de todos-contra-todos. */
 const DEFAULT_SIMILAR_MAX_PER_NODE = 5
 
 /** Piso de score (Jaccard ponderado, ver computeSimilarEdges) para emitir una arista
@@ -131,9 +125,9 @@ const DEFAULT_SIMILAR_MAX_PER_NODE = 5
 const DEFAULT_SIMILAR_MIN_SCORE = 0.3
 
 /** Fraccion del corpus tageado por encima de la cual un tag se considera "popular" y su
- *  peso se pisa a 0 (no aporta ni a la interseccion ni a la union del Jaccard). Encodea
- *  literal el brief: "si un tag aparece en la mayoria de las observaciones, conectar por
- *  el no dice nada". Sin este corte duro, dos observaciones que SOLO comparten un tag
+ *  peso se pisa a 0 (no aporta ni a la interseccion ni a la union del Jaccard): si un tag
+ *  aparece en la mayoria de las observaciones, conectar por el no dice nada. Sin este corte
+ *  duro, dos observaciones que SOLO comparten un tag
  *  casi-universal podrian dar Jaccard = 1 (interseccion == union) si no tienen ningun otro
  *  tag encima para diluir el ratio — un IDF suave no alcanza para ese caso limite, hace
  *  falta un piso explicito. 0.5 = "aparece en mas de la mitad" es la lectura mas directa de
@@ -199,7 +193,7 @@ function chainEdges(rows: GraphRow[], kind: MemoryEdgeKind, keyFn: (r: GraphRow)
  * una rama `main` no comparten nada, y un `CLAUDE.md` en cada uno no es el mismo documento.
  * Pero un topic_key SI es una decision deliberada de quien lo puso — si "auth" aparece en
  * dos repos, eso es trabajo sobre el mismo tema en los dos lados, que es justo lo que un
- * grafo de varios proyectos tiene para aportar y hoy no aportaba.
+ * grafo de varios proyectos tiene para aportar.
  *
  * Un REPRESENTANTE por proyecto (el mas reciente), y despues cadena entre representantes.
  * No todos contra todos: un topic compartido por 4 repos con 10 memorias cada uno daria
@@ -214,11 +208,10 @@ function crossProjectTopicEdges(rows: GraphRow[]): MemoryGraphEdge[] {
 /**
  * La misma idea, por TAG.
  *
- * Existe porque la de topic no alcanzaba con datos reales. El `topic_key` lo elige el agente
- * al guardar y casi nunca coincide entre dos repos: en la prueba del shim, tres memorias con
- * el tag `auth` en dos proyectos dieron topics distintos (`auth-cookies`, `auth-refresh`,
- * `auth-samesite`) y la del segundo repo quedó "sin conectar con ninguna otra" — o sea que
- * "trabajo en conjunto entre repos" era cierto en el código y falso en la pantalla.
+ * La de topic sola no alcanza: el `topic_key` lo elige el agente al guardar y casi nunca
+ * coincide entre dos repos (tres memorias con el tag `auth` en dos proyectos pueden tener
+ * `auth-cookies`, `auth-refresh` y `auth-samesite`), y la del segundo repo quedaría sin
+ * conectar con ninguna otra.
  *
  * El tag sí coincide, porque es la etiqueta de a qué es el trabajo y no de qué memoria
  * puntual es. Es la arista que hace real la promesa.
@@ -305,15 +298,14 @@ function parseTags(raw: string | null): string[] {
  * Arista `similar`: dos observaciones comparten tags. Empezamos por tags (no por FTS sobre
  * title/content) porque son la señal más barata y más explicable — "comparten estos 3
  * tags" se puede mostrar en la UI tal cual, mientras que un score de FTS no se le puede
- * explicar al usuario sin más contexto. Con esto el grafo deja de estar ralo para los casos
- * reales que motivan este ticket (memorias tageadas a mano o por el importer); si en la
- * práctica quedara demasiado ralo (corpus con pocos tags) el siguiente paso sería sumar
- * FTS5 sobre `observations_fts` como señal adicional — no se implementa acá, ver reporte.
+ * explicar al usuario sin más contexto. Si con un corpus de pocos tags el grafo quedara
+ * demasiado ralo, el siguiente paso sería sumar FTS5 sobre `observations_fts` como señal
+ * adicional.
  *
  * Score = Jaccard ponderado de los dos conjuntos de tags. Cada tag pesa:
  *   - 0 si es "popular" (aparece en más de POPULAR_TAG_RATIO del corpus tageado, y el
  *     corpus tiene al menos MIN_CORPUS_FOR_POPULARITY observaciones tageadas): un tag así
- *     no informa (brief), y un corte duro es necesario — un IDF suave sin piso todavía deja
+ *     no informa, y un corte duro es necesario — un IDF suave sin piso todavía deja
  *     que dos observaciones con UN SOLO tag casi-universal en común den Jaccard 1.
  *   - log((n + 1) / df(tag)) en cualquier otro caso — un IDF con suavizado de Laplace
  *     (+1 en el numerador). Sin el +1, un tag presente en TODAS las observaciones tageadas
@@ -419,8 +411,8 @@ function computeSimilarEdges(
 }
 
 export function buildMemoryGraph(db: BaseSqlite, query: MemoryGraphQuery): MemoryGraph {
-  // Calificadas con `o.`: desde que la consulta hace JOIN con `projects`, una condicion sin
-  // prefijo sobre una columna que existe en las DOS tablas seria ambigua para SQLite.
+  // Calificadas con `o.`: la consulta hace JOIN con `projects`, y una condicion sin prefijo
+  // sobre una columna que existe en las DOS tablas seria ambigua para SQLite.
   const conditions = ['o.deleted = 0']
   const params: unknown[] = []
   if (query.projectKey !== null) {
@@ -490,7 +482,7 @@ export function buildMemoryGraph(db: BaseSqlite, query: MemoryGraphQuery): Memor
   }
 
   // 2. topic — cadena por (project_key, scope, topic_key). El scope entra en la clave
-  // porque la definición es "dentro del mismo project_key + scope" (brief).
+  // porque la definición es "dentro del mismo project_key + scope".
   edges.push(
     ...chainEdges(selected, 'topic', (r) =>
       r.topic_key ? `${r.project_key}\u0000${r.scope}\u0000${r.topic_key}` : null
@@ -500,20 +492,18 @@ export function buildMemoryGraph(db: BaseSqlite, query: MemoryGraphQuery): Memor
   // 3. branch — cadena por (project_key, git_branch). Se escopea también por project_key
   // (no solo por nombre de rama): dos repos distintos con una rama "main" no son la misma
   // relación, y un nombre de rama tan común cruzando proyectos sin relación generaría
-  // aristas falsas. El brief no lo pide explícito para branch (sí para topic) — ver
-  // reporte.
+  // aristas falsas.
   edges.push(
     ...chainEdges(selected, 'branch', (r) => (r.git_branch ? `${r.project_key}\u0000${r.git_branch}` : null))
   )
 
   // 4. source — cadena por DOCUMENTO de origen.
   //
-  // Es la arista que hacía falta y que no existía. Una memoria IMPORTADA no podía
-  // conectarse con NINGUNA otra, por construcción: el importador de Markdown le da a cada
-  // chunk su propio `topic_key` (derivado de su heading, así que nunca se repite), y no le
-  // pone `git_branch`, ni tags, ni `superseded_by`. O sea que revision, topic, branch y
-  // similar eran las cuatro imposibles a la vez. Medido en una cuenta real: ~200 memorias,
-  // CERO aristas.
+  // Sin ella una memoria IMPORTADA no puede conectarse con NINGUNA otra, por construcción:
+  // el importador de Markdown le da a cada chunk su propio `topic_key` (derivado de su
+  // heading, así que nunca se repite), y no le pone `git_branch`, ni tags, ni
+  // `superseded_by`. O sea que revision, topic, branch y similar son las cuatro imposibles
+  // a la vez.
   //
   // Lo que sí existe es de dónde salieron. `source_ref` es `<label>:<path>#<topicKey>`, así
   // que el prefijo hasta el último `#` identifica el documento. Dos secciones del mismo

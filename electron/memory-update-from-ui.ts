@@ -1,5 +1,5 @@
-// El handler de `memory:updateFromUi`, sacado de main.ts para poder probarlo sin Electron
-// (final review, minor): lo que importa es el `saved` que devuelve — lo que QUEDÓ guardado,
+// El handler de `memory:updateFromUi`, fuera de main.ts para poder probarlo sin Electron.
+// Lo que importa es el `saved` que devuelve — lo que QUEDÓ guardado,
 // que no es lo que se mandó: acá se hace trim y `update()` pasa `redact()`. El editor lo usa
 // para reconocer el eco de su propio guardado (onChanged) y no tomarlo por un cambio de otro.
 import type { ObservationRow, UpdateMemoryInput, UpdateMemoryResult } from './memory-store'

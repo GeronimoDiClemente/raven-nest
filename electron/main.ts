@@ -247,8 +247,8 @@ function memoryProvisionerPaths(): ProvisionerPaths {
 
 /**
  * La base del servicio de sync. **Nunca es `null`**: la decisión y el porqué del default
- * están en `base-de-sync.ts`. Antes devolvía `null` cuando faltaba la variable de build, que
- * es exactamente lo que le pasa a toda instalación armada por CI — los workflows no la pasan.
+ * están en `base-de-sync.ts`. No se puede depender de la variable de build: los workflows de
+ * CI no la pasan.
  */
 function getMemorySyncBaseUrl(): string {
   return resolverBaseDeSync({
@@ -285,17 +285,16 @@ import { migrateTeam, pendientesSiEsLeader, type TeamMigrationResult } from './m
 let memoryKeys: KeyMaterial | null = null
 
 /** teamId -> maestra de ESE equipo, sólo en memoria — igual de propósito que `memoryKeys.master`
- * pero SIN persistencia a disco en v1 (nunca se guarda en el keyring/safeStorage): se re-adopta
- * sola en el primer `status` de cada arranque (`readoptarClavesDeEquipo`, Task 14), mismo
+ * pero SIN persistencia a disco (nunca se guarda en el keyring/safeStorage): se re-adopta
+ * sola en el primer `status` de cada arranque (`readoptarClavesDeEquipo`), mismo
  * costo que un fetch, y evita sumar un segundo formato a `saveKeyMaterial`/`memory-key-store.ts` para una
- * clave que nunca escribe nada propio (sólo re-cifra lo que ya viaja por push/pull). Si el
- * costo de volver a pedirla en cada arranque resulta alto en la práctica, persistirla es un
- * cambio aislado a este Map — no toca ningún otro task. */
+ * clave que nunca escribe nada propio (sólo re-cifra lo que ya viaja por push/pull). Si
+ * hiciera falta persistirla, es un cambio aislado a este Map. */
 const teamMasterKeys = new Map<string, Buffer>()
 
 /**
- * Equipos cuya envoltura para ESTE device abrió una maestra que no es la del equipo (C2 de la
- * review final: no coincide con el verificador publicado al activar). No se adoptó; queda
+ * Equipos cuya envoltura para ESTE device abrió una maestra que no es la del equipo (no
+ * coincide con el verificador publicado al activar). No se adoptó; queda
  * anotado para que la tarjeta lo diga en vez de quedarse esperando una autorización que ya
  * "llegó". Se limpia cuando una adopción sale bien, y con el cambio de cuenta.
  */
@@ -306,16 +305,15 @@ function teamKeysDeps() {
 }
 
 /**
- * Task 14 (spec §9.4): readopta las claves de equipo que el servidor dice que ESTA máquina ya
+ * Spec §9.4: readopta las claves de equipo que el servidor dice que ESTA máquina ya
  * tiene envueltas (`has_wrap`). La llama el daemon desde `doStatus` (dep `onEncryptedTeams`),
- * esperada y con tope, o sea ANTES del pull y del push del primer drain. Antes esto lo hacía
- * sólo el efecto de montaje de `TeamEncryptionCard`, y entre el arranque y ese momento el
- * push de equipo salía en claro (hoy lo retiene el gate de `doPush`, pero retener todo lo de
- * equipo hasta que alguien abra la tarjeta no es un producto).
+ * esperada y con tope, o sea ANTES del pull y del push del primer drain. No puede depender
+ * del montaje de `TeamEncryptionCard`: el gate de `doPush` retendría todo lo de equipo hasta
+ * que alguien abra la tarjeta.
  *
- * Resetea cursores SÓLO si hay filas ilegibles anotadas DE LOS EQUIPOS QUE ADOPTÓ (M2): si la clave llega antes del primer
- * pull (el caso normal acá), no hay nada salteado que volver a pedir, y re-bajar la cuenta
- * entera en cada arranque era el minor que dejó la review de Task 11.
+ * Resetea cursores SÓLO si hay filas ilegibles anotadas DE LOS EQUIPOS QUE ADOPTÓ: si la
+ * clave llega antes del primer pull (el caso normal acá), no hay nada salteado que volver a
+ * pedir, y re-bajar la cuenta entera en cada arranque sería caro.
  */
 async function readoptarClavesDeEquipo(equipos: Array<{ teamId: string; hasWrap: boolean }>): Promise<void> {
   const deps = teamKeysDeps()
@@ -341,7 +339,7 @@ async function readoptarClavesDeEquipo(equipos: Array<{ teamId: string; hasWrap:
         adoptados.push(teamId)
       }
     } catch (err) {
-      // C2: una maestra que no es la del equipo NO se adopta, y se avisa (la tarjeta lo
+      // Una maestra que no es la del equipo NO se adopta, y se avisa (la tarjeta lo
       // muestra). El resto (sin red, 403) lo reintenta el próximo status.
       if (err instanceof TeamKeyMismatchError) {
         clavesDeEquipoRechazadas.add(teamId)
@@ -350,9 +348,9 @@ async function readoptarClavesDeEquipo(equipos: Array<{ teamId: string; hasWrap:
     }
   }
   if (adoptados.length === 0 || !memory || memory.store !== store) return
-  // M2 (review de Tasks 13–14): sólo si lo ilegible es de un equipo RECIÉN adoptado. Con
+  // Sólo si lo ilegible es de un equipo RECIÉN adoptado. Con
   // `undecryptableCount() > 0` a secas, una sola fila personal (o de otro equipo sin wrap)
-  // ilegible re-bajaba la cuenta entera en CADA arranque, porque la clave de equipo vive sólo
+  // ilegible re-bajaría la cuenta entera en CADA arranque, porque la clave de equipo vive sólo
   // en memoria y se readopta siempre.
   if (store.hayIlegiblesDeEquipos(adoptados)) {
     store.resetPullCursors()
@@ -380,7 +378,7 @@ function currentEnvelopeContext(): EnvelopeContext | null {
       const master = teamId ? teamMasterKeys.get(teamId) : undefined
       return master ? deriveKeys(master) : null
     },
-    // Task 14: en el PULL la clave la elige el `team_id` que manda el servidor en la fila —
+    // En el PULL la clave la elige el `team_id` que manda el servidor en la fila —
     // el `projects.team_id` local sólo existe si ESTE device compartió su copia.
     teamKeysById: (teamId: string) => {
       const master = teamMasterKeys.get(teamId)
@@ -393,15 +391,13 @@ function currentEnvelopeContext(): EnvelopeContext | null {
  * (Re)carga el material de claves de la cuenta que está montada AHORA y deja el store
  * escribiendo `topic_key_hmac` con esa clave.
  *
- * Existe porque tenerlo en un solo lugar del arranque era un agujero crítico: el subsistema
- * arranca contra la partición `_local` —todavía no hay cuenta— así que leía
- * `_local/keys.bin`, y cuando llegaba `memory:setUser(uid)` el store pasaba a `<uid>` sin que
- * NADIE volviera a cargar las claves. La maestra se guarda bajo `<uid>/keys.bin`, o sea que
- * desde el segundo arranque `memoryKeys.master` quedaba `null` para siempre y el daemon
- * subía título, contenido y tags EN CLARO a una cuenta con el cifrado activo. Peor: el swap
- * renombra el directorio `_local` entero a `<uid>`, llevándose `keys.bin`, así que el
- * arranque siguiente generaba un par de dispositivo NUEVO que ya no correspondía a la
- * envoltura publicada — la máquina no podía ni desenvolver su propia copia.
+ * No alcanza con cargarlas una vez en el arranque: el subsistema arranca contra la partición
+ * `_local` —todavía no hay cuenta— y lee `_local/keys.bin`, pero con `memory:setUser(uid)`
+ * el store pasa a `<uid>` y la maestra se guarda bajo `<uid>/keys.bin`. Si nadie recarga,
+ * `memoryKeys.master` queda `null` y el daemon sube título, contenido y tags EN CLARO a una
+ * cuenta con el cifrado activo. Además el swap renombra el directorio `_local` entero a
+ * `<uid>`, llevándose `keys.bin`: sin recarga, el arranque siguiente generaría un par de
+ * dispositivo NUEVO que no corresponde a la envoltura publicada.
  */
 function recargarClavesDeMemoria(userId: string | null): void {
   // La cuenta (o la ausencia de cuenta) cambió: las maestras de equipo de la cuenta ANTERIOR
@@ -420,7 +416,7 @@ function recargarClavesDeMemoria(userId: string | null): void {
   applyTopicHasher()
 }
 
-/** Deja el store escribiendo `topic_key_hmac` con la clave vigente (Task 5). */
+/** Deja el store escribiendo `topic_key_hmac` con la clave vigente. */
 function applyTopicHasher(): void {
   const ctx = currentEnvelopeContext()
   memory?.store.setTopicHasher(
@@ -449,7 +445,7 @@ interface MemorySubsystem {
   store: MemoryStore
   daemon: MemoryDaemon
   ipcServer: MemoryIpcServer
-  // Task 1 (plan de memoria por cuenta multi-dispositivo), Step 3d: el path físico del
+  // El path físico del
   // store actualmente wireado en daemon/ipcServer. swapMemoryStore() (memory-account-switch.ts)
   // lo necesita como `ctx.currentStorePath` para decidir si un swap es un no-op (mismo
   // archivo ya abierto) y, si no lo es, desde qué directorio renombrar.
@@ -462,11 +458,10 @@ interface MemorySubsystem {
 usarAbridorPorDefecto(abrirConBetterSqlite3)
 usarAbridorDeLecturaPorDefecto(abrirSoloLecturaConBetterSqlite3)
 
-// C7 fix: `new MemoryStore(...)` (better-sqlite3) used to run unguarded at module scope.
-// A native-module load failure (verified live in this repo's own dev sandbox: no
-// prebuilt better-sqlite3 binding for the local Node version, no Visual Studio Build
-// Tools to compile one — see docs/nest-memory-architecture.md §10 R-5) threw during
-// module evaluation and crashed the ENTIRE app before a single window could open —
+// `new MemoryStore(...)` (better-sqlite3) must not run unguarded at module scope: a
+// native-module load failure (e.g. no prebuilt binding for the local Node version and no
+// build tools to compile one — see docs/nest-memory-architecture.md §10 R-5) would throw
+// during module evaluation and crash the ENTIRE app before a single window could open —
 // PTYs, accounts, everything, taken down by a memory-feature dependency. Memory must be
 // able to fail independently and degrade to "disabled", exactly like a missing
 // `safeStorage.isEncryptionAvailable()` already does for connect. Every consumer below
@@ -474,7 +469,7 @@ usarAbridorDeLecturaPorDefecto(abrirSoloLecturaConBetterSqlite3)
 // configured when it's null (both already no-op safely without a configured integration).
 // `resolveGitInfoForCwd` vive en git-info.ts: el paquete portátil lo comparte.
 
-/** Task 4: same project-key resolution memory-ipc-server.ts's `projectKeyForCwd` uses for
+/** Same project-key resolution memory-ipc-server.ts's `projectKeyForCwd` uses for
  *  every other write path, so a handoff observation lands under the exact project a
  *  `memory.search`/`memory.save` from that same worktree would. */
 async function projectKeyForWorktree(worktreePath: string): Promise<string> {
@@ -484,9 +479,8 @@ async function projectKeyForWorktree(worktreePath: string): Promise<string> {
 
 let memory: MemorySubsystem | null = null
 try {
-  // Step 3d, correction #9 (CRÍTICO — no perder datos reales): hasta esta Task el store
-  // vivía en un path PLANO ({home}/.raven-nest/memory/memory.db, sin subcarpeta de
-  // cuenta). Máquinas reales — incluida esta — ya tienen historial capturado ahí. Tiene
+  // El path legado del store es PLANO ({home}/.raven-nest/memory/memory.db, sin
+  // subcarpeta de cuenta) y puede tener historial real. Tiene
   // que correr ANTES de `new MemoryStore(...)`, o el primer arranque bajo el nuevo layout
   // por-cuenta abriría una base vacía en `_local/` y dejaría ese historial huérfano en el
   // path legado para siempre. Ver memory-store.ts's migrateLegacyStorePath() doc comment.
@@ -522,7 +516,7 @@ try {
     /**
      * La cuenta tiene cifrado activo si alguna vez vimos una época > 0. Se lee de `meta` del
      * store y no de la red: el gate tiene que funcionar en el arranque, antes del primer
-     * `fetchKeyState`, que es justo cuando el bug original subía todo en claro.
+     * `fetchKeyState`, que es justo cuando, sin gate, se subiría todo en claro.
      *
      * Quién escribe esa época, que es lo que decide si el gate sirve:
      *   1. `doStatus` con el `key_epoch` que devuelve `/v1/sync/status` — el camino que corre
@@ -530,14 +524,11 @@ try {
      *   2. `applyPulledRow` al bajar una fila que no puede abrir.
      *   3. Los handlers de la tarjeta de cifrado, que sólo corren si se abre el overlay.
      *
-     * Este comentario decía antes que la época "se persiste en cada `status`" cuando ese
-     * escritor NO EXISTÍA: sólo estaban el 2 y el 3, y ninguno corre en una máquina que no
-     * tiene la clave y todavía no bajó ciphertext. El gate no se armaba y el push subía en
-     * claro a una cuenta cifrada. Un comentario que afirma una garantía que el código no da es
-     * peor que no tenerlo: la revisión siguiente lo lee y da el caso por cubierto.
+     * El 2 y el 3 no corren en una máquina que no tiene la clave y todavía no bajó
+     * ciphertext: sin el 1, ahí el gate no se arma y el push sube en claro.
      */
     isEncryptionExpected: () => (memory ? memory.store.knownKeyEpoch() > 0 : false),
-    // Task 14 (spec §9.4): readopta en el status de arranque las claves de equipo que esta
+    // Spec §9.4: readopta en el status de arranque las claves de equipo que esta
     // máquina ya tiene envueltas, antes del pull y del push del mismo drain.
     onEncryptedTeams: (teams) => readoptarClavesDeEquipo(teams),
     getToken: loadMemoryToken,
@@ -545,7 +536,7 @@ try {
     isOnline: () => memoryOnline,
     /**
      * §6.3 del spec del paquete portable: sólo sincroniza quien tiene el candado de esta
-     * base. Cierra el caso que YA existe hoy — la app instalada y un build de desarrollo
+     * base. Cubre el caso de la app instalada y un build de desarrollo, que
      * comparten `~/.raven-nest`, o sea dos daemons sobre la misma cuenta, con dos copias
      * del token y dos pushers compitiendo.
      *
@@ -573,10 +564,9 @@ try {
       /**
        * El aviso al renderer: un AGENTE acaba de escribir una memoria desde la terminal.
        *
-       * Hasta acá la pantalla de Memories sólo se refrescaba por acciones tuyas —guardar a
-       * mano, borrar, conectar dos— así que una memoria escrita por un agente no aparecía
-       * hasta que cerrabas y volvías a abrir el overlay. Justo la mitad interesante: el
-       * producto es que lo escriban ellos mientras trabajás, y la pantalla no se enteraba.
+       * Sin esto la pantalla de Memories sólo se refresca por acciones tuyas —guardar a
+       * mano, borrar, conectar dos— y una memoria escrita por un agente no aparece hasta
+       * reabrir el overlay.
        *
        * Va sin payload a propósito. Lo que el renderer necesita es "algo cambió, volvé a
        * pedir", y mandar la fila obligaría a decidir acá qué proyección quiere cada vista
@@ -586,7 +576,7 @@ try {
         if (!win.isDestroyed()) win.webContents.send('memory:changed')
       }
     },
-    // M26: lets memory.search's pull-through fallback trigger/await this same daemon's
+    // Lets memory.search's pull-through fallback trigger/await this same daemon's
     // pull() on a local zero-result miss instead of waiting up to its ~5-minute interval
     // — see memory-ipc-server.ts's memory.search case for the full rationale.
     daemon,
@@ -609,7 +599,7 @@ try {
   memory = null
 }
 
-// Step 3d, correction #2 (ALTO): a chained promise every call to swapMemoryStore() has to
+// A chained promise every call to swapMemoryStore() has to
 // pass through, so a rapid logout+login (two 'memory:setUser' invokes close together) can't
 // run two swaps concurrently and clobber the same store twice. Nothing outside queueSwap()
 // below may call swapMemoryStore() directly.
@@ -629,7 +619,7 @@ function queueSwap<T>(task: () => Promise<T>): Promise<T> {
   return run
 }
 
-// Step 3d, correction #6: the actual swap for one 'memory:setUser' call — reassigns the
+// The actual swap for one 'memory:setUser' call — reassigns the
 // module-level `memory` variable to swapMemoryStore()'s result so every other memory
 // consumer (memorySink, the status/hub-stats/registerDevice handlers, ...) reads the
 // post-swap store from here on. Always queued (see queueSwap above); never called directly.
@@ -641,7 +631,7 @@ async function performUserSwap(userId: string | null, adopt = true): Promise<{ o
     ipcServer: memory.ipcServer,
     currentStorePath: memory.currentStorePath,
   }
-  // Adversarial review (alto): swapMemoryStore() closes the old store synchronously and
+  // swapMemoryStore() closes the old store synchronously and
   // only reopens/rewires it once this await resolves — any memorySink.save() landing in
   // that window would otherwise hit an already-closed store and be dropped silently.
   // beginSwap()/endSwap() defer those writes instead; the `finally` guarantees endSwap()
@@ -655,8 +645,8 @@ async function performUserSwap(userId: string | null, adopt = true): Promise<{ o
     const result = await swapMemoryStore(ctx, ravenHome(), userId, adopt)
     memory = { store: result.store, daemon: memory.daemon, ipcServer: memory.ipcServer, currentStorePath: result.currentStorePath }
     // La cuenta cambió, así que las claves también: viven particionadas por cuenta, igual
-    // que el store. Sin esto la sesión seguía con las claves de la partición anterior (o sin
-    // ninguna), y el daemon empujaba en claro a una cuenta con el cifrado activo.
+    // que el store. Sin esto la sesión sigue con las claves de la partición anterior (o sin
+    // ninguna), y el daemon empuja en claro a una cuenta con el cifrado activo.
     recargarClavesDeMemoria(result.store.getOwnerUserId() ?? userId)
     // A watermark cached from the PREVIOUS account's store must never suppress a legitimate
     // vault regen for the account that just became active (project keys can collide across
@@ -678,8 +668,8 @@ async function performUserSwap(userId: string | null, adopt = true): Promise<{ o
   }
 }
 
-// Explicit "really quitting" teardown — docs/GUIA-TESTEO-BAUTISTA.md pitfall:
-// "No hagas teardown en before-quit." `before-quit` fires on every Cmd+Q attempt even
+// Explicit "really quitting" teardown — never in before-quit: `before-quit` fires on
+// every Cmd+Q attempt even
 // when macOS's win.on('close') cancels it right after (preventDefault + hide to tray),
 // and the app's actual exit paths call app.exit(0) directly, which never emits
 // before-quit/will-quit at all. This function is called ONLY from those real exit
@@ -711,8 +701,7 @@ const graphTemplateStore = new GraphTemplateStore()
 const graphRunStore = new GraphRunStore()
 const graphConfigStore = new GraphConfigStore()
 
-// Real adapter over MemoryStore.save({source:'pty'}), now that
-// feat/nest-memory-phase1 is merged. Bridges MemorySaveInput
+// Real adapter over MemoryStore.save({source:'pty'}). Bridges MemorySaveInput
 // (electron/integrations/memory-port.ts) to the memory subsystem's own
 // SaveInput/ensureProject shape. projectKey resolution mirrors
 // memory-ipc-server.ts's 'memory.save' case (projectKeyForCwd): resolve a git
@@ -729,7 +718,7 @@ const graphConfigStore = new GraphConfigStore()
 // (bridgeEvent, below) and from IPC decision handlers (bridgeDecision) — an
 // uncaught error here would take down whichever caller invoked it, not just
 // drop one memory write.
-// Adversarial review (alto, see performUserSwap): guards memorySink.save() against the
+// Guards memorySink.save() (see performUserSwap) against the
 // store-swap window the way memory-ipc-server.ts's dispatch() guards the MCP socket path
 // (rejecting with 'store_swapping' while memory-mcp/client.ts retries) — here, deferring
 // the write in-process instead of rejecting a caller that has no retry loop of its own.
@@ -737,13 +726,13 @@ const memorySwapGate = new SwapWriteGate<MemorySaveInput>()
 
 const memorySink: MemorySink = {
   save(input) {
-    // Adversarial review (alto): during a swap the store gets closed out from under any
+    // During a swap the store gets closed out from under any
     // in-flight write — queue this one instead of losing it. offer() returns false only
     // while swapping; the deferred write is replayed by performUserSwap's endSwap() once
     // the post-swap store is wired in, so do nothing else on this call.
     if (!memorySwapGate.offer(input)) return
     try {
-      // C1: local capture does not depend on the cloud. `connected` still gates only the
+      // Local capture does not depend on the cloud. `connected` still gates only the
       // sync daemon (getToken/getDeviceId), not whether a memory gets saved.
       if (!memory || !memoryConnectionState.localEnabled) return
       const remoteUrl = input.cwd ? getRemoteUrl(input.cwd) : null
@@ -783,7 +772,7 @@ const memorySink: MemorySink = {
 // getRun accepts a ticketId OR a branch: graph events carry ticketId, pr.merged carries
 // the branch. Both resolve to the same run. One `list()` call covers both lookup
 // paths — graph-run-store.ts has no cache, so getByTicket() followed by a separate
-// list() on miss was two full disk reads per event; a single list() plus two
+// list() on miss would be two full disk reads per event; a single list() plus two
 // in-memory finds is one.
 const bridgeCtx: BridgeContext = {
   getRun: (key) => {
@@ -890,9 +879,9 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: true,
       // Con la ventana oculta Chromium la trata como de fondo y congela animaciones y
-      // `requestAnimationFrame`: el overlay de Personal quedaba en el primer cuadro de su
-      // `zoomIn` (escala 0.93, así que un botón de 28px se medía 26) y el grafo de memorias
-      // no avanzaba. Sólo en los e2e; la app real sigue ahorrando batería en segundo plano.
+      // `requestAnimationFrame`: el overlay de Personal se queda en el primer cuadro de su
+      // `zoomIn` (escala 0.93, así que un botón de 28px se mide 26) y el grafo de memorias
+      // no avanza. Sólo en los e2e; la app real sigue ahorrando batería en segundo plano.
       backgroundThrottling: !E2E_HEADLESS
     }
   })
@@ -1340,8 +1329,7 @@ ipcMain.handle('git:clone', async (
 //      the wrong place forever.
 //   2. (optional) Selected folder's `origin` remote matches `expectedRemote`.
 //      Without this, the user can pick the WRONG repo's folder and the link
-//      sticks silently — exactly how sti-travel-console ended up pointing at
-//      the algoritmos folder.
+//      sticks silently.
 // On validation failure we show a native dialog explaining why and return
 // null. Callers don't need to handle each rejection case manually.
 ipcMain.handle('dialog:pickRepoFolder', async (_evt, expectedRemote?: string) => {
@@ -1412,8 +1400,7 @@ ipcMain.handle('dialog:pickRepoFolder', async (_evt, expectedRemote?: string) =>
 // isn't a git repo, has no origin remote, or git is missing. Used by the
 // Teams "Open terminal" flow to verify a team-shared local_path actually
 // matches THIS repo before auto-adopting it as the user's path — otherwise
-// the wrong-folder bug (sti-travel-console linked to algoritmos) keeps
-// silently re-applying after every Unlink.
+// a wrong-folder link keeps silently re-applying after every Unlink.
 type RemoteUrlResult =
   | { ok: true; url: string }
   | { ok: false; reason: 'no-git' | 'not-repo' | 'no-origin' | 'io-error' }
@@ -1606,15 +1593,15 @@ ipcMain.handle('graph:runs:list', () => graphRunStore.list())
 
 // Handoff IPC handlers
 //
-// Task 4 (los handoffs dejan de ser un archivo del worktree): `.nest/handoff.md` no viaja
-// entre máquinas — writeHandoff() sólo toca el disco local. Read/write ahora también pasan
+// `.nest/handoff.md` no viaja
+// entre máquinas — writeHandoff() sólo toca el disco local. Read/write también pasan
 // por la memoria de la cuenta (type:'handoff'), que sí replica, así que "retomar en otra
 // máquina" tiene de dónde reconstruir el archivo que el propio worker-run.ts (composeStepInput)
 // espera encontrar.
 ipcMain.handle('handoff:read', async (_e, worktreePath: string) => {
   const local = readHandoff(worktreePath)
   if (local !== null) return local
-  // Step 3: sin archivo local, ¿hay uno más nuevo en la nube? (llegó por sync desde otra
+  // Sin archivo local, ¿hay uno más nuevo en la nube? (llegó por sync desde otra
   // máquina, o esta es una copia fresca del worktree que nunca escribió uno propio.)
   if (!memory) return null
   try {
@@ -1636,15 +1623,15 @@ ipcMain.handle('handoff:write', async (_e, worktreePath: string, content: string
   if (!memory) return
   try {
     const projectKey = await projectKeyForWorktree(worktreePath)
-    // resolveHandoffBranch (handoff-capture.ts) sigue siendo síncrono: se le pasa la info
-    // de git ya resuelta, con la misma llamada que hacía antes adentro.
+    // resolveHandoffBranch (handoff-capture.ts) es síncrono: se le pasa la info
+    // de git ya resuelta.
     const gitInfo = await resolveGitInfoForCwd(worktreePath)
     const folder = worktreePath.split(/[\\/]/).filter(Boolean).pop() ?? worktreePath
     const title = `Handoff — ${folder}`
     memory.store.ensureProject({ projectKey, displayName: folder, rootPath: worktreePath })
     const ttSettings = loadTeamThreadSettings(teamThreadSettingsPath(ravenHome(), memory.store.getOwnerUserId()), projectKey)
-    // C1: el input (scope + gitBranch incluidos) se arma en handoff-capture.ts, que es
-    // testeable. Sin el `gitBranch` que agrega ahi, TODA fila del hilo caia en general.md.
+    // El input (scope + gitBranch incluidos) se arma en handoff-capture.ts, que es
+    // testeable. Sin el `gitBranch` que agrega ahi, TODA fila del hilo caeria en general.md.
     const { input, heldBack } = buildHandoffSave(
       { worktreePath, projectKey, title, content, settings: ttSettings },
       { resolveGitInfo: () => gitInfo },
@@ -1654,7 +1641,7 @@ ipcMain.handle('handoff:write', async (_e, worktreePath: string, content: string
       console.warn('[team-thread] handoff retenido como personal: matchea un patron de secreto')
     }
     memory.daemon.scheduleMutationPush()
-    // C2 / spec §8.1, disparador 2 (debounce de 5s post-escritura): este es el UNICO camino
+    // Spec §8.1, disparador 2 (debounce de 5s post-escritura): este es el UNICO camino
     // que produce filas `team`, asi que es el unico lugar donde tiene sentido el debounce.
     // Lo que llega de un companero por pull lo levanta el poll de 60s.
     scheduleTeamThreadRegenDebounced(worktreePath)
@@ -1769,7 +1756,7 @@ ipcMain.handle('workspace:import', async () => {
   }
 })
 
-// === Worktree handlers (Plan 1 — v1.0) ===
+// === Worktree handlers ===
 
 ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
   if (!isAbsolute(repoPath)) return { ok: false as const, error: 'repoPath must be absolute' }
@@ -1777,7 +1764,7 @@ ipcMain.handle('worktree:list', async (_evt, repoPath: string) => {
 })
 
 // Unfiltered worktree list across every repo the store knows about — the
-// orchestration board (Plan 2) shows worktrees from all repos at once,
+// orchestration board shows worktrees from all repos at once,
 // unlike worktree:list above which scopes to a single repoPath.
 ipcMain.handle('worktree:listAll', () => {
   try {
@@ -1803,7 +1790,7 @@ ipcMain.handle('worktree:setPreset', async (_evt, worktreePath: string, presetId
 // git worktree add — decision + invocation live in performWorktreeAdd
 // (electron/worktree-create.ts) so the idempotency behaviour is unit-tested.
 // Array args, no shell interpolation. Factored out of the worktree:create
-// handler so the @Nest bot's grab intent (H7 §6) can run the exact same
+// handler so the @Nest bot's grab intent can run the exact same
 // git-level flow (it doesn't offer preset selection, so it stops here and
 // persists a plain meta itself — see createWorktreeForBot below).
 function runWorktreeAdd(repoPath: string, branch: string, wtPath: string, fromBranch: string) {
@@ -1905,7 +1892,7 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   return { ok: true as const, meta }
 })
 
-// @Nest bot's grab intent (H7 §6): the same git-level flow as worktree:create
+// @Nest bot's grab intent: the same git-level flow as worktree:create
 // above (path/slug computation, runWorktreeAdd, idempotent reuse), minus the
 // preset/setup-runner step — the bot only creates a worktree and starts work,
 // same scope as "Do NOT open a real terminal pane" in the spec.
@@ -1951,9 +1938,9 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
   // any filesystem op. On Windows a PowerShell pane inside the worktree
   // holds a directory handle, so `git worktree remove --force` and `rmSync`
   // both fail with EBUSY-style errors that don't match our legacy-cleanup
-  // regex below — they used to bubble up as a confusing message OR worse,
-  // get silently swallowed in the manual-cleanup branch and leave a ghost
-  // directory that resurrected on every refresh.
+  // regex below — they'd bubble up as a confusing message OR worse, get
+  // silently swallowed in the manual-cleanup branch and leave a ghost
+  // directory that resurrects on every refresh.
   const killedPanes = ptyManager.killByCwdPrefix(worktreePath)
   if (killedPanes.length > 0) {
     console.warn('[worktree:remove] killed live panes inside worktree', { worktreePath, killedPanes })
@@ -2014,7 +2001,7 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
   return { ok: true as const }
 })
 
-// === Preset handlers (Plan 2 — v1.0) ===
+// === Preset handlers ===
 
 ipcMain.handle('preset:list', async (_evt, repoPath: string) => {
   if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
@@ -2056,7 +2043,7 @@ ipcMain.handle('preset:cancel', async (_evt, worktreePath: string) => {
   setupRunner.cancel(worktreePath)
 })
 
-// === Port monitor handler (Plan 3 — v1.0) ===
+// === Port monitor handler ===
 
 // Shared tree resolver: routes Windows tree walks through MetricsCollector's
 // CIM snapshot cache (wmic was removed in Win11 22H2). On POSIX it still
@@ -2068,7 +2055,7 @@ ipcMain.handle('port:scan', async (_evt, pid: number) => {
   return scanPid(pid, resolvePidTree)
 })
 
-// === Browser pane handlers (Plan 4 — v1.0) ===
+// === Browser pane handlers ===
 
 const SAFE_PARTITION_RE = /^persist:[a-zA-Z0-9_-]+$/
 
@@ -2141,7 +2128,7 @@ ipcMain.handle('browser:forward', async (_evt, paneId: string) => browserPanes.f
 ipcMain.handle('browser:reload', async (_evt, paneId: string) => browserPanes.reload(paneId))
 ipcMain.handle('browser:destroy', async (_evt, paneId: string) => browserPanes.destroy(paneId))
 
-// === Spotlight handlers (Plan 5 — v1.0) ===
+// === Spotlight handlers ===
 
 ipcMain.handle('spotlight:start', async (_evt, worktreePath: string) => {
   if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
@@ -2156,7 +2143,7 @@ ipcMain.handle('spotlight:stop', async () => spotlight.stop())
 
 ipcMain.handle('spotlight:status', async () => spotlight.status())
 
-// === Benchmark handlers (Plan 5 — v1.0) ===
+// === Benchmark handlers ===
 
 ipcMain.handle('benchmark:start', async (_evt, cellId: string, pid: number, mode: 'setup' | 'spotlight' | 'idle') => {
   if (!Number.isFinite(pid) || pid <= 0) throw new Error('Invalid pid')
@@ -2551,7 +2538,7 @@ ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
   return out
 })
 
-// === Diff handlers (Plan 6 — v1.0) ===
+// === Diff handlers ===
 
 ipcMain.handle('diff:get', async (_evt, worktreePath: string, base?: string) => {
   if (!isAbsolute(worktreePath)) throw new Error('worktreePath must be absolute')
@@ -2930,7 +2917,7 @@ ipcMain.handle('worktree:copyFiles', async (
   return { copied, skipped, errors }
 })
 
-// === IDE launcher handlers (Plan 6 — v1.0) ===
+// === IDE launcher handlers ===
 
 ipcMain.handle('ide:detect', async (_evt, force?: boolean) => detectIDEs(Boolean(force)))
 
@@ -3099,8 +3086,8 @@ const MEMORY_UNAVAILABLE = { ok: false, error: 'Nest Memory is unavailable on th
  * `POST /v1/devices` del servicio de sync, que verifica la firma y devuelve el token del
  * device UNA sola vez.
  *
- * El nombre de la máquina lo pone main, no el renderer (C8: `navigator.platform` daba
- * `Win32` en las dos PCs del usuario y el servidor las colapsaba en una). `hostname()` es
+ * El nombre de la máquina lo pone main, no el renderer (`navigator.platform` da `Win32` en
+ * cualquier Windows y el servidor colapsaría dos PCs en una). `hostname()` es
  * el mismo valor que ya se guarda como `deviceName` al conectar.
  *
  * NO guarda nada: devuelve el token al renderer, que lo pasa por `memory:connect`, el mismo
@@ -3114,7 +3101,7 @@ const MEMORY_UNAVAILABLE = { ok: false, error: 'Nest Memory is unavailable on th
  * sólo las filas sin autor — o sea que **falla cerrado**: el daemon no empuja lo de nadie
  * en vez de empujarlo a la nube equivocada.
  */
-// Step 3d, correction #6: hot-swaps the local store to the account's own file (or back to
+// Hot-swaps the local store to the account's own file (or back to
 // the `_local` anonymous partition on logout) via swapMemoryStore(), queued through
 // queueSwap() so a rapid logout+login can't run two swaps at once. Explicit try/catch so a
 // bug in the swap path — or in performUserSwap()'s own reassignment of `memory` — surfaces
@@ -3123,7 +3110,7 @@ const MEMORY_UNAVAILABLE = { ok: false, error: 'Nest Memory is unavailable on th
 // success/failure signal here is what makes that safe to change later without touching main.
 ipcMain.handle('memory:setUser', async (_event, userId: string | null, opts?: { adopt?: boolean }) => {
   const normalizedUserId = typeof userId === 'string' && userId ? userId : null
-  // Task 2 (adopcion con aviso): default true — el comportamiento de siempre para el caso
+  // Default true — el comportamiento de siempre para el caso
   // comun (nada que reclamar, o el usuario ya dijo que si). `opts.adopt === false` es la
   // unica forma de llegar acá con "no": el dialogo del renderer (MemoryAdoptionDialog) la
   // manda explicita cuando el usuario contesta "no son mias".
@@ -3139,7 +3126,7 @@ ipcMain.handle('memory:setUser', async (_event, userId: string | null, opts?: { 
 })
 
 /**
- * Task 2 (adopcion con aviso): lo que MemoryAdoptionDialog necesita para preguntar ANTES de
+ * Lo que MemoryAdoptionDialog necesita para preguntar ANTES de
  * que swapMemoryStore() adopte en silencio. Puramente informativo — no toca nada, no
  * suspende el daemon/ipc, no cuenta como un swap (no pasa por queueSwap). Devuelve
  * hasPending=false en cualquier situacion donde no tenga sentido preguntar: sin cuenta, sin
@@ -3183,7 +3170,7 @@ ipcMain.handle('memory:registerDevice', async (_event, jwt: string) => {
   if (typeof jwt !== 'string' || jwt.trim() === '') return { ok: false, error: 'Missing login token' }
 
   // Timeout explícito: sin esto un servicio colgado deja el botón Connect girando hasta que
-  // el usuario cierra la app (es el mismo motivo de C6 en el daemon).
+  // el usuario cierra la app.
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), 15_000)
   try {
@@ -3252,12 +3239,11 @@ ipcMain.handle('memory:linkApprove', async (_event, jwt: string, userCode: strin
 })
 
 /**
- * C4, siete meses después: la URL del servicio se puede cambiar sin recompilar.
+ * La URL del servicio se puede cambiar sin recompilar.
  *
- * El campo `syncBaseUrl` existía en `connection.json` desde el principio y no lo escribía
- * nadie, así que la única fuente real era una variable de build que los workflows de release
- * no pasan. Esto es el escritor que faltaba, y lo que convierte al default de
- * `base-de-sync.ts` en algo reversible desde la app.
+ * Este es el escritor del campo `syncBaseUrl` de `connection.json`: sin él la única fuente
+ * sería una variable de build que los workflows de release no pasan. Es lo que convierte al
+ * default de `base-de-sync.ts` en algo reversible desde la app.
  */
 ipcMain.handle('memory:syncService:get', async () => ({
   url: getMemorySyncBaseUrl(),
@@ -3326,19 +3312,17 @@ ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string)
 
 ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolean }) => {
   if (!memory) return MEMORY_UNAVAILABLE
-  // M10 / §6.6 "Right to delete": issued BEFORE clearing the local token/credential
+  // §6.6 "Right to delete": issued BEFORE clearing the local token/credential
   // below — this is the only place main still holds the nmk_ token needed to call the
   // memory-sync 'delete-cloud-data' action. Best-effort: a failed cloud delete must not
   // block disconnecting locally (the user can retry by reconnecting then disconnecting
   // again). Local data is NEVER deleted by disconnecting regardless of this flag — only
   // this explicit server call touches cloud data, never local rows.
   //
-  // Finding 2 fix: this used to swallow a failed delete-cloud-data call behind a
-  // console.warn and still return { ok: true } unconditionally — the renderer (and the
-  // user) had no way to know the cloud copy might still exist. Capture the failure
-  // reason and return it; the caller decides what to do with it (useMemory.ts surfaces
-  // it into the hook's error state). Local disconnect still proceeds regardless — only
-  // the REPORTING changed, not the best-effort semantics.
+  // A failed delete-cloud-data call is not swallowed: without the failure reason the
+  // renderer (and the user) would have no way to know the cloud copy might still exist.
+  // The caller decides what to do with it (useMemory.ts surfaces it into the hook's error
+  // state). Local disconnect still proceeds regardless.
   let cloudDeleteFailed: string | undefined
   let tokenRevokeFailed: string | undefined
   if (opts?.deleteCloud) {
@@ -3364,8 +3348,7 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
   }
   // Revocar la credencial de ESTA máquina en el servicio, siempre — no sólo cuando se pide
   // borrar la nube. Sin esto el token sigue siendo válido para siempre del lado del
-  // servidor, que es lo que pasaba: el renderer "revocaba" contra la edge function
-  // `memory-token`, la misma que C7 sacó del camino de Connect porque nunca se deployó.
+  // servidor.
   //
   // Va DESPUÉS del borrado de nube (ese request se autentica con este mismo token) y ANTES
   // de limpiar la credencial local, que es la última ventana en la que main la tiene.
@@ -3395,10 +3378,10 @@ ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolea
     }
   }
 
-  // C1: disconnecting from the CLOUD is not the same as turning local capture off.
+  // Disconnecting from the CLOUD is not the same as turning local capture off.
   // This call removes the MCP entry and rmSync's the nest dir from every Claude account
-  // — i.e. it de-provisions local capture. With localEnabled still true (the state C1
-  // introduced, and the state a plain Disconnect leaves behind), that deletes
+  // — i.e. it de-provisions local capture. With localEnabled still true (the state a
+  // plain Disconnect leaves behind), that deletes
   // provisioning the client believes should exist, and it is self-undoing anyway: the
   // next `claude` pane re-provisions it via pty-manager.ts. Pure churn plus a window in
   // which the app and the disk disagree. Only tear it down when local capture is
@@ -3430,9 +3413,9 @@ ipcMain.handle('memory:encryption:status', async () => {
   let keyEpoch = 0
   let devices: RemoteKeyState['devices'] = []
   // Si la consulta al servidor falló, la tarjeta NO puede ofrecer "Activar": un corte de red
-  // dejaba `keyEpoch = 0` —indistinguible de "esta cuenta no tiene cifrado"— y activar desde
+  // deja `keyEpoch = 0` —indistinguible de "esta cuenta no tiene cifrado"— y activar desde
   // una máquina sin clave ROTA la época y borra las envolturas de todas las demás, incluida
-  // la de recuperación. El servidor ahora también lo rechaza, pero la UI no tiene por qué
+  // la de recuperación. El servidor también lo rechaza, pero la UI no tiene por qué
   // ofrecer un botón cuyo único final posible es un error.
   let estadoRemotoLeido = !deps
   if (deps) {
@@ -3475,12 +3458,12 @@ ipcMain.handle('memory:encryption:status', async () => {
 /**
  * Tomar la clave que OTRA máquina ya dejó publicada para ésta.
  *
- * Es el cierre del flujo de autorización, y hasta el 2026-09-12 no existía: `adoptExistingKey`
- * tenía un único llamador —el handler de activar— y la tarjeta, en el estado "esta máquina no
- * está autorizada", no muestra el botón de activar. O sea que después de que A autorizaba a B,
- * B no tenía ninguna forma de tomar esa envoltura: seguía descartando toda fila cifrada como
- * ilegible, para siempre, y la única salida era quemar el código de recuperación — que es
- * exactamente lo que el flujo de autorización existe para no tener que hacer.
+ * Es el cierre del flujo de autorización: el otro llamador de `adoptExistingKey` es el
+ * handler de activar, y la tarjeta, en el estado "esta máquina no está autorizada", no
+ * muestra el botón de activar. Sin esto, después de que A autoriza a B, B no tiene ninguna
+ * forma de tomar esa envoltura: descarta toda fila cifrada como ilegible, para siempre, y la
+ * única salida es quemar el código de recuperación — que es exactamente lo que el flujo de
+ * autorización existe para no tener que hacer.
  *
  * Devuelve `{ adoptada: false }` cuando todavía no hay ninguna envoltura para esta máquina.
  * No es un error: es el caso normal mientras el usuario no haya autorizado desde la otra.
@@ -3560,8 +3543,8 @@ ipcMain.handle('memory:encryption:authorize', async (_e, deviceId: string, huell
   if (!deps || !memoryKeys?.master) return { ok: false, error: 'This machine does not have the key.' }
   try {
     const estado = await fetchKeyState(deps)
-    // I4: se envuelve SÓLO para la pública cuya huella es la que el usuario comparó. Antes era
-    // la de este segundo fetch, que el servidor podía haber cambiado después de mostrar la real.
+    // Se envuelve SÓLO para la pública cuya huella es la que el usuario comparó, no la de este
+    // segundo fetch: el servidor podría cambiarla después de mostrar la real.
     const elegido = elegirDestinoVerificado(estado.devices, deviceId, huellaMostrada)
     if (!elegido.ok) return { ok: false, error: elegido.error }
     await authorizeDevice(deps, memoryKeys.master, memoryKeys.keyEpoch, elegido.target)
@@ -3608,10 +3591,10 @@ ipcMain.handle('memory:teamEncryption:status', async (_e, teamId: string) => {
   try {
     const estado = await fetchTeamKeyState(deps, teamId)
     estadoRemotoLeido = true
-    // C1: cuánto sigue en claro en el SERVIDOR. Sólo lo puede leer el leader y sólo tiene
+    // Cuánto sigue en claro en el SERVIDOR. Sólo lo puede leer el leader y sólo tiene
     // sentido con la clave; si falla, `null` — la tarjeta no dice "terminado" sin haberlo
-    // leído. Minor 3 (Task 15b): a un member ni se le pregunta (era un 403 seguro que además
-    // gastaba el limiter de recrypt).
+    // leído. A un member ni se le pregunta: sería un 403 seguro que además gasta el limiter
+    // de recrypt.
     const recryptPending = await pendientesSiEsLeader(deps, teamId, estado, hasMaster)
     return {
       ...estado,
@@ -3645,10 +3628,10 @@ ipcMain.handle('memory:teamEncryption:activate', async (_e, teamId: string) => {
     const { master, recoveryCode } = await activateTeamEncryption(deps, teamId, memoryKeys.device)
     teamMasterKeys.set(teamId, Buffer.from(master, 'base64'))
     memory?.store.rehashTeamTopicHmacs() // ver `readoptarClavesDeEquipo`
-    memory?.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
-    // I3 (review final): lo ya compartido en claro se migra solo, en segundo plano. Antes
-    // dependía de que el leader encontrara un botón; si no lo tocaba, quedaba en claro para
-    // siempre con la tarjeta diciendo "Team encryption on". La tarjeta se cuelga de esta misma
+    memory?.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing`
+    // Lo ya compartido en claro se migra solo, en segundo plano: si dependiera de que el
+    // leader toque un botón, podría quedar en claro para siempre con la tarjeta diciendo
+    // "Team encryption on". La tarjeta se cuelga de esta misma
     // corrida (`migrarEquipo` deduplica) para mostrar el resultado.
     void migrarEquipo(teamId)
     return { ok: true, recoveryCode }
@@ -3671,7 +3654,7 @@ ipcMain.handle('memory:teamEncryption:adopt', async (_e, teamId: string) => {
     try {
       yaExiste = await adoptExistingTeamKey(deps, teamId, memoryKeys.device)
     } catch (err) {
-      // C2: no es la maestra del equipo. No se adopta; la tarjeta lo muestra.
+      // No es la maestra del equipo. No se adopta; la tarjeta lo muestra.
       if (err instanceof TeamKeyMismatchError) clavesDeEquipoRechazadas.add(teamId)
       throw err
     }
@@ -3687,7 +3670,7 @@ ipcMain.handle('memory:teamEncryption:adopt', async (_e, teamId: string) => {
     memory.store.resetPullCursors()
     memory.store.clearUndecryptable()
     memory.store.rehashTeamTopicHmacs() // ver `readoptarClavesDeEquipo`
-    memory.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
+    memory.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing`
     memory.daemon.onNetworkRegain()
     return { ok: true, adoptada: true }
   } catch (err) {
@@ -3701,7 +3684,7 @@ ipcMain.handle('memory:teamEncryption:authorize', async (_e, teamId: string, dev
   if (!deps || !master) return { ok: false, error: 'This machine does not have the team key.' }
   try {
     const estado = await fetchTeamKeyState(deps, teamId)
-    // I4: mismo motivo que en `memory:encryption:authorize`.
+    // Mismo motivo que en `memory:encryption:authorize`.
     const elegido = elegirDestinoVerificado(estado.pendingDevices, deviceId, huellaMostrada)
     if (!elegido.ok) return { ok: false, error: elegido.error }
     await authorizeTeamDeviceFromClient(deps, teamId, master.toString('base64'), elegido.target)
@@ -3724,7 +3707,7 @@ ipcMain.handle('memory:teamEncryption:recover', async (_e, teamId: string, code:
     memory.store.resetPullCursors()
     memory.store.clearUndecryptable()
     memory.store.rehashTeamTopicHmacs() // ver `readoptarClavesDeEquipo`
-    memory.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing` (Task 14)
+    memory.daemon.onTeamKeysChanged() // libera lo retenido por `team_key_missing`
     memory.daemon.onNetworkRegain()
     return { ok: true }
   } catch (err) {
@@ -3733,8 +3716,8 @@ ipcMain.handle('memory:teamEncryption:recover', async (_e, teamId: string, code:
 })
 
 /**
- * La migración retroactiva de un equipo, deduplicada: `activate` la dispara sola (I3 de la
- * review final) y la tarjeta puede pedirla a la vez — el segundo pedido se cuelga del que ya
+ * La migración retroactiva de un equipo, deduplicada: `activate` la dispara sola y la
+ * tarjeta puede pedirla a la vez — el segundo pedido se cuelga del que ya
  * corre en vez de mandar los mismos lotes dos veces.
  */
 const migracionesDeEquipo = new Map<string, Promise<TeamMigrationResult>>()
@@ -3747,7 +3730,7 @@ function migrarEquipo(teamId: string): Promise<TeamMigrationResult> {
   if (!deps || !master) {
     return Promise.resolve({ total: 0, applied: 0, rejected: 0, remaining: 0, error: 'This machine does not have the team key.' })
   }
-  // C1: qué migrar y con qué contenido lo dice el servidor (`recrypt-pending`), no la base
+  // Qué migrar y con qué contenido lo dice el servidor (`recrypt-pending`), no la base
   // local — ver el encabezado de memory-team-reencrypt.ts.
   const run = migrateTeam(deps, teamId, master).finally(() => { migracionesDeEquipo.delete(teamId) })
   migracionesDeEquipo.set(teamId, run)
@@ -3793,7 +3776,7 @@ ipcMain.handle('memory:status', () => {
      * PISTA de interfaz, no la autorización: el que decide es `handleShareProject` del lado
      * del servicio, y lo sigue haciendo aunque esto mienta.
      *
-     * Desde el 2026-09-13 ningún plan de autoservicio lo tiene: lo compartido no se cifra de
+     * Ningún plan de autoservicio lo tiene: lo compartido no se cifra de
      * punta a punta, así que compartir es un despliegue propio y no un botón.
      */
     puedeCompartirMemoria: planAllowsTeamSharing(memory.daemon.getPlan()),
@@ -3830,7 +3813,7 @@ ipcMain.handle('memory:refreshStatus', async () => {
   return { ok: true }
 })
 
-// The memory hub's opening screen (Task 7): "we found N memories across M projects".
+// The memory hub's opening screen: "we found N memories across M projects".
 // Local-first and login-independent, unlike memory:status's `connected`/`quota` fields —
 // this has to work for a Free user who never connects to Cloud. `__global__` is excluded
 // from the project count: it's the catch-all bucket for unenrolled repos, not a project
@@ -3844,9 +3827,7 @@ ipcMain.handle('memory:hub-stats', () => {
 })
 
 // Puente de datos del grafo navegable de memorias (estilo Obsidian) — ver
-// electron/memory-graph.ts para la consulta y .superpowers/sdd/2026-09-09-migracion-
-// tailwind-shadcn/grafo-datos-brief.md para el contrato. Sin UI todavía: este handler es
-// el puente puro, consumido por un trabajo posterior. Defaults acá (no en la función pura)
+// electron/memory-graph.ts para la consulta. Defaults acá (no en la función pura)
 // porque `MemoryGraphQuery` no tiene campos opcionales — el llamador del renderer puede
 // pasar un objeto parcial o nada.
 ipcMain.handle('memory:graph', (_event, query?: Partial<MemoryGraphQuery>): MemoryGraph => {
@@ -3879,9 +3860,7 @@ ipcMain.handle('memory:graph', (_event, query?: Partial<MemoryGraphQuery>): Memo
 /**
  * Escribir una memoria desde la UI de Nest.
  *
- * Hasta ahora la pantalla de Memories era de SOLO LECTURA: unicamente los agentes escribian,
- * y una cosa que vos querias dejar asentada no tenia puerta. `'ui'` ya era una fuente valida
- * del protocolo (ObservationSource), asi que el modelo lo preveia — faltaba el puente.
+ * `'ui'` es una fuente valida del protocolo (ObservationSource).
  *
  * El `source` se fuerza aca y NO se toma del renderer. Un renderer comprometido podria
  * declararse 'hook' o 'mcp' y ensuciar la unica señal que dice de donde salio cada memoria;
@@ -3932,11 +3911,9 @@ ipcMain.handle('memory:save', async (_event, input: {
 /**
  * Corregir una memoria escrita a mano.
  *
- * Hasta ahora la app sólo sabía GUARDAR: una memoria mal escrita se quedaba mal para
- * siempre, aunque un agente sí pudiera corregirla por `memory_update` del MCP. Es el mismo
- * `store.update()` que usa esa tool — el mecanismo de replicación es idéntico (lamport
- * nuevo, `content_hash` recalculado con su redacción, mutación al log), sólo cambia quién
- * lo dispara.
+ * Es el mismo `store.update()` que usa la tool `memory_update` del MCP — el mecanismo de
+ * replicación es idéntico (lamport nuevo, `content_hash` recalculado con su redacción,
+ * mutación al log), sólo cambia quién lo dispara.
  */
 ipcMain.handle('memory:updateFromUi', (_event, input: PedidoDeActualizacion) => {
   if (!memory) return { ok: false, error: 'memory_unavailable' }
@@ -4018,12 +3995,10 @@ ipcMain.handle('memory:observation', (_event, syncId: string): MemoryObservation
   }
 })
 
-// Puente de datos del listado cross-project de memorias (spec 2026-09-11, pantalla de
-// Memories legible) — ver `crossProjectMemories()` en memory-store.ts para la consulta
-// (orden, paginado por cursor, exclusión de borradas/reemplazadas, FTS5) y el reporte de
-// esa tarea para la justificación del mecanismo de paginado. Sin UI todavía: mismo patrón
-// que `memory:graph` arriba — este handler es el puente puro, consumido por un trabajo
-// posterior. Defaults acá (no en el método del store) porque `CrossProjectMemoryQuery`
+// Puente de datos del listado cross-project de memorias — ver `crossProjectMemories()` en
+// memory-store.ts para la consulta (orden, paginado por cursor, exclusión de
+// borradas/reemplazadas, FTS5). Mismo patrón que `memory:graph` arriba. Defaults acá (no
+// en el método del store) porque `CrossProjectMemoryQuery`
 // exige `limit` — el llamador del renderer puede pasar un objeto parcial o nada.
 ipcMain.handle('memory:crossProject', (_event, query?: Partial<CrossProjectMemoryQuery>): CrossProjectMemoryPage => {
   if (!memory) return { items: [], nextCursor: null }
@@ -4068,18 +4043,13 @@ ipcMain.handle('memory:ensureDeviceId', () => {
   return deviceId
 })
 
-// Team Memory Layer 1, Parte 8 (smoke/memory-bridge): la única acción de este paso que pega
-// contra el endpoint nuevo del server, POST /v1/projects/share (server/src/share.ts) — la
+// Pega contra POST /v1/projects/share (server/src/share.ts) — la
 // ÚNICA forma de que `projects.team_id` quede seteado. Mismo patrón de auth que el resto de
 // las llamadas al servicio de sync desde acá (memory:disconnect's revoke, memory-daemon.ts's
 // push/pull/status): el device token (`nmk_`) ya guardado en credential.bin
 // (loadMemoryToken()), NUNCA el JWT de Supabase — ese solo vive en el renderer y se usa una
 // vez, para registerDevice. Mismo timeout explícito que memory:registerDevice: un servicio
 // colgado no puede dejar este IPC esperando para siempre.
-//
-// Sin UI todavía (fuera de alcance de este paso, según el plan) — alcanza con que el IPC
-// funcione y esté tipado; se prueba desde devtools con window.memory.shareProjectWithTeam(...)
-// o desde un test.
 ipcMain.handle('memory:shareProjectWithTeam', async (_event, projectKey: string, teamId: string) => {
   const url = getMemorySyncBaseUrl()
   const token = loadMemoryToken()
@@ -4098,7 +4068,7 @@ ipcMain.handle('memory:shareProjectWithTeam', async (_event, projectKey: string,
     })
     const body = await res.json().catch(() => null) as { error?: string } | null
     if (!res.ok) return { ok: false, error: body?.error ?? `HTTP ${res.status}` }
-    // I1: todo handoff que se haya escrito ANTES de compartir el proyecto quedo retenido
+    // Todo handoff que se haya escrito ANTES de compartir el proyecto quedo retenido
     // con `project_not_shared_with_team` (reversible, ver memory-daemon.ts). Este es el
     // momento exacto en que esa razon dejo de aplicar — sin este desbloqueo, la retencion
     // esperaria hasta el proximo cambio de plan, que puede no llegar nunca.
@@ -4116,10 +4086,10 @@ ipcMain.handle('memory:shareProjectWithTeam', async (_event, projectKey: string,
   }
 })
 
-// Task 5 (plan de memoria por cuenta multi-dispositivo): el vault — proyección Markdown de
+// El vault — proyección Markdown de
 // la memoria de la cuenta ACTIVA, ver docs/superpowers/specs/2026-08-26-memory-vault-design.md.
 //
-// Los cuatro disparadores del §7, ahora cableados:
+// Los cuatro disparadores del §7:
 //   1. Enable / "Regenerate now"        -> memory:vault:setSettings / memory:vault:regenerate
 //   2. Debounce 5s post-escritura        -> scheduleVaultRegenDebounced(), llamado desde memorySink.save()
 //   3. Poll de 60s del watermark          -> startVaultWatermarkPoll(), abajo
@@ -4271,8 +4241,7 @@ ipcMain.handle('memory:vault:setSettings', async (_event, patch: Partial<VaultSe
 ipcMain.handle('memory:vault:regenerate', async () => runVaultRegeneration())
 
 // Spec §11 riesgo 2: cuantas notas hay, cuantos conflictos, y cuando se regenero por ultima
-// vez. Sin esto la pantalla puede mostrar el vault de hace una hora y media sin avisar — que
-// es exactamente lo que se midio el 2026-09-09.
+// vez. Sin esto la pantalla puede mostrar el vault de hace una hora y media sin avisar.
 ipcMain.handle('memory:vault:health', () => {
   if (!memory) {
     return { ok: false, enabled: false, rootDir: '', noteCount: 0, conflictCount: 0, lastGeneratedAt: null }
@@ -4297,7 +4266,7 @@ ipcMain.handle('memory:vault:reveal', async () => {
   }
 })
 
-// Team Memory Layer 2 (Task 7): el hilo de equipo — indice + una nota por rama, escrito
+// El hilo de equipo — indice + una nota por rama, escrito
 // dentro de `.nest/team/` de CADA worktree (a diferencia del vault personal, que tiene un
 // solo root por cuenta). Ver docs/superpowers/sdd/2026-09-08-team-memory-layer-2.
 //
@@ -4312,7 +4281,7 @@ ipcMain.handle('memory:vault:reveal', async () => {
 //   4. Reconciliacion al arranque        -> reconcileTeamThreads(), en app.whenReady()
 //
 // La diferencia con el vault: el vault tiene UN root por cuenta, el hilo se escribe uno por
-// worktree y su config es por proyecto (I3 de la review final de rama). Por eso todo lo de
+// worktree y su config es por proyecto. Por eso todo lo de
 // abajo trabaja sobre el CONJUNTO de worktrees de un repo, no sobre uno.
 
 /** Wrapper que consulta git — es lo UNICO de este flujo que lo hace, el planner
@@ -4333,8 +4302,8 @@ async function collectBranchStates(worktreePath: string, branches: string[]): Pr
   return parseBranchStates(branchOutput, worktreeOutput, branches, gitDisponible)
 }
 
-// Un cerrojo por `rootDir`. Con un solo disparador (un click humano) no hacia falta; con
-// los cuatro de §8.1 por N worktrees, dos pasadas sobre el mismo directorio pueden
+// Un cerrojo por `rootDir`. Con
+// los cuatro disparadores de §8.1 por N worktrees, dos pasadas sobre el mismo directorio pueden
 // intercalar el read-modify-write del manifest que hace applyVaultPlan.
 const teamThreadLock = new KeyedLock()
 
@@ -4389,7 +4358,7 @@ async function runTeamThreadRegenerationLocked(
         ultimaSync: Date.now(),
       },
       onDiskHashes: computeOnDiskHashes(rootDir, manifest),
-      // I4: el puntero de AGENTS.md (abajo) no puede quedar apuntando a un `_index.md` que
+      // El puntero de AGENTS.md (abajo) no puede quedar apuntando a un `_index.md` que
       // no existe — el caso del primer dia de todo usuario, con el toggle prendido y cero
       // filas `team`.
       indexOnDisk: existsSync(join(rootDir, '_index.md')),
@@ -4409,9 +4378,9 @@ async function runTeamThreadRegenerationLocked(
 }
 
 /**
- * I3: los settings son por PROYECTO, el hilo se escribe por WORKTREE. Prender, apagar o
+ * Los settings son por PROYECTO, el hilo se escribe por WORKTREE. Prender, apagar o
  * regenerar desde un worktree tiene que alcanzar a TODOS los del mismo repo — si no,
- * apagar deja `.nest/team/` y la linea de AGENTS.md vivos en los otros 7, y prender no
+ * apagar deja `.nest/team/` y la linea de AGENTS.md vivos en los demas, y prender no
  * escribe el hilo en ninguno de ellos.
  *
  * Los worktrees que ya no estan en disco se saltean: escribir ahi los recrearia.
@@ -4568,7 +4537,7 @@ ipcMain.handle('memory:teamThread:getSettings', (_e, projectKey: string) => {
 ipcMain.handle('memory:teamThread:setSettings', async (_e, projectKey: string, worktreePath: string, patch: Partial<TeamThreadSettings>) => {
   if (!memory) return { ok: false, error: 'memory_unavailable' }
   const userId = memory.store.getOwnerUserId()
-  // I1: prender el hilo con un plan que no admite `scope: 'team'` produce filas que el
+  // Prender el hilo con un plan que no admite `scope: 'team'` produce filas que el
   // servidor rechaza (`team_scope_not_allowed`, terminal) mientras el usuario ve el hilo
   // local poblado y cree que compartio. Se chequea ANTES de guardar el setting: mejor no
   // prender que prender en falso. Si todavia no se sabe el plan no se bloquea nada — ver
@@ -4582,7 +4551,7 @@ ipcMain.handle('memory:teamThread:setSettings', async (_e, projectKey: string, w
   }
 
   const settings = saveTeamThreadSettings(teamThreadSettingsPath(ravenHome(), userId), projectKey, patch)
-  // I3: por REPO, no por worktree. Apagar tiene que limpiar los 8 worktrees, no uno.
+  // Por REPO, no por worktree. Apagar tiene que limpiar todos los worktrees, no uno.
   const res = await runTeamThreadForRepo(worktreePath, projectKey)
   return { ...res, settings }
 })
@@ -4590,19 +4559,19 @@ ipcMain.handle('memory:teamThread:setSettings', async (_e, projectKey: string, w
 ipcMain.handle('memory:teamThread:regenerate', (_e, worktreePath: string, projectKey: string) =>
   runTeamThreadForRepo(worktreePath, projectKey))
 
-// Task 10 (el panel): projectKey se resuelve del lado main, nunca en el renderer — mismo
+// projectKey se resuelve del lado main, nunca en el renderer — mismo
 // patron que `handoff:read` (projectKeyForWorktree ya hace exactamente esto). src/ no
 // puede reimplementar resolveProjectKey (necesita normalizar el remote y hashear), asi que
 // esto es la unica via limpia para que el panel sepa que projectKey pedirle a
 // getSettings/setSettings. Misma guarda y mismo envelope `{ ok, ... }` que el handler
-// `read` de aca abajo (review de Task 10: un worktreePath invalido no debe producir un
-// projectKey basura indistinguible de uno valido).
+// `read` de aca abajo (un worktreePath invalido no debe producir un projectKey basura
+// indistinguible de uno valido).
 ipcMain.handle('memory:teamThread:projectKeyForWorktree', async (_e, worktreePath: string) => {
   if (!worktreePath || !isAbsolute(worktreePath)) return { ok: false, error: 'invalid_worktree_path' }
   return { ok: true, projectKey: await projectKeyForWorktree(worktreePath) }
 })
 
-// Task 10 (el panel): proyeccion de solo lectura del indice, para pintar el grafo. Separado
+// Proyeccion de solo lectura del indice, para pintar el grafo. Separado
 // de getSettings/setSettings/regenerate (que son config y pase de escritura) — este handler
 // no toca disco, solo lee memoria + git y devuelve filas. worktreePath alcanza: projectKey
 // sale de el, igual que arriba.
@@ -4803,28 +4772,28 @@ ipcMain.handle('pluginCreds:delete', (_e, id: string) => pluginCreds.delete(id))
 ipcMain.handle('pluginActions:run', (_e, id: string, actionId: string, params) =>
   runPluginAction(id, actionId, params ?? {}, { getToken: (p) => pluginCreds.getToken(p), fetch }))
 
-// Host genérico de paneles de integración (Hito 2+ Task F1): el renderer
+// Host genérico de paneles de integración: el renderer
 // nunca ve el token, solo el resultado plano del adapter server-side
-// registrado en electron/integrations/register.ts (Fase 2 del plan).
+// registrado en electron/integrations/register.ts.
 registerAllPanelAdapters()
 registerAllTicketProviders()
 
-// Branch→ticket tracking persists across restarts (spec Motor 1: the PR
+// Branch→ticket tracking persists across restarts (the PR
 // usually opens/merges days after the worktree was created). At boot, drop
 // entries whose worktree no longer exists — the worktree is the unit of work.
 ticketLoop.attachStorage(pathJoin(ravenHome(), '.raven-nest', 'ticket-loop.json'))
 ticketLoop.retainBranches(worktreeStore.list().map((m) => m.branch))
 
-// Bus de eventos v1 (H8/T7): cablea el ticket loop como primer emisor/consumidor.
-// Las DEFAULT_RECIPES (recipes.json inexistente → defaults) REPLICAN H3:
+// Bus de eventos: cablea el ticket loop como primer emisor/consumidor.
+// Las DEFAULT_RECIPES (recipes.json inexistente → defaults) REPLICAN la transición directa:
 // pr.opened → updateStatus(in_review), pr.merged → updateStatus(done), con
 // pluginId/providerId resueltos por lookup branch→tracking. El handler
 // updateStatus (registerBusCommands) hace la transición real vía el provider que
 // resuelve el propio loop; credential-free (los tokens llegan por panelDeps() al
 // emitir, nunca acá). Con el bus adjunto, onPrStateChanged EMITE en vez de
-// transicionar directo — misma resolución in_review/done que H3 en el happy path.
-// Retry parity con H3: el emit reporta en `failed` los handlers que tiraron, y el
-// loop sólo destrackea/marca lastPr si el updateStatus del ticket NO falló, así un
+// transicionar directo — misma resolución in_review/done en el happy path.
+// Retry parity con la transición directa: el emit reporta en `failed` los handlers que
+// tiraron, y el loop sólo destrackea/marca lastPr si el updateStatus del ticket NO falló, así un
 // 500 transitorio de Jira/Linear reintenta al próximo poll (no deja el ticket stuck).
 const eventBus = new EventBus()
 
@@ -4850,20 +4819,20 @@ eventBus.setRecipes(loadRecipes(
   pathJoin(ravenHome(), '.raven-nest', 'recipes.json'),
   (branch) => ticketLoop.trackedTicket(branch),
 ))
-// Recipes tab (Plan 5 Task 1) — read-only display of the ACTIVE recipes
+// Recipes tab — read-only display of the ACTIVE recipes
 // above (same recipes.json, same swap-not-merge rule as loadRecipes).
 ipcMain.handle('recipes:list', () => recipeDescriptors())
-// Epic C (H11) — scheduled agents. automations.json lives next to
+// Scheduled agents. automations.json lives next to
 // recipes.json/ticket-loop.json under .raven-nest.
 const automationsFilePath = pathJoin(ravenHome(), '.raven-nest', 'automations.json')
-// H6 Motor 4 — Calendar: el sink de outcomes se resuelve con `gcalDeps()`, que
+// Calendar: el sink de outcomes se resuelve con `gcalDeps()`, que
 // desenvuelve el access token de las creds guardadas (JSON) y refresca en
 // background si venció. Sin creds gcal, `gcalDeps().getToken('gcal')` devuelve
 // null y el adapter degrada a NotConnectedError → el handler logOutcome lo traga.
 registerBusCommands(eventBus, {
   ticketLoop,
   gcal: () => createGcalAdapter(gcalDeps()),
-  // scheduleBlock (epic C reactivation): turns the command into a persisted,
+  // scheduleBlock: turns the command into a persisted,
   // enabled automation so the tick loop below picks it up on its next pass.
   scheduleBlock: (cmd) => {
     const list = loadAutomations(automationsFilePath)
@@ -4885,7 +4854,7 @@ const panelDeps = (): PanelAdapterDeps => ({
   fetch,
 })
 
-// Epic C (H11) — automations DTO adds two main-computed fields the renderer
+// Automations DTO adds two main-computed fields the renderer
 // needs but the persisted model doesn't carry: `nextRunAt` (from `nextRun`)
 // and `scheduleLabel` (from `describeSchedule`). Keeps all cron logic on this
 // side of the IPC boundary — src/ never imports electron/ (same convention as
@@ -4894,7 +4863,7 @@ function automationDTO(a: Automation, now: Date) {
   return { ...a, nextRunAt: nextRun(a, now)?.getTime() ?? null, scheduleLabel: describeSchedule(a) }
 }
 
-// Epic C (H11) — real headless execution. The pure orchestration
+// Real headless execution. The pure orchestration
 // (create worktree → run agent → summarize → remove) lives in
 // automation-runner.ts; these ports inject the git/child-process side effects.
 // ⚠️ The child-process path (`runAgent`) is unit-untested integration and needs
@@ -4974,7 +4943,7 @@ const automationRunnerPorts: AutomationRunnerPorts = {
       try { await runGit(['-C', repoPath, 'branch', '-D', branch], { timeout: 5000 }) } catch {}
     }
   },
-  // model-per-task (worker-spec Capa 1): inline model wins, else the referenced
+  // model-per-task: inline model wins, else the referenced
   // worker-spec's first step.
   resolveModel: (automation) => automation.model
     ?? (automation.workerId ? workerSpecStore.list().find((w) => w.id === automation.workerId)?.steps[0]?.model : undefined),
@@ -5079,7 +5048,6 @@ async function refreshGcalIfNeeded(): Promise<void> {
     // Terminal (invalid_grant): el refresh token murió; no reintentar. Limpiamos
     // las creds para no dejar la integración "conectada" pero zombie (Calendar
     // vacío para siempre). Un transitorio (5xx/red) se conserva y reintenta.
-    // (El push "reconectá Calendar" al renderer + su UI es la pasada en vivo.)
     if (err instanceof GcalAuthError) {
       console.warn('[gcal] refresh token revocado/expirado — limpiando creds', err)
       pluginCreds.delete('gcal')
@@ -5102,8 +5070,8 @@ function gcalDeps(): PanelAdapterDeps {
   }
 }
 
-// Motor 3 (H4): señales por worktree (CI/review) en el main. Fuente única de
-// `ci.failed` (se retiró de ticket-loop). Resuelve owner/repo con el mismo
+// Señales por worktree (CI/review) en el main. Fuente única de
+// `ci.failed`. Resuelve owner/repo con el mismo
 // getRemoteUrl+parseOwnerRepo del ticket loop; token nunca sale del main.
 const worktreeSignals = new WorktreeSignals((repoPath) => {
   const url = getRemoteUrl(repoPath)
@@ -5115,7 +5083,7 @@ const worktreeSignals = new WorktreeSignals((repoPath) => {
 worktreeSignals.attachStorage(pathJoin(ravenHome(), '.raven-nest', 'worktree-signals.json'))
 worktreeSignals.attachBus(eventBus)
 
-// @Nest bot orchestration intents (H7 §6, on top of the Socket Mode mention
+// @Nest bot orchestration intents (on top of the Socket Mode mention
 // handler below). Resolves a GitHub "owner/repo" full name to a LOCAL base
 // repoPath by looking at repos this app already knows about (worktreeStore) —
 // the ticket key alone never gives us a filesystem path. Jira/Linear keys
@@ -5146,12 +5114,12 @@ function nestBotDeps(): NestBotDeps {
   }
 }
 
-// H7 Motor 5 — @Nest desde Slack (Socket Mode). Sólo arranca si hay un
+// @Nest desde Slack (Socket Mode). Sólo arranca si hay un
 // app-level token (`xapp-...`, distinto del bot token) guardado en
 // pluginCreds('slack-app'). Sin él, la feature queda apagada sin romper el
 // resto de Slack. El main NO abre panes: rutea los eventos al renderer por IPC
 // push (`slack:mention`/`slack:action`, mismo patrón que `signals:update`) Y,
-// además (H7 §6), corre el bot orchestration (parseIntent/handleMention) y
+// además, corre el bot orchestration (parseIntent/handleMention) y
 // responde in-thread con el bot token. Un fallo del bot (fetch caído, provider
 // caído) sólo genera un console.warn — nunca debe tumbar el socket ni dejar de
 // empujar `slack:mention` al renderer.
@@ -5174,12 +5142,12 @@ if (slackAppToken) {
 ipcMain.handle('plugins:panel:call', (_e, pluginId: string, method: string, args: unknown[]) =>
   callPanel(pluginId, method, args ?? [], panelDeps()))
 
-// === Worktree signals IPC (H4 Motor 3) ===
+// === Worktree signals IPC ===
 ipcMain.handle('signals:list', () => worktreeSignals.list())
 ipcMain.handle('signals:fixCiPrompt', (_e, repoPath: string) =>
   typeof repoPath === 'string' ? worktreeSignals.fixCiPrompt(repoPath, panelDeps()) : Promise.resolve(null))
 
-// === Ticket loop IPC (H3 Motor 1) ===
+// === Ticket loop IPC ===
 ipcMain.handle('tickets:list', (_e, pluginId: string) => {
   if (typeof pluginId !== 'string') return []
   return ticketLoop.list(pluginId, panelDeps())
@@ -5188,13 +5156,13 @@ ipcMain.handle('tickets:list', (_e, pluginId: string) => {
 ipcMain.handle('tickets:branchName', (_e, user: string, key: string, title: string) =>
   ticketBranchName(String(user ?? ''), String(key ?? ''), String(title ?? '')))
 
-// All tracked branch→ticket links, for the orchestration board (Plan 2).
+// All tracked branch→ticket links, for the orchestration board.
 ipcMain.handle('tickets:tracked', () => ticketLoop.trackedList())
 
 // Writes TASK.md with the ticket context and fires the in_progress
 // transition. worktreePath must be a worktree THIS app registered — never an
 // arbitrary directory. Shared by the tickets:startWork IPC handler (the
-// "Work on this" picker) and the @Nest bot's grab intent (H7 §6) — same flow,
+// "Work on this" picker) and the @Nest bot's grab intent — same flow,
 // two callers.
 async function startWorkOnWorktree(
   pluginId: string, ticket: Ticket, branch: string, worktreePath: string,
@@ -5236,7 +5204,7 @@ ipcMain.handle('tickets:startWork', async (_e, args: {
   return startWorkOnWorktree(pluginId, ticket, branch, worktreePath)
 })
 
-// H5 Motor 2 — Notion spec→worktree: baja la página como markdown, la escribe
+// Notion spec→worktree: baja la página como markdown, la escribe
 // en <worktree>/.nest/spec.md (mismo patrón que TASK.md en tickets:startWork) y
 // devuelve el markdown para inyectarlo como prompt inicial del agente
 // (initialInput). worktreePath debe ser un worktree que ESTA app registró.
@@ -5254,7 +5222,7 @@ ipcMain.handle('notion:specToWorktree', async (_e, args: { pageId: string; workt
   }
 })
 
-// === Google Calendar IPC (H6 Motor 4) ===
+// === Google Calendar IPC ===
 // OAuth desktop: loopback server + PKCE (sin client secret). El token nunca sale
 // del main; se guarda en pluginCreds('gcal') como JSON {accessToken, refreshToken,
 // expiresAt}. Sin client id configurado → NOT_CONFIGURED (igual patrón que Slack).
@@ -5280,7 +5248,7 @@ ipcMain.handle('gcal:listEvents', async (_e, timeMin: string, timeMax: string): 
 
 // Block → Session (un click, JAMÁS automático): escribe <worktree>/.nest/spec.md
 // con el título/contexto del evento (mismo patrón que notion:specToWorktree) y
-// devuelve el prompt para inyectar como initialInput del pane (reusa H4).
+// devuelve el prompt para inyectar como initialInput del pane.
 ipcMain.handle('gcal:startSession', async (_e, args: { title: string; context: string; worktreePath: string }) => {
   const { title, context, worktreePath } = args ?? {}
   if (typeof title !== 'string' || typeof context !== 'string' || typeof worktreePath !== 'string') {
@@ -5305,17 +5273,17 @@ let ticketPollInterval: ReturnType<typeof setInterval> | null = setInterval(() =
   for (const repoFullName of ticketLoop.trackedRepos()) {
     void ticketLoop.pollOnce(repoFullName, panelDeps())
   }
-  // Motor 3 (H4): pollea CI/review de TODOS los worktrees vivos (no sólo los con
+  // Pollea CI/review de TODOS los worktrees vivos (no sólo los con
   // ticket) y empuja `signals:update` al renderer para refrescar los badges.
   void worktreeSignals
     .poll(worktreeStore.list().map((m) => ({ repoPath: m.repoPath, branch: m.branch })), panelDeps())
     .then(() => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('signals:update') })
-  // Motor 4 (H5): review-requested es global (no por worktree) — un solo search
+  // review-requested es global (no por worktree) — un solo search
   // /issues?q=review-requested:@me por ciclo, que emite review.requested al bus.
   void worktreeSignals.pollReviewRequests(panelDeps())
 }, TICKET_POLL_MS)
 
-// ── Graph orchestration wiring (F6) ─────────────────────────────────────────
+// ── Graph orchestration wiring ──────────────────────────────────────────────
 // main OWNS the graph nodes' PTYs (headless multi-agent orchestration): each
 // tick samples every launched pane via deriveAgentState, folds the states into
 // the run (planTick), spawns the panes it says to start, emits its events
@@ -5519,8 +5487,8 @@ ipcMain.handle('slack:open-oauth', async () => {
 
 // Exchange del `code` de Slack OAuth por un access token (spec §6/§7: el
 // token nunca sale del main process). En producción el spec prevé una Edge
-// Function; acá lo hacemos main-side para poder testear local sin infra
-// (plan Hito 2+, decisión documentada). Guardamos el token *bot* (`access_token`
+// Function; acá lo hacemos main-side para poder testear local sin infra.
+// Guardamos el token *bot* (`access_token`
 // de la raíz de la respuesta) en vez de `authed_user.access_token`: los
 // adapters de paneles pegan a endpoints con scopes de bot (conversations.*,
 // chat.postMessage), no a los del usuario que instaló la app.
@@ -5553,9 +5521,9 @@ ipcMain.handle('slack:exchange-code', async (_e, code: string) => {
   }
 })
 
-// H7 — postea un mensaje al MISMO thread de Slack (bot token, no el app token).
+// Postea un mensaje al MISMO thread de Slack (bot token, no el app token).
 // Lo llama el renderer al crear la sesión ("🪺 Trabajando en esto…") y en
-// updates, y el @Nest bot (H7 §6) para responder in-thread a una mención. Sin
+// updates, y el @Nest bot para responder in-thread a una mención. Sin
 // bot token → no-op silencioso (ok:false) para no romper el flujo.
 async function postToSlackThread(channel: string, threadTs: string, text: string): Promise<{ ok: boolean }> {
   const token = pluginCreds.getToken('slack')
@@ -5659,12 +5627,11 @@ app.whenReady().then(async () => {
   // daemon. Both are safe to start even when memory is disconnected — the IPC server
   // just serves local reads/writes to memory.db (which always works, offline-first,
   // §1.2), and the daemon no-ops push/pull without a token (§4.1 guards on getToken()).
-  // C7: skipped entirely when the subsystem failed to initialize.
+  // Skipped entirely when the subsystem failed to initialize.
   if (memory) {
     memory.ipcServer.start()
     memory.daemon.start()
-    // Local-first import (Task 7 of docs/superpowers/plans/
-    // 2026-09-03-memoria-por-cuenta-multi-dispositivo.md): runs on every plain app
+    // Local-first import: runs on every plain app
     // startup, not only on `memory:connect`, so the memory hub has real numbers to show
     // even to a Free user who never connects to Cloud. Idempotent, best-effort — see
     // memory-local-import.ts.
@@ -5814,9 +5781,8 @@ app.on('before-quit', () => {
   // before quitAndInstall). Those are the only real-quit paths.
   //
   // Nest Memory teardown is DELIBERATELY NOT here either, for the identical reason
-  // (docs/GUIA-TESTEO-BAUTISTA.md pitfall: "No hagas teardown en before-quit" — this
-  // handler fires on every Cmd+Q attempt even when win.on('close') cancels it right
-  // after). See finalizeMemoryBeforeQuit(), wired into the same two real-quit paths
+  // (this handler fires on every Cmd+Q attempt even when win.on('close') cancels it
+  // right after). See finalizeMemoryBeforeQuit(), wired into the same two real-quit paths
   // as ptyManager.killAll() below.
   setupRunner.removeAllListeners()
   spotlight.removeAllListeners()

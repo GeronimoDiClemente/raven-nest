@@ -1,5 +1,5 @@
-// Per-account MCP config + hook injection for Nest Memory — Claude Code only in Phase 1
-// (Codex/Gemini adapters are Phase 2, per docs/nest-memory-architecture.md §2.5 and §9).
+// Per-account MCP config + hook injection for Nest Memory — Claude Code. The other CLIs have
+// their own adapters (memory-cli-adapters.ts; docs/nest-memory-architecture.md §2.5 and §9).
 //
 // THE SHARED-CONFIG HAZARD (§2.5): account-store.ts symlinks (or hardlinks, on Windows
 // without Developer Mode) the user's global ~/.claude/settings.json into every Claude
@@ -14,7 +14,7 @@
 // on top of the normal hierarchy (O-1, resolved — see docs/nest-memory-architecture.md).
 // electron/__tests__/memory-provisioner.test.ts asserts byte-for-byte that the global
 // settings.json is unchanged by provision/deprovision — the regression test for this
-// exact hazard (Phase 1 acceptance criterion #6, risk R-2).
+// exact hazard.
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, chmodSync, renameSync } from 'fs'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
@@ -52,7 +52,7 @@ function claudeJsonPath(accountDir: string): string {
  * string that Claude Code's hook runner executes.
  */
 // Atomic write (tmp + rename) for every file this module owns — house pattern from
-// session-store.ts/local-paths-store.ts (docs/GUIA-TESTEO-BAUTISTA.md). A per-call
+// session-store.ts/local-paths-store.ts. A per-call
 // random tmp suffix avoids two concurrent provision calls (e.g. AccountStore.save() and
 // a PtyManager.create() self-heal racing) clobbering each other's in-flight write.
 export function writeFileAtomic(path: string, content: string, mode?: number): void {
@@ -94,7 +94,7 @@ export interface JsonFile {
  * yet" case and defaults to {}; any OTHER read/parse failure throws instead of
  * defaulting, so the caller's provisioning attempt aborts for this cycle rather than
  * clobbering. account-store.ts already wraps every provision call in try/catch and
- * logs — provisioning simply retries on the next PtyManager.create() (M11), so
+ * logs — provisioning simply retries on the next PtyManager.create(), so
  * aborting here costs nothing but safety.
  */
 export function readJsonOrThrow(path: string): JsonFile {

@@ -12,9 +12,9 @@
 // > `2026-09-13-nest-memory-portable-design.md` §4 dice 20.19 —el `engines.node` de este
 // > repo— y está equivocado: no hubo backport a la 20.x, que además ya está fuera de
 // > soporte. El paquete portátil tiene que pedir >=22.5 y decirlo con un mensaje claro,
-// > no con un `MODULE_NOT_FOUND`. Verificado contra la documentación de Node el
-// > 2026-09-18. El typecheck de CI corre en Node 20 y no se entera porque sólo necesita
-// > los tipos (`@types/node` los trae); el job de tests corre en 22, donde el módulo existe.
+// > no con un `MODULE_NOT_FOUND`. El typecheck de CI corre en Node 20 y no se entera porque
+// > sólo necesita los tipos (`@types/node` los trae); el job de tests corre en 22, donde el
+// > módulo existe.
 //
 // **La app de Electron sigue con `better-sqlite3`**, donde ya funciona y está probado.
 // Esto es para el paquete portátil, y vive acá —y no en un directorio nuevo— porque acá lo
@@ -34,7 +34,7 @@ export type BaseSinCompilar = BaseSqlite & { readonly enTransaccion: boolean }
 
 export function adaptarBase(db: DatabaseSync): BaseSinCompilar {
   // Los savepoints se numeran, igual que en better-sqlite3. **No es necesario para que
-  // funcione** —probado: con un nombre constante pasan los 22 tests, porque `ROLLBACK TO` y
+  // funcione** —con un nombre constante también anda, porque `ROLLBACK TO` y
   // `RELEASE` apuntan al savepoint MÁS RECIENTE con ese nombre y el anidado acá es una pila
   // estricta—. Es para que un trace de SQL muestre a qué nivel pertenece cada uno.
   let contadorDeSavepoints = 0

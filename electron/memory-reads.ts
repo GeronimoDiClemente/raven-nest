@@ -1,15 +1,10 @@
 // Las lecturas de memoria, como funciones sobre una `Database` y no como métodos del store.
 //
 // **Por qué existen acá.** El modo sin daemon (`memory-mcp/readonly.ts`) abre el SQLite en
-// sólo lectura y responde sin la app. Hasta ahora lo único que sabía contestar era el grafo,
-// porque `buildMemoryGraph` ya era una función sobre `db` — mientras que buscar, traer el
-// contexto y leer una memoria por id vivían como métodos de `MemoryStore`, y `MemoryStore`
-// no se puede instanciar contra una base de sólo lectura: su constructor corre las
-// migraciones y prende WAL, o sea escribe.
-//
-// El efecto era que quien se llevaba el plugin a otro editor podía ver el dibujo del grafo
-// pero no podía BUSCAR ni LEER una memoria, que es para lo que sirve tener memoria. Las tres
-// consultas son `SELECT` puros: lo único que las ataba a la clase era dónde estaban escritas.
+// sólo lectura y responde sin la app, y `MemoryStore` no se puede instanciar contra una base
+// de sólo lectura: su constructor corre las migraciones y prende WAL, o sea escribe. Las
+// consultas son `SELECT` puros, así que viven acá como funciones sobre `db` y ese modo puede
+// buscar y leer memorias, no sólo dibujar el grafo.
 //
 // `MemoryStore` las llama a éstas, así que hay una sola redacción de cada consulta. Si mañana
 // `search` cambia de criterio, cambia para los dos caminos a la vez — que es justo lo que no
@@ -86,11 +81,11 @@ export function toSummary(row: ObservationRow, maxContentChars?: number): Observ
  * La query del usuario como expresión MATCH de FTS5: cada término entre comillas, unidos por
  * el AND implícito. `null` si no queda ningún término buscable.
  *
- * Hasta el 2026-10-19 la query entera iba entre comillas, o sea FRASE EXACTA: «Smoke paquete»
- * no encontraba «Smoke del paquete». Un agente busca por palabras clave, no por la frase
+ * Por término y no la query entera entre comillas: eso sería FRASE EXACTA, y «Smoke paquete»
+ * no encontraría «Smoke del paquete». Un agente busca por palabras clave, no por la frase
  * literal con la que alguien la guardó.
  *
- * Las comillas por término siguen haciendo falta: sin ellas `NOT`, `OR`, `-`, `*` o `:` son
+ * Las comillas por término hacen falta: sin ellas `NOT`, `OR`, `-`, `*` o `:` son
  * operadores de FTS5 y la query revienta o significa otra cosa. Adentro de comillas son texto,
  * y el tokenizer parte `memory-reads.ts` en una frase de tres tokens, que es lo que se quiere.
  * Un término sin letras ni dígitos se descarta: entre comillas sería una frase vacía.
@@ -148,11 +143,10 @@ export function searchObservations(
  *
  * `maxContentChars` es lo que lo vuelve barato, y es la razon de ser de esta funcion.
  *
- * Sin presupuesto, esto devolvia diez memorias con el CUERPO ENTERO. Con el promedio real
- * del corpus (1793 bytes) son ~18 KB, o sea unos 4.500 tokens, en CADA arranque de sesion —
- * y la descripcion de la herramienta le decia al modelo que era "cheap", que es justo lo que
- * hace que la llame sin pensarlo. Un procesador de memoria bien administrado no vuelca: da
- * un indice y deja que pidan el detalle de lo que importa.
+ * Sin presupuesto devolveria diez memorias con el CUERPO ENTERO: con el promedio real del
+ * corpus (~1.8 KB) son ~18 KB, unos 4.500 tokens, en CADA arranque de sesion, y el modelo la
+ * llama sin pensarlo. Un procesador de memoria bien administrado no vuelca: da un indice y
+ * deja que pidan el detalle de lo que importa.
  *
  * La cadena queda en tres escalones, cada uno mas caro y mas especifico que el anterior:
  *

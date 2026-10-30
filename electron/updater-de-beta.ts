@@ -1,4 +1,4 @@
-// De dónde se actualiza una beta (2026-10-05).
+// De dónde se actualiza una beta.
 //
 // Una versión estable se actualiza desde las releases públicas de GitHub. Una beta NO: la
 // beta cerrada no se publica en GitHub (el repo es público), así que sus actualizaciones las

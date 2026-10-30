@@ -92,10 +92,9 @@ function dirDeUsuarioDeVSCode(home: string, plataforma: NodeJS.Platform): string
 /**
  * Los siete editores que `setup` sabe configurar, con la forma exacta que espera cada uno.
  *
- * Las cinco primeras salen de los `memory-provisioner*.ts`, que ya las tenían verificadas
- * contra los CLIs reales. Cursor y VS Code se agregaron el 2026-09-18 leyendo su
- * documentación, y ahí apareció la trampa que hacía falta verificar y no adivinar: **VS Code
- * anida bajo `servers` y no bajo `mcpServers`** como todos los demás. Una entrada con la clave
+ * Las cinco primeras salen de los `memory-provisioner*.ts`, verificadas contra los CLIs
+ * reales; Cursor y VS Code, de su documentación. La trampa: **VS Code anida bajo `servers` y
+ * no bajo `mcpServers`** como todos los demás. Una entrada con la clave
  * equivocada no da error: el editor la ignora y el usuario se queda esperando una memoria que
  * nunca llega.
  */
@@ -212,8 +211,8 @@ const TABLA = `mcp_servers.${NOMBRE_DEL_SERVIDOR}`
 /** El nombre de la tabla que abre una línea, o `null` si la línea no abre ninguna. */
 function nombreDeTabla(linea: string): string | null {
   // El nombre se EXTRAE en vez de comparar la línea entera, porque TOML admite
-  // `[tabla] # comentario` y comparar por igualdad dejaba pasar ese caso — con lo cual
-  // `--undo` no deshacía nada. Hay un test.
+  // `[tabla] # comentario` y comparar por igualdad dejaría pasar ese caso — con lo cual
+  // `--undo` no deshacería nada. Hay un test.
   const m = /^\[([^\]]+)\]/.exec(linea.trim())
   return m ? m[1]!.trim() : null
 }
@@ -234,7 +233,7 @@ function sinEntradaToml(texto: string): string {
 
   // Se devuelve tal cual, sin normalizar saltos: este módulo promete no reescribir lo que no
   // es suyo, y el espaciado del usuario tampoco lo es. Colapsar líneas en blanco de más
-  // rompía esa promesa en silencio — lo destapó una mutación que ningún test atrapaba.
+  // rompería esa promesa en silencio.
   return quedan.join('\n')
 }
 

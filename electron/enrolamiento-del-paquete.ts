@@ -15,8 +15,8 @@
 //   y esperar.
 //
 // La huella se muestra SIEMPRE que se esté esperando, y no sólo cuando algo falla: es el
-// mecanismo que hace visible la sustitución de clave —el ataque que la tercera revisión
-// encontró— porque el usuario compara dos strings cortos antes de autorizar.
+// mecanismo que hace visible la sustitución de clave, porque el usuario compara dos strings
+// cortos antes de autorizar.
 import type { DeviceKeyPair } from './memory-key-wrap'
 import type { RemoteKeyState } from './memory-keys-client'
 import { comando } from './nombre-del-paquete'

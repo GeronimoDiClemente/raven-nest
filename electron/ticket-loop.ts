@@ -17,7 +17,7 @@ interface Tracked {
    * true una vez que pr.merged EMITIÓ sus side-effects por el bus (notify/logOutcome).
    * Si la transición a done falló, la entrada sobrevive con este flag; el retry NO
    * re-emite por el bus (duplicaría notify/Calendar cada ciclo) — reintenta SOLO la
-   * transición directa. Ver Fix 6 del review de H4-H7.
+   * transición directa.
    */
   merged?: true
 }
@@ -32,12 +32,11 @@ export class TicketLoop {
   private tracked = new Map<string, Tracked>()
   private storePath: string | null = null
   /**
-   * Bus de eventos OPCIONAL. Sin bus (undefined) el loop se comporta idéntico a
-   * H3 (transición directa por provider). Con bus, onPrStateChanged EMITE
-   * pr.opened/pr.merged y el handler updateStatus hace la transición. Se adjunta
-   * por setter (attachBus), no por constructor, para preservar la firma zero-arg
-   * `new TicketLoop()` que usan los 14+ tests. El singleton nace sin bus; sólo el
-   * wiring de main (T7) lo cablea.
+   * Bus de eventos OPCIONAL. Sin bus (undefined) el loop hace la transición directa
+   * por provider. Con bus, onPrStateChanged EMITE pr.opened/pr.merged y el handler
+   * updateStatus hace la transición. Se adjunta por setter (attachBus), no por
+   * constructor, para preservar la firma zero-arg `new TicketLoop()` que usan los
+   * tests. El singleton nace sin bus; sólo main.ts lo cablea.
    */
   private bus?: EventBus
 
@@ -118,7 +117,7 @@ export class TicketLoop {
   /**
    * Resuelve el provider de un pluginId con las deps inyectadas (o null si no hay
    * factory registrada). Público para que los handlers del bus (bus-commands.ts)
-   * reusen el mismo registry sin duplicarlo ni tocar los paths H3. Aditivo: no
+   * reusen el mismo registry sin duplicarlo ni tocar el camino sin bus. Aditivo: no
    * altera onPrStateChanged/startWork.
    */
   providerFor(pluginId: string, deps: PanelAdapterDeps): TicketProvider | null {
@@ -234,14 +233,14 @@ export class TicketLoop {
     // Rama con bus (OPCIONAL): reemplaza la transición directa por un emit.
     // El emit va SIEMPRE antes del delete/set para que el `then(ev)` de la receta
     // pueda resolver branch→ticket mientras el tracking sigue vivo. El handler
-    // updateStatus (registrado en main/T5) hace la transición real. Se conserva
+    // updateStatus (registrado en main.ts) hace la transición real. Se conserva
     // arriba el guard lastPr, así que tampoco se re-emite pr.opened cada ciclo.
     if (this.bus) {
       // RETRY de un merge cuya transición ya falló una vez: los side-effects
       // (notify/logOutcome) YA salieron en el 1er pr.merged; re-emitir por el bus
       // los duplicaría cada poll (mensaje Slack + evento Calendar nuevos cada 90s).
-      // Reintentamos SOLO la transición directa (path H3), destrackeando únicamente
-      // si ahora sí tuvo éxito. Ver Fix 6 del review de H4-H7.
+      // Reintentamos SOLO la transición directa (la del camino sin bus), destrackeando
+      // únicamente si ahora sí tuvo éxito.
       if (pr === 'merged' && t.merged) {
         const p = this.provider(t.pluginId, deps)
         if (!p) return
@@ -254,15 +253,11 @@ export class TicketLoop {
         }
         return
       }
-      // Rama con bus (OPCIONAL): reemplaza la transición directa por un emit.
-      // El emit va SIEMPRE antes del delete/set para que el `then(ev)` de la receta
-      // pueda resolver branch→ticket mientras el tracking sigue vivo. El handler
-      // updateStatus (registrado en main/T5) hace la transición real.
       const ev: DomainEvent = pr === 'open'
         ? { type: 'pr.opened', branch, repoFullName: t.repoFullName ?? '' }
         : { type: 'pr.merged', branch, repoFullName: t.repoFullName ?? '' }
       const { failed } = await this.bus.emit(ev, deps)
-      // Retry parity con H3: sólo damos por hecha la transición —destrackear en
+      // Igual que sin bus: sólo damos por hecha la transición —destrackear en
       // merge, marcar lastPr en open— si el updateStatus de ESTE ticket NO falló.
       // El emit es best-effort y traga los errores del handler, así que sin esto
       // un 500 transitorio de Jira/Linear dejaría el ticket stuck (tracking

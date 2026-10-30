@@ -1,22 +1,17 @@
 // La base del servicio de sync: cuál es, y de dónde sale.
 //
-// Vivía como una expresión de tres términos adentro de `main.ts` y ahí se escondía un agujero
-// que costó una semana de diagnóstico equivocado del lado del servidor: el término que el C4
-// pensó para que apuntar a otro backend no exigiera recompilar (`syncBaseUrl` en
-// `connection.json`) **no lo escribía nadie**, y el otro (hoy `MAIN_VITE_SYNC_URL`) se hornea
-// en tiempo de build desde un `.env` que sólo existe en una máquina de desarrollo. Los
-// workflows de release no pasan esa variable, así que toda instalación armada por CI contesta
-// «No sync service configured for this build» y no hay nada que el usuario pueda hacer.
+// `MAIN_VITE_SYNC_URL` se hornea en tiempo de build desde un `.env` que sólo existe en una
+// máquina de desarrollo; los workflows de release no pasan esa variable. Sin un default, toda
+// instalación armada por CI se quedaría sin servicio y el usuario no podría hacer nada.
 //
 // Por eso acá hay un default. Una instalación tiene que nacer sabiendo con qué servicio
 // hablar; la cuenta ya está protegida por el allowlist del servicio, no por que el cliente no
 // sepa la dirección.
 
 /**
- * El servicio con el que habla una instalación que nadie configuró.
+ * El servicio con el que habla una instalación sin configurar.
  *
- * **Es una decisión de producto que vive en una constante a propósito.** Desde el 2026-10-29
- * es un dominio propio y no la dirección de un proveedor: mudar el servicio (de Railway a otro
+ * **Es una decisión de producto que vive en una constante a propósito.** Es un dominio propio y no la dirección de un proveedor: mudar el servicio (de Railway a otro
  * lado) pasa a ser cambiar un registro DNS, sin release y sin que ninguna instalación lo note.
  */
 export const BASE_DE_SYNC_POR_DEFECTO = 'https://sync.nestmux.com'
@@ -63,7 +58,7 @@ export function normalizarBaseDeSync(valor: string | null | undefined): string |
 
 /**
  * La base que corresponde usar, siempre. **Nunca devuelve `null`**: quedarse sin servicio no
- * es un estado que esta función pueda producir, y por eso quien la llama ya no necesita un
+ * es un estado que esta función pueda producir, y por eso quien la llama no necesita un
  * camino de error para "no hay sync configurado".
  *
  * Un origen que no se puede usar no frena la búsqueda, se saltea: si una URL guardada mal

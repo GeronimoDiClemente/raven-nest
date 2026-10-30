@@ -1,9 +1,8 @@
 // El modo sin daemon: leer la memoria con Nest cerrado.
 //
 // **Por qué existe.** El shim normal reenvía todo al daemon que corre adentro de Electron, y
-// si no encuentra el socket se apaga con "memory is disabled for this session". O sea que
-// hasta hoy la memoria era una función de la APP: quien se llevaba el plugin a otro editor
-// y no tenía Nest abierto, se quedaba sin nada. Eso es exactamente lo que no puede pasar si
+// sin socket la memoria sería una función de la APP: quien se lleva el plugin a otro editor
+// y no tiene Nest abierto se quedaría sin nada. Eso es exactamente lo que no puede pasar si
 // la memoria es la feature.
 //
 // **Qué hace y qué no.** Abre el SQLite en SÓLO LECTURA y responde las consultas. No escribe
@@ -24,13 +23,8 @@ import { GLOBAL_PROJECT_KEY, resolveProjectKey } from '../memory-project-key'
 import type { MemoryMethod, ObservationSummary } from '../memory-protocol'
 
 /**
- * Lo que el modo sin daemon sabe responder: **todo lo que es leer**.
- *
- * Antes acá estaba sólo `memory.graph`, y no por diseño sino porque `buildMemoryGraph` era
- * la única lectura que ya existía como función sobre `db`. El resultado era que quien se
- * llevaba el plugin a otro editor veía el DIBUJO de sus memorias pero no podía buscar
- * ninguna ni abrir una — o sea, tenía el mapa y no el contenido. `memory-reads.ts` sacó las
- * otras tres del store, así que ahora entran.
+ * Lo que el modo sin daemon sabe responder: **todo lo que es leer**. Con sólo el grafo, quien
+ * se lleva el plugin a otro editor tendría el mapa de sus memorias y no el contenido.
  */
 const LEGIBLES: ReadonlySet<MemoryMethod> = new Set<MemoryMethod>([
   'memory.graph', 'memory.search', 'memory.context', 'memory.get', 'ping',
@@ -88,10 +82,10 @@ export class MemoryReadonlyClient {
       this.db = db
       return db
     } catch (err) {
-      // Dos fallas distintas necesitan dos mensajes distintos. Antes las dos colapsaban en
-      // "no encontré la base, abrí Nest una vez", que para un binding nativo incompatible
-      // es MENTIRA —el archivo está, el puntero está— y manda a hacer algo que no arregla
-      // nada. Quien lee esto es un agente que tiene que decidir si reintentar o avisar.
+      // Dos fallas distintas necesitan dos mensajes distintos: "no encontré la base, abrí Nest
+      // una vez" para un binding nativo incompatible es MENTIRA —el archivo está, el puntero
+      // está— y manda a hacer algo que no arregla nada. Quien lee esto es un agente que tiene
+      // que decidir si reintentar o avisar.
       const detalle = err instanceof Error ? err.message : String(err)
       throw new Error(
         `The memory database exists at ${path} but could not be opened: ${detalle}`
@@ -143,8 +137,8 @@ export class MemoryReadonlyClient {
     // qué saber— si Nest estaba abierto cuando preguntó.
     // `offline: true` en las tres. El grafo lo dice en su propio texto; éstas devuelven JSON
     // y sin la marca el agente no tiene forma de saber que está mirando una foto del disco,
-    // que puede estar atrás de lo que la nube ya tiene. Campo agregado, no cambiado: la forma
-    // que ya devolvía el daemon sigue igual.
+    // que puede estar atrás de lo que la nube ya tiene. Es un campo extra: el resto de la forma
+    // es la del daemon.
     if (method === 'memory.search') {
       const items = searchObservations(
         db, claveDeProyecto(), GLOBAL_PROJECT_KEY, p.query ?? '', p.limit ?? 10

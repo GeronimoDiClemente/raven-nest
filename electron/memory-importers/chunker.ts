@@ -91,8 +91,8 @@ export function chunkMarkdown(markdown: string, sourceLabel: string): MarkdownCh
  * Una nota de memoria de Claude Code — `{accountDir}/.claude/projects/<slug>/memory/*.md` —
  * es **un hecho por archivo**, con frontmatter YAML, no un documento largo para cortar.
  * `chunkMarkdown` está pensado para lo otro (un CLAUDE.md de 3000 líneas) y corta en `##`:
- * medido en la Mac del 2026-09-03, **60 de los 63 archivos reales no tienen un solo `##`**,
- * así que devolvía cero para casi todos y el import traía nada.
+ * la gran mayoría de esas notas no tiene un solo `##`, así que devolvería cero para casi
+ * todas y el import no traería nada.
  *
  * Acá el archivo entero es una memoria. `description` es el título (es literalmente para lo
  * que está en ese formato), `name` el topic key — estable aunque se renombre el archivo — y
@@ -126,17 +126,15 @@ export function chunkMemoryNote(raw: string, sourceLabel: string, fileName: stri
   const description = leer('description')
   // El tipo declarado por la nota, si lo trae. Se lee tanto en la raíz (`type: decision`)
   // como anidado bajo `metadata:`, que es donde lo pone el formato de memorias de Claude
-  // Code. Sin esto el importador estampaba `pattern` a TODO, y el tipo dejaba de
-  // distinguir: medido en una cuenta real, 120 de 120 memorias eran `pattern`, así que
-  // agrupar el grafo por tipo pintaba todo de un color.
+  // Code. Sin esto el importador estamparía `pattern` a TODO, el tipo dejaría de
+  // distinguir y agrupar el grafo por tipo pintaría todo de un color.
   const declaredType = leer('type') ?? leerAnidado(frontmatter?.[1] ?? '', 'metadata', 'type')
   const base = fileName.replace(/\.md$/i, '')
 
   // El primer encabezado del cuerpo, si lo hay. Va DESPUÉS de `description` y `name` —que la
   // nota escribió sobre sí misma— pero ANTES del nombre del archivo, que muchas veces no
-  // dice nada: medido en una cuenta real, diez memorias tituladas "MEMORY", una por
-  // proyecto, todas de un `MEMORY.md` sin frontmatter. Diez nodos con la misma etiqueta en
-  // el grafo y diez filas indistinguibles en la lista.
+  // dice nada: un `MEMORY.md` sin frontmatter por proyecto daría N memorias tituladas
+  // "MEMORY" — N nodos con la misma etiqueta en el grafo y N filas indistinguibles.
   const encabezado = /^#{1,6}[ \t]+(.+?)[ \t]*$/m.exec(cuerpo)?.[1]?.trim() || null
 
   // Sin nada de eso, el nombre del archivo — mejor eso que tirar el contenido.

@@ -1,4 +1,4 @@
-// Las tres cosas que un usuario hace con el cifrado, contra `/v1/keys*` (Task 4):
+// Las tres cosas que un usuario hace con el cifrado, contra `/v1/keys*`:
 //   activar (esta cuenta todavia no tiene clave), adoptar (esta maquina ya fue autorizada)
 //   y recuperar (no queda ninguna maquina viva).
 // Mas la cuarta que hace desde la app: autorizar a otra maquina.
@@ -100,10 +100,10 @@ export async function activateEncryption(
     method: 'POST',
     body: {
       key_epoch: keyEpoch,
-      // La intencion, explicita. Sin esto el servidor la inferia comparando epocas, y dos
-      // maquinas activando a la vez terminaban con maestras DISTINTAS en la misma epoca: la
-      // segunda no rotaba (no era `>`) ni era rechazada (no era `<`), asi que pisaba el slot
-      // de recuperacion con el suyo.
+      // La intencion, explicita. Si el servidor la infiriera comparando epocas, dos maquinas
+      // activando a la vez terminarian con maestras DISTINTAS en la misma epoca: la segunda
+      // no rotaria (no es `>`) ni seria rechazada (no es `<`), asi que pisaria el slot de
+      // recuperacion con el suyo.
       mode: 'activate',
       /**
        * El verificador de la epoca NUEVA: lo que la proxima rotacion va a tener que probar
@@ -163,14 +163,14 @@ export async function authorizeDevice(
     method: 'POST',
     body: {
       key_epoch: keyEpoch,
-      // Autorizar NO rota: suma una envoltura a la maestra que ya existe. Sin declararlo, el
-      // servidor lo infería de la época y una autorización con una época adelantada habría
-      // borrado TODAS las envolturas de la cuenta, incluida la de recuperación.
+      // Autorizar NO rota: suma una envoltura a la maestra que ya existe. Si el servidor lo
+      // infiriera de la época, una autorización con una época adelantada borraría TODAS las
+      // envolturas de la cuenta, incluida la de recuperación.
       mode: 'authorize',
       /**
        * El servidor rechaza que una máquina se escriba su PROPIA envoltura, porque una que
-       * no tiene la maestra se la fabricaría sola. La excepción es el camino de recuperación
-       * (D8), que es exactamente eso: la máquina acaba de abrir la copia con el código y se
+       * no tiene la maestra se la fabricaría sola. La excepción es el camino de recuperación,
+       * que es exactamente eso: la máquina acaba de abrir la copia con el código y se
        * auto-autoriza para no volver a pedirlo. Manda la prueba de que la tiene.
        *
        * En el caso normal —autorizar a OTRA máquina— el servidor no la mira, pero mandarla
@@ -186,7 +186,7 @@ export async function authorizeDevice(
 }
 
 /**
- * El camino sin ninguna maquina viva (D8). Abre la copia de recuperacion con el codigo y
+ * El camino sin ninguna maquina viva. Abre la copia de recuperacion con el codigo y
  * despues se auto-autoriza, para que el proximo arranque no vuelva a pedirlo.
  */
 export async function recoverWithCode(

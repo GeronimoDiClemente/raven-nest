@@ -14,8 +14,8 @@ import { GLOBAL_PROJECT_KEY } from '../memory-project-key'
 // break when engram's schema drifts ahead of what we know (§5.2 "Schema drift").
 //
 // created_at/updated_at/last_seen_at/deleted_at are typed `string | number` — NOT `number`
-// as docs/nest-memory-architecture.md §5.2.A's "map 1:1" implied. Verified against a real
-// ~14 MB production engram.db: these columns hold SQLite TEXT datetimes in
+// as docs/nest-memory-architecture.md §5.2.A's "map 1:1" implies. A real engram.db holds
+// these columns as SQLite TEXT datetimes in
 // 'YYYY-MM-DD HH:MM:SS' format (SQLite's CURRENT_TIMESTAMP default, always UTC), not epoch
 // integers. `number` is kept in the union only to tolerate a future engram schema that
 // switches to epoch ms — see parseEngramTimestamp below for why raw values can't be
@@ -76,8 +76,8 @@ const REQUIRED_COLUMNS = [
 ] as const
 
 /**
- * Codigo estable, no un mensaje: engram v2 sale la semana del 2026-09-08 y puede renombrar la
- * tabla o dropear columnas. Sin esto el import devuelve `{imported: 0}` con un mensaje crudo
+ * Codigo estable, no un mensaje: una version nueva de engram puede renombrar la tabla o
+ * dropear columnas. Sin esto el import devuelve `{imported: 0}` con un mensaje crudo
  * de SQLite y el usuario ve cero importadas sin saber por que — el mismo fallo mudo del §2.2,
  * y justo en la puerta de entrada de los usuarios que vienen de engram.
  */
@@ -146,7 +146,7 @@ export function importEngramDatabase(
   try {
     copy = openReadOnlyCopy(engramDbPath)
 
-    // D4 (2026-09-09): antes del SELECT, chequear que el esquema sea uno que sabemos leer.
+    // Antes del SELECT, chequear que el esquema sea uno que sabemos leer.
     // Sin esto el SELECT tira un error crudo de SQLite que el catch de abajo convierte en
     // "importe 0" sin razon utilizable.
     if (!hasReadableSchema(copy.db)) {
@@ -194,12 +194,12 @@ export function importEngramDatabase(
         // observation content produces the same sync_id no matter which machine's
         // engram.db it came from (each has its own, unrelated engram sync_id) or which
         // importer produced it, so the server's upsert-by-sync_id dedupes it cross-device
-        // instead of the old source-id-based derivation, which diverged (261 duplicate
-        // groups, reproduced live). topic_key is part of the seed (Finding 1 fix) — two
+        // (a source-id-based derivation diverges across devices). topic_key is part of the
+        // seed — two
         // engram rows with identical title/content but different topic_key are DISTINCT
         // identities, not a collision.
         syncId: deriveImportSyncId(projectKey, scope, type, hash, row.topic_key),
-        // Bug 1 fix: preserve engram's original dates instead of collapsing all imported
+        // Preserve engram's original dates instead of collapsing all imported
         // history to the import moment. last_seen_at falls back to created_at when engram
         // never recorded a last-seen touch for this row.
         createdAt,

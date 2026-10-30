@@ -1,11 +1,8 @@
 // Orquesta el import de memorias externas (markdown de CLAUDE.md/proyectos + bases engram)
-// contra el store local. Antes de esta pieza esto solo corria dentro del handler
-// `memory:connect` de main.ts ("first-connect import", spec §5.1 paso 5) — atado a que el
-// usuario conecte a Cloud. La Task 7 del hub (docs/superpowers/plans/
-// 2026-09-03-memoria-por-cuenta-multi-dispositivo.md) necesita mostrarle a TODO usuario,
-// incluido Free (que nunca conecta), cuantas memorias ya tiene — asi que esta misma logica
-// tiene que poder correr en el arranque local, sin login. Extraida tal cual estaba, sin
-// cambiar su comportamiento: best-effort en cada paso (un fallo en uno no aborta el resto).
+// contra el store local. Corre tanto en `memory:connect` de main.ts ("first-connect import",
+// spec §5.1) como en el arranque local sin login: TODO usuario, incluido Free (que nunca
+// conecta), tiene que ver cuantas memorias ya tiene. Best-effort en cada paso: un fallo en
+// uno no aborta el resto.
 import { basename } from 'path'
 import { existsSync } from 'fs'
 import { runGit } from './git-exec'

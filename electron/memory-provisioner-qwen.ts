@@ -1,6 +1,5 @@
-// qwen CLI memory provisioning (docs/nest-memory-architecture.md §2.5, §9 — the "Phase 2
-// adapter" the doc's Claude-only section anticipates; Task 6 Step 4 verified this CLI
-// exists and is cheap to wire, same pattern as Gemini).
+// qwen CLI memory provisioning (docs/nest-memory-architecture.md §2.5, §9) — same pattern as
+// Gemini.
 //
 // Separate file from memory-provisioner-gemini.ts even though the shape is close, same
 // reason both those modules give: each AI type gets its own hazards documented next to its
@@ -9,10 +8,8 @@
 // -----------------------------------------------------------------------------------------
 // WHY qwen NEEDS NO ISOLATED IDENTITY HOME (unlike Gemini's GEMINI_CLI_HOME, Codex's
 // CODEX_HOME): qwen resolves its user-scope config at `os.homedir()/.qwen/settings.json`
-// (verified by reading the installed CLI's bundle, not assumed) — and pty-manager.ts
-// ALREADY redirects HOME/USERPROFILE to `accountDir` for every AI pane generically. Task 6
-// Step 4 confirmed this redirection is sufficient to isolate qwen's entire config root
-// (verified by overriding the variable and watching the whole config dir move) — the same
+// — and pty-manager.ts redirects HOME/USERPROFILE to `accountDir` for every AI pane
+// generically, which is sufficient to isolate qwen's entire config root — the same
 // cheap category as Gemini, minus Gemini's extra GEMINI_CLI_HOME lever. So
 // `{accountDir}/.qwen/settings.json` IS qwen's real per-account config file already, with
 // no extra directory or env var to inject. provisionQwenAccount() therefore returns `{}`.
@@ -21,7 +18,7 @@
 // user's own qwen config (once they log in inside that pane) alongside ours, so
 // deprovision() does a surgical merge, never a wholesale delete.
 //
-// HOOK EVENT NAMES: verified against the installed CLI's own docs
+// HOOK EVENT NAMES: per the CLI's own docs
 // (bundled/qc-helper/docs/features/hooks.md in @qwen-code/qwen-code) — qwen's hook events
 // are named IDENTICALLY to Claude's for the 3 moments this module wires: SessionStart,
 // Stop, PreCompact. No translation table needed the way Gemini's AfterAgent/PreCompress
