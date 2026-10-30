@@ -14,7 +14,18 @@ import { resolveLWW, resolveTopicCollision, type LWWRow } from './memory-merge'
 import { GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { sealMutationPayload, openPulledRow, type EnvelopeContext } from './memory-envelope'
 import { isCiphertext } from './memory-crypto'
-import type { MaquinaDeLaCuenta } from '../src/types'
+
+/**
+ * Una máquina de la cuenta de sync; `lastSeenAt` en ms. Espejo de la de `src/types.ts`: el
+ * paquete portátil compila sólo `electron/` y no puede importar del renderer.
+ */
+export interface MaquinaDeLaCuenta {
+  id: string
+  name: string
+  platform: string | null
+  lastSeenAt: number | null
+  current: boolean
+}
 
 const DEBOUNCE_MS = 3_000
 const MAX_WAIT_MS = 30_000
