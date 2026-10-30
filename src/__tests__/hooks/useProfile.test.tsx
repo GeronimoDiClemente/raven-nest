@@ -282,3 +282,45 @@ describe('useProfile — período de facturación', () => {
     })
   })
 })
+
+// Siete componentes llaman a useProfile. Con un estado por instancia, cada vuelta del foco
+// eran siete lecturas idénticas de `profiles`, y cada uno podía ver un plan distinto.
+describe('useProfile — una sola lectura compartida', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: false }
+  })
+
+  it('varias instancias: una lectura por foco y el mismo plan en todas', async () => {
+    let i = 0
+    const planes = ['free', 'cloud']
+    supabaseMock.getUser.mockResolvedValue({ data: { user: { id: 'u-1' } } })
+    supabaseMock.from.mockImplementation(() => ({
+      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({
+        data: { plan: planes[Math.min(i++, planes.length - 1)], trial_started_at: null },
+      }) }) }),
+    }))
+
+    const { result } = renderHook(() => [useProfile(), useProfile(), useProfile()])
+    await waitFor(() => expect(result.current[0].loading).toBe(false))
+    expect(supabaseMock.from).toHaveBeenCalledTimes(1)
+
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    await waitFor(() => expect(result.current.map(p => p.rawPlan)).toEqual(['cloud', 'cloud', 'cloud']))
+    expect(supabaseMock.from).toHaveBeenCalledTimes(2)
+  })
+
+  it('un componente que monta después ve el plan ya leído y pide una lectura fresca', async () => {
+    supabaseMock.getUser.mockResolvedValue({ data: { user: { id: 'u-1' } } })
+    supabaseMock.from.mockImplementation(() => ({
+      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { plan: 'cloud', trial_started_at: null } }) }) }),
+    }))
+    const primero = renderHook(() => useProfile())
+    await waitFor(() => expect(primero.result.current.plan).toBe('cloud'))
+
+    const segundo = renderHook(() => useProfile())
+    expect(segundo.result.current.plan).toBe('cloud')
+    expect(segundo.result.current.loading).toBe(false)
+    await waitFor(() => expect(supabaseMock.from).toHaveBeenCalledTimes(2))
+  })
+})

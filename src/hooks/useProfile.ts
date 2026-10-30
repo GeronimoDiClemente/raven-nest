@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Plan } from '../lib/stripe'
 
@@ -67,114 +67,146 @@ function computeEffectivePlan(rawPlan: string, trialStartedAt: string | null): {
   return { plan: 'free', isTrialActive: false, trialDaysLeft: 0 }
 }
 
-export function useProfile(): Profile {
-  // `load` vive dentro del efecto; el ref deja exponerlo con un callback estable.
-  const cargarRef = useRef<() => void>(() => {})
-  const recargar = useCallback(() => { cargarRef.current() }, [])
-  const [profile, setProfile] = useState<Profile>({
-    plan: 'free',
-    loading: true,
-    isTrialActive: false,
-    trialDaysLeft: 0,
-    rawPlan: 'free',
-    userId: null,
-    billingInterval: null,
-    currentPeriodEnd: null,
-    cancelAtPeriodEnd: false,
+// Una sola lectura compartida. Hasta el 2026-10-29 cada uno de los siete componentes que
+// llaman a `useProfile` tenía su copia del estado y su propio oyente de `focus`, así que cada
+// vuelta a la ventana eran siete `getUser` + siete selects de `profiles` idénticos, y dos
+// componentes podían mostrar planes distintos durante un instante. Ahora el estado vive acá y
+// los hooks se suscriben. Al montar, cada uno pide una lectura igual que antes (lo que se abre
+// después de pagar ve el plan fresco), pero `enVuelo` las junta en una.
+
+const recargar = (): void => { void load() }
+
+const INICIAL: Profile = {
+  plan: 'free',
+  loading: true,
+  isTrialActive: false,
+  trialDaysLeft: 0,
+  rawPlan: 'free',
+  userId: null,
+  billingInterval: null,
+  currentPeriodEnd: null,
+  cancelAtPeriodEnd: false,
+  recargar,
+}
+
+let estado: Profile = INICIAL
+const suscriptores = new Set<() => void>()
+// Evita apilar lecturas: tres `focus` seguidos (alt-tab nervioso) dispararian
+// tres consultas identicas, y la ultima en resolver decide el estado.
+let enVuelo = false
+let overridePlan: string | null = null
+// Sube cuando se va el último suscriptor y el estado vuelve a INICIAL: una lectura que
+// arrancó antes no puede escribir sobre el estado de después.
+let generacion = 0
+let soltarOyentes: (() => void) | null = null
+
+function publicar(siguiente: Profile | ((p: Profile) => Profile)): void {
+  estado = typeof siguiente === 'function' ? siguiente(estado) : siguiente
+  for (const cb of suscriptores) cb()
+}
+
+async function load(): Promise<void> {
+  // Override E2E/demo (RAVEN_E2E_PLAN): gateado DOBLE al bypass — en una
+  // sesión real appFlags.e2eBypass es false y esto nunca corre. Permite
+  // probar features gateadas por plan sin un perfil Supabase.
+  // Un plan puesto por el evento 'nest:e2e-plan' gana sobre RAVEN_E2E_PLAN: sin esto el
+  // próximo `focus` lo pisaba (y en Playwright el foco llega solo).
+  const e2ePlan = window.appFlags?.e2eBypass ? (overridePlan ?? window.appFlags.e2ePlan) : null
+  if (e2ePlan && PLANES_CONOCIDOS.includes(e2ePlan)) {
+    publicar({ plan: e2ePlan as Plan, loading: false, isTrialActive: false, trialDaysLeft: 0, rawPlan: e2ePlan, userId: null, ...leerE2eBilling(), recargar })
+    return
+  }
+  if (enVuelo) return
+  enVuelo = true
+  const gen = generacion
+  try {
+    await leerPerfil(gen)
+  } finally {
+    if (gen === generacion) enVuelo = false
+  }
+}
+
+async function leerPerfil(gen: number): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (gen !== generacion) return
+  if (!user) { publicar(p => ({ ...p, loading: false, userId: null })); return }
+
+  // READ ONLY — never write to profiles from the client.
+  // Profile creation is handled by the DB trigger (handle_new_user)
+  // and the on-signup edge function.
+  const consultar = (columnas: string) => supabase
+    .from('profiles')
+    .select(columnas)
+    .eq('id', user.id)
+    .maybeSingle<Record<string, unknown>>()
+  let { data, error } = await consultar('plan, trial_started_at, billing_interval, current_period_end, cancel_at_period_end')
+  // Sin la migración de 2b-3 en la base, PostgREST rechaza el select entero por las
+  // columnas que no existen. Ignorar el error dejaba `data` en null → free para TODOS los
+  // que pagan. Se reintenta con las de siempre y el período queda vacío.
+  if (error) ({ data, error } = await consultar('plan, trial_started_at'))
+  if (gen !== generacion) return
+  // Tampoco eso: no se sabe el plan, y un `free` inventado esconde lo que pagó. Se conserva
+  // la lectura anterior (la inicial, si es la primera) y se deja de cargar.
+  if (error) { publicar(p => ({ ...p, loading: false })); return }
+
+  const rawPlan = typeof data?.plan === 'string' ? data.plan : 'free'
+  const computed = computeEffectivePlan(rawPlan, typeof data?.trial_started_at === 'string' ? data.trial_started_at : null)
+  const intervalo = data?.billing_interval
+  publicar({
+    ...computed,
+    loading: false,
+    rawPlan,
+    userId: user.id,
+    billingInterval: intervalo === 'monthly' || intervalo === 'annual' ? intervalo : null,
+    currentPeriodEnd: typeof data?.current_period_end === 'string' ? data.current_period_end : null,
+    cancelAtPeriodEnd: data?.cancel_at_period_end === true,
     recargar,
   })
+}
 
-  useEffect(() => {
+// E2E: deja producir el paso free -> cloud sin Stripe. Sólo con el bypass.
+function alCambiarPlanE2e(e: Event): void {
+  const plan = (e as CustomEvent<{ plan: string }>).detail?.plan
+  if (!PLANES_CONOCIDOS.includes(plan)) return
+  overridePlan = plan
+  publicar(p => ({ ...p, plan: plan as Plan, rawPlan: plan, loading: false, isTrialActive: false, trialDaysLeft: 0 }))
+}
 
-    let alive = true
-    // Evita apilar lecturas: tres `focus` seguidos (alt-tab nervioso) dispararian
-    // tres consultas identicas, y la ultima en resolver decide el estado.
-    let enVuelo = false
-    let overridePlan: string | null = null
+function alFoco(): void { void load() }
 
-    const load = async () => {
-      // Override E2E/demo (RAVEN_E2E_PLAN): gateado DOBLE al bypass — en una
-      // sesión real appFlags.e2eBypass es false y esto nunca corre. Permite
-      // probar features gateadas por plan sin un perfil Supabase.
-      // Un plan puesto por el evento 'nest:e2e-plan' gana sobre RAVEN_E2E_PLAN: sin esto el
-      // próximo `focus` lo pisaba (y en Playwright el foco llega solo).
-      const e2ePlan = window.appFlags?.e2eBypass ? (overridePlan ?? window.appFlags.e2ePlan) : null
-      if (e2ePlan && PLANES_CONOCIDOS.includes(e2ePlan)) {
-        setProfile({ plan: e2ePlan as Plan, loading: false, isTrialActive: false, trialDaysLeft: 0, rawPlan: e2ePlan, userId: null, ...leerE2eBilling(), recargar })
-        return
-      }
-      if (enVuelo) return
-      enVuelo = true
-      try {
-        await leerPerfil()
-      } finally {
-        enVuelo = false
-      }
-    }
-
-    const leerPerfil = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setProfile(p => ({ ...p, loading: false, userId: null })); return }
-
-      // READ ONLY — never write to profiles from the client.
-      // Profile creation is handled by the DB trigger (handle_new_user)
-      // and the on-signup edge function.
-      const consultar = (columnas: string) => supabase
-        .from('profiles')
-        .select(columnas)
-        .eq('id', user.id)
-        .maybeSingle<Record<string, unknown>>()
-      let { data, error } = await consultar('plan, trial_started_at, billing_interval, current_period_end, cancel_at_period_end')
-      // Sin la migración de 2b-3 en la base, PostgREST rechaza el select entero por las
-      // columnas que no existen. Ignorar el error dejaba `data` en null → free para TODOS los
-      // que pagan. Se reintenta con las de siempre y el período queda vacío.
-      if (error) ({ data, error } = await consultar('plan, trial_started_at'))
-      if (!alive) return
-      // Tampoco eso: no se sabe el plan, y un `free` inventado esconde lo que pagó. Se conserva
-      // la lectura anterior (la inicial, si es la primera) y se deja de cargar.
-      if (error) { setProfile(p => ({ ...p, loading: false })); return }
-
-      const rawPlan = typeof data?.plan === 'string' ? data.plan : 'free'
-      const computed = computeEffectivePlan(rawPlan, typeof data?.trial_started_at === 'string' ? data.trial_started_at : null)
-      const intervalo = data?.billing_interval
-      setProfile({
-        ...computed,
-        loading: false,
-        rawPlan,
-        userId: user.id,
-        billingInterval: intervalo === 'monthly' || intervalo === 'annual' ? intervalo : null,
-        currentPeriodEnd: typeof data?.current_period_end === 'string' ? data.current_period_end : null,
-        cancelAtPeriodEnd: data?.cancel_at_period_end === true,
-        recargar,
-      })
-    }
-
-    cargarRef.current = load
-    load()
-
-    // E2E: deja producir el paso free -> cloud sin Stripe. Sólo con el bypass.
-    const alCambiarPlanE2e = (e: Event) => {
-      const plan = (e as CustomEvent<{ plan: string }>).detail?.plan
-      if (!PLANES_CONOCIDOS.includes(plan)) return
-      overridePlan = plan
-      setProfile(p => ({ ...p, plan: plan as Plan, rawPlan: plan, loading: false, isTrialActive: false, trialDaysLeft: 0 }))
-    }
-    const e2e = !!window.appFlags?.e2eBypass
-    if (e2e) window.addEventListener('nest:e2e-plan', alCambiarPlanE2e)
-
+function suscribir(cb: () => void): () => void {
+  suscriptores.add(cb)
+  if (!soltarOyentes) {
     // Un pago exitoso lo escribe el webhook de Stripe directo en `profiles`, sin
     // avisarle al cliente. Sin esto el hook leia una sola vez al montar, asi que
     // el que pagaba seguia viendo su plan viejo hasta reiniciar la app y la
     // compra parecia no haber funcionado. `profiles` no esta en la publicacion
     // de realtime, asi que no hay push posible: se re-lee al volver el foco, que
     // es exactamente cuando el usuario vuelve del navegador de pagar.
-    window.addEventListener('focus', load)
-    return () => {
-      alive = false
-      window.removeEventListener('focus', load)
+    const e2e = !!window.appFlags?.e2eBypass
+    window.addEventListener('focus', alFoco)
+    if (e2e) window.addEventListener('nest:e2e-plan', alCambiarPlanE2e)
+    soltarOyentes = () => {
+      window.removeEventListener('focus', alFoco)
       if (e2e) window.removeEventListener('nest:e2e-plan', alCambiarPlanE2e)
     }
-  }, [recargar])
+  }
+  return () => {
+    suscriptores.delete(cb)
+    if (suscriptores.size > 0) return
+    // Sin nadie mirando (en la app no pasa: App vive siempre; en los tests, entre uno y
+    // otro) se vuelve al arranque, como hacía cada instancia al desmontarse.
+    soltarOyentes?.()
+    soltarOyentes = null
+    generacion++
+    enVuelo = false
+    overridePlan = null
+    estado = INICIAL
+  }
+}
 
+export function useProfile(): Profile {
+  const profile = useSyncExternalStore(suscribir, () => estado)
+  useEffect(() => { void load() }, [])
   return profile
 }
