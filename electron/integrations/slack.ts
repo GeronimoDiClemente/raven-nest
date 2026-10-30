@@ -1,5 +1,5 @@
-// Adapter real de Slack (plan Hito 2+ Task S). Token = deps.getToken('slack')
-// (bot token del exchange OAuth main-side, ver plan §Auth). Todas las
+// Adapter real de Slack. Token = deps.getToken('slack')
+// (bot token del exchange OAuth main-side). Todas las
 // llamadas van Bearer <token> a slack.com/api/*.
 //
 // Nota de arquitectura: el host (electron/integration-panels.ts, callPanel)

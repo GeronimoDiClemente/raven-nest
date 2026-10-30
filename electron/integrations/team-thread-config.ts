@@ -6,8 +6,7 @@ import type { ObservationType } from '../memory-protocol'
 import { DEFAULT_THREAD_TYPES } from './team-thread-plan'
 
 // Mismo patron que `accountSegment` en vault-config.ts (privada ahi, replicada aca a
-// proposito: son 3 lineas triviales y exportarla obligaria a tocar un modulo del vault
-// que no es de esta task).
+// proposito: son 3 lineas triviales).
 function accountSegment(userId: string | null): string {
   return userId && userId.trim() ? userId : '_local'
 }
@@ -77,7 +76,7 @@ export function loadTeamThreadSettings(path: string, projectKey: string): TeamTh
  * manda (§9.3: lo que se chequea solo en el cliente no esta chequeado); esto existe para
  * que prender el toggle NO produzca filas que el servidor va a rechazar con
  * `team_scope_not_allowed` mientras el usuario ve el hilo local poblado y cree que
- * compartio (I1 de la review final de rama).
+ * compartio.
  *
  * `undefined` = todavia no hubo una respuesta de `status()` que diga el plan. En ese caso
  * NO se bloquea: no saber no es lo mismo que saber que no. El servidor rechaza igual y la

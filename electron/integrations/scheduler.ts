@@ -1,4 +1,4 @@
-// Epic C (H11) — scheduled agents: run a prompt on a schedule. Reactivates the
+// Scheduled agents: run a prompt on a schedule. Reactivates the
 // bus's declared-but-unhandled `scheduleBlock` command / `block.started` event
 // (see bus-commands.ts). Pure + DI, same shape as recipes.ts: plain functions
 // for persistence/parsing (no Electron, no argless `Date.now()`/`new Date()` —
@@ -177,7 +177,7 @@ const MAX_DAYS_SEARCHED = 366 * 4 + 1
  * used to shift this computation — `from` and the returned Date are plain
  * instants interpreted in the host machine's local time zone, same as the
  * rest of the app. Cross-timezone scheduling (e.g. "6pm in a zone other than
- * the machine's") is a known follow-up, not implemented here.
+ * the machine's") is not implemented.
  */
 export function nextRun(automation: Automation, from: Date): Date | null {
   const expr = parseTrigger(automation)
@@ -333,7 +333,7 @@ export interface TickResult {
 }
 
 /**
- * Reactivates the bus's declared-but-unhandled `block.started` event (C3): on
+ * Reactivates the bus's declared-but-unhandled `block.started` event: on
  * each `tick`, fires every enabled automation whose next scheduled run has
  * arrived. "Due" is computed via `nextRun` anchored at `lastRunAt` (or
  * `createdAt` if it has never run) — so a catch-up after downtime fires the

@@ -1,4 +1,4 @@
-// Adapter real de Jira (plan Hito 2+, Task J). REST API v3 con Basic auth
+// Adapter real de Jira. REST API v3 con Basic auth
 // (email + API token) sobre el site del usuario. El token guardado en
 // PluginCredentialStore para 'jira' es el JSON `{email, apiToken, siteUrl}`
 // que persiste el form de Connect (auth.kind 'apiKey', ver builtinCatalog.ts).

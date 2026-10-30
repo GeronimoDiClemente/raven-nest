@@ -1,6 +1,6 @@
-// Injected port to Nest Memory. The store lives in feat/nest-memory-phase1 and this
-// branch must not import it (see docs/MEMORY_INTEGRATIONS_CONTRACT.md) — same pattern
-// Bauti used for PtyMemoryIntegration in pty-manager.ts.
+// Injected port to Nest Memory. Integrations must not import the store directly (see
+// docs/MEMORY_INTEGRATIONS_CONTRACT.md) — same pattern as PtyMemoryIntegration in
+// pty-manager.ts.
 import type { ObservationType } from '../memory-protocol'
 
 export type MemoryObservationType =
@@ -23,7 +23,7 @@ export interface MemorySink {
   save(input: MemorySaveInput): void
 }
 
-// ── Read side, added for Task 5 (memory vault) ──────────────────────────────
+// ── Read side (memory vault) ─────────────────────────────────────────────────
 // Superset of ObservationSummary — the vault's frontmatter needs (near) every column of
 // `observations`, not just what an agent's search/context reply needs. See
 // docs/superpowers/specs/2026-08-26-memory-vault-design.md §3.1.

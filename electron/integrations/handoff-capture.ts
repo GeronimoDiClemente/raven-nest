@@ -1,17 +1,16 @@
 // Todo lo que decide COMO se guarda un handoff como observacion, sacado del handler
 // `handoff:write` de main.ts para que se pueda testear.
 //
-// Por que existe este modulo (C1 de la review final de rama): `handoff:write` es el UNICO
-// productor de filas `scope: 'team'` — `decision` nace personal fijo en memory-bridge y en
-// el camino MCP, y eso es una garantia de seguridad, no un descuido. Ese handler llamaba a
-// `store.save({...})` SIN `gitBranch`, y `memory-store.ts` no deriva nada: guarda
-// `input.gitBranch ?? null`. Consecuencia: toda entrada de todo companero caia en
-// `general.md`, `ramas/` nunca se escribia, `ramaCanonica()` daba null (estado siempre
-// `sin-worktree`), el foco del panel no matcheaba nunca y el grafo quedaba en un punto.
+// Por que existe este modulo: `handoff:write` es el UNICO productor de filas
+// `scope: 'team'` — `decision` nace personal fijo en memory-bridge y en el camino MCP, y eso
+// es una garantia de seguridad, no un descuido. `memory-store.ts` no deriva nada: guarda
+// `input.gitBranch ?? null`. Sin `gitBranch`, toda entrada de todo companero cae en
+// `general.md`, `ramas/` no se escribe, `ramaCanonica()` da null (estado siempre
+// `sin-worktree`), el foco del panel no matchea y el grafo queda en un punto.
 //
-// Ninguna review por task lo vio porque TODOS los fixtures del hilo pasan `gitBranch` a
-// mano. Por eso el input del save se construye ACA y no inline en main.ts: un test puede
-// mirar el objeto exacto que se va a guardar.
+// TODOS los fixtures del hilo pasan `gitBranch` a mano, asi que no detectan su ausencia.
+// Por eso el input del save se construye ACA y no inline en main.ts: un test puede mirar el
+// objeto exacto que se va a guardar.
 import type { ObservationType } from '../memory-protocol'
 import type { TeamThreadSettings } from './team-thread-config'
 import { scopeForCapture } from './team-thread-promotion'

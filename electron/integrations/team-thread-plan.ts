@@ -1,8 +1,8 @@
-// El corazon de Layer 2: filas de scope `team` -> VaultPlan. Puro, sin fs, para que aca
+// El corazon del hilo de equipo: filas de scope `team` -> VaultPlan. Puro, sin fs, para que aca
 // viva el grueso de los tests. Ver spec §5 y §6.
 //
 // Por que un modulo nuevo y no un flag en vault-plan.ts: ese modulo EXCLUYE el scope team
-// por decision de producto (privacidad de companeros, Task 5 del vault). Un bug de config
+// por decision de producto (privacidad de companeros). Un bug de config
 // ahi filtraria notas de companeros al vault personal. Aca la separacion la garantiza la
 // estructura, no un booleano.
 import type { ObservationType } from '../memory-protocol'
@@ -49,11 +49,11 @@ export interface PlanTeamThreadInput {
    * Si `_index.md` ya existe en disco. Lo mira el caller (es lo unico de este input que
    * sale de fs, igual que `onDiskHashes`).
    *
-   * I4 de la review final de rama: el indice se emitia SOLO si algo cambio, pero el puntero
-   * de AGENTS.md se escribe siempre. Con el toggle recien prendido y sin filas `team`
-   * todavia —el estado de TODO usuario el primer dia— quedaba una linea commiteable en un
-   * archivo versionado apuntando a un `_index.md` inexistente. Default `false` = "no esta,
-   * emitilo": la eleccion segura es escribirlo de mas, no de menos.
+   * El puntero de AGENTS.md se escribe siempre. Si el indice se emitiera SOLO cuando algo
+   * cambia, con el toggle recien prendido y sin filas `team` todavia —el estado de TODO
+   * usuario el primer dia— quedaria una linea commiteable en un archivo versionado apuntando
+   * a un `_index.md` inexistente. Default `false` = "no esta, emitilo": la eleccion segura
+   * es escribirlo de mas, no de menos.
    */
   indexOnDisk?: boolean
 }
@@ -77,7 +77,7 @@ export function planTeamThread(input: PlanTeamThreadInput): VaultPlan {
   const indexWrites: VaultIndexWrite[] = []
 
   // EL GUARDIA (spec §9, test 1) + agrupamiento por rama: compartido con el camino de
-  // lectura del panel (team-thread-index-query.ts, Task 10) via team-thread-note.ts, para
+  // lectura del panel (team-thread-index-query.ts) via team-thread-note.ts, para
   // que una exclusion nueva de EL GUARDIA no pueda quedar aplicada de un solo lado.
   const groups = groupThreadBranches(records, config)
 

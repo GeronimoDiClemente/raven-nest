@@ -1,4 +1,4 @@
-// H7 — cliente Slack Socket Mode. Un WebSocket saliente autenticado con un
+// Cliente Slack Socket Mode. Un WebSocket saliente autenticado con un
 // app-level token (`xapp-...`, scope `connections:write`) que recibe los eventos
 // del workspace sin exponer un endpoint público (imposible en un desktop).
 //

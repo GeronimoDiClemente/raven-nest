@@ -1,9 +1,8 @@
 // Mutex por clave, sin dependencias: una cadena de promesas por clave.
 //
-// Por que existe (review final de rama, junto con C2/I3): mientras el unico disparador del
-// hilo de equipo fue un click humano, dos pasadas sobre el mismo `rootDir` no podian
-// coexistir. Con los cuatro disparadores de la spec §8.1 (debounce, poll de 60s,
-// reconciliacion al arranque, toggle) por N worktrees del mismo repo, si pueden — y
+// Por que existe: con los cuatro disparadores del hilo de equipo (spec §8.1: debounce, poll
+// de 60s, reconciliacion al arranque, toggle) por N worktrees del mismo repo, dos pasadas
+// sobre el mismo `rootDir` pueden coexistir — y
 // `applyVaultPlan` lee el manifest al empezar y lo reescribe entero al final, con lo cual
 // dos pasadas intercaladas se pisan la contabilidad.
 

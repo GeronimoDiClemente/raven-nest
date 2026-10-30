@@ -1,8 +1,7 @@
-// Motor 4 (H6) — Google Calendar. Adapter credential-free (token vía deps, con
-// refresh en main) + helpers PKCE + formateo de outcomes. La idea del spec madre:
-// registrar OUTCOMES reales de las sesiones en el calendario ("45 min en RAV-123,
-// 3 commits, PR #456") — la agenda miente, el registro real no. Empezamos por la
-// inversa (escritura de registro); "block→session" es entrada de un click.
+// Google Calendar. Adapter credential-free (token vía deps, con
+// refresh en main) + helpers PKCE + formateo de outcomes. Registra OUTCOMES reales
+// de las sesiones en el calendario ("45 min en RAV-123, 3 commits, PR #456") — la
+// agenda miente, el registro real no.
 //
 // Este módulo NO importa electron: la red/token llega SOLO por `PanelAdapterDeps`
 // (getToken/fetch). El flujo OAuth (loopback + browser) vive en gcal-oauth.ts para
@@ -105,7 +104,7 @@ export function createGcalAdapter(deps: PanelAdapterDeps): GcalAdapter {
     },
     async findEventByTask(taskId) {
       // Las extended properties privadas guardan {taskId, repo, branch} sin DB
-      // extra (spec madre). El filtro es `privateExtendedProperty=taskId=<id>`.
+      // extra. El filtro es `privateExtendedProperty=taskId=<id>`.
       const q = `privateExtendedProperty=${encodeURIComponent(`taskId=${taskId}`)}`
       const json = await gcalFetch<{ items?: GcalEvent[] }>(deps, `/calendars/primary/events?${q}`)
       return json.items?.[0] ?? null

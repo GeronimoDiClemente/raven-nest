@@ -6,8 +6,8 @@
 //
 // Tolerant by design: real LLM reviewers frequently WRAP the verdict in a
 // richer object ({role, analysis, result:{concerns, blocking}}) instead of
-// putting it at the top level (observed in the live smoke — it cost a wasted
-// auto-repair round every run). So we accept a top-level verdict OR the first
+// putting it at the top level (rejecting that shape wastes an auto-repair round
+// every run). So we accept a top-level verdict OR the first
 // nested object that carries a boolean `blocking`, without loosening the "no
 // boolean blocking anywhere → null" contract.
 export interface Verdict {

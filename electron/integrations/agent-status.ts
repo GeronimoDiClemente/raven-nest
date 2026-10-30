@@ -1,7 +1,7 @@
 // Pure logic to infer what an AI-CLI pane is doing from a few observable
 // signals (pty liveness, last-output timestamp, cpu of the process tree, and
 // the tail of the scrollback). No fs / process / PTY access lives here — the
-// caller (main.ts, out of scope) samples the real inputs and passes them in,
+// caller (main.ts) samples the real inputs and passes them in,
 // so this module stays 100% unit-testable with an injected clock (`now`).
 
 export type AgentState = 'working' | 'needs_input' | 'idle' | 'done'

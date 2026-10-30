@@ -2,9 +2,9 @@ import type { PanelAdapterDeps } from '../integration-panels'
 import type { Ticket, TicketProvider } from './ticket-types'
 
 // GitHub Issues. Token: the app's OAuth token (pluginCreds 'github', same
-// fallback the milestone-2 GitHub adapter uses). providerId = "owner/repo#number".
+// fallback the GitHub panel adapter uses). providerId = "owner/repo#number".
 // GitHub has no intermediate states: open/closed only. in_progress/in_review are
-// no-ops (branch and PR tell the real state — inference engine, Task F).
+// no-ops (branch and PR tell the real state).
 const API = 'https://api.github.com'
 
 export function createGitHubTicketProvider(deps: PanelAdapterDeps): TicketProvider {

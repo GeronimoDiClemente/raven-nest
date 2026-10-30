@@ -1,4 +1,4 @@
-// Motor 4 (H6) — OAuth desktop de Google (loopback + PKCE, sin client secret).
+// OAuth desktop de Google (loopback + PKCE, sin client secret).
 // El secret no puede vivir en el binario (repo público), así que usamos PKCE: el
 // challenge S256 reemplaza al secret. Este módulo aísla la lógica testeable
 // (authUrl/exchangeCode/refreshAccessToken, con fetch inyectado) del efecto de

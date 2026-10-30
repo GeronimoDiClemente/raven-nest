@@ -1,7 +1,7 @@
 import { NotConnectedError, type PanelAdapterDeps } from '../integration-panels'
 import type { Ticket, TicketProvider, TicketState } from './ticket-types'
 
-// Jira REST v3. Credentials are the same JSON blob the milestone-2 adapter
+// Jira REST v3. Credentials are the same JSON blob the panel adapter
 // (jira.ts) stores in pluginCreds under 'jira': {email, apiToken, siteUrl}.
 const CATEGORY_TO_STATE: Record<string, TicketState> = {
   new: 'todo', indeterminate: 'in_progress', done: 'done',

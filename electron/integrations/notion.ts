@@ -1,4 +1,4 @@
-// Adapter server-side de Notion (plan Hito 2+, Task N). Pega contra
+// Adapter server-side de Notion. Pega contra
 // https://api.notion.com/v1/* con Bearer token + header `Notion-Version`.
 // El token nunca sale del main process: viaja por IPC solo el resultado
 // plano armado acá (ver electron/integration-panels.ts).
@@ -97,8 +97,7 @@ const HEADING_PREFIX: Record<string, string> = {
 }
 
 // Mapea los blocks crudos de /blocks/{id}/children a DetailBlock del shell.
-// Tipos no soportados (image, divider, table, etc.) se saltean a propósito —
-// fuera de alcance de la Task N.
+// Tipos no soportados (image, divider, table, etc.) se saltean a propósito.
 export function notionBlocksToDetail(blocks: NotionBlock[]): DetailBlock[] {
   const out: DetailBlock[] = []
   let numberedIndex = 0
@@ -122,7 +121,7 @@ export function notionBlocksToDetail(blocks: NotionBlock[]): DetailBlock[] {
 }
 
 // Serializa los DetailBlock del shell a markdown para inyectar como spec inicial
-// del agente (H5 Motor 2). text→línea tal cual (los headings ya vienen con `#`
+// del agente. text→línea tal cual (los headings ya vienen con `#`
 // desde notionBlocksToDetail), code→bloque cercado, comment→cita. Bloques
 // separados por línea en blanco. Puro y testeable (dado blocks[] → markdown).
 export function blocksToMarkdown(blocks: DetailBlock[]): string {
@@ -198,7 +197,7 @@ async function fetchDatabaseDetail(deps: PanelAdapterDeps, ref: ItemRef): Promis
       { label: 'Last edited', value: formatNotionDate(db.last_edited_time) },
       { label: 'Created', value: formatNotionDate(db.created_time) },
     ],
-    // Fuera de alcance (Task N): renderizar filas de la database. Se abre
+    // Fuera de alcance: renderizar filas de la database. Se abre
     // como bloque de texto con link a Notion.
     blocks: [
       { kind: 'text', text: `Database · open in Notion\n\n${title}${description ? `\n${description}` : ''}` },
@@ -245,7 +244,7 @@ export function createNotionServerAdapter(deps: PanelAdapterDeps): ServerPanelAd
   return {
     fetchSections: (ctx) => fetchSections(deps, ctx),
     fetchDetail: (ref) => fetchDetail(deps, ref),
-    // No hay mapeo natural worktree → página de Notion (plan Hito 2+ Task N).
+    // No hay mapeo natural worktree → página de Notion.
     resolveWorktreeEntity: async () => null,
     actions: (): PanelAction[] => [{ id: 'refresh', label: '↻ Refresh', kind: 'secondary' }],
     // Sin cache propia en el adapter: cada fetchDetail ya pega a la API,

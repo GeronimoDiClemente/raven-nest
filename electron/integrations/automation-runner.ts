@@ -1,4 +1,4 @@
-// Headless execution of a scheduled automation (Epic C / H11). The scheduler
+// Headless execution of a scheduled automation. The scheduler
 // (scheduler.ts) owns the "when"; this module owns the "how" of a single run:
 // spin up an ephemeral worktree, invoke the agent CLI non-interactively inside
 // it, summarize the output, then tear the worktree down. Every side effect

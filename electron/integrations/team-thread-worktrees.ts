@@ -1,11 +1,11 @@
 // De un worktree al conjunto de worktrees sobre los que hay que correr el hilo. Puro, sin
 // fs ni git, para que la regla se testee sin montar 8 carpetas.
 //
-// Por que existe (I3 de la review final de rama): los settings del hilo son POR PROYECTO,
-// pero la escritura y el borrado eran POR WORKTREE. Apagar el toggle desde uno de los 8
-// worktrees de este repo dejaba los otros 7 con su `.nest/team/` viejo y la linea en su
-// AGENTS.md; prenderlo desde uno no escribia el hilo en los demas, en contra de la
-// decision 7 de la spec §3 ("se escribe uno por worktree, completo").
+// Por que existe: los settings del hilo son POR PROYECTO, pero la escritura y el borrado
+// son POR WORKTREE. Sin esto, apagar el toggle desde uno de los worktrees del repo deja los
+// demas con su `.nest/team/` viejo y la linea en su AGENTS.md, y prenderlo desde uno no
+// escribe el hilo en los demas, en contra de la decision 7 de la spec §3 ("se escribe uno
+// por worktree, completo").
 
 /** Lo minimo que este modulo necesita de `WorktreeMeta` (electron/worktree-store.ts). */
 export interface WorktreeLike {

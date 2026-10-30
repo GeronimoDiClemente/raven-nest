@@ -61,7 +61,7 @@ function toRecord(row: ObservationRowLite): MemoryRecord {
 
 /**
  * Opens a readonly handle to the CURRENTLY ACTIVE account's store (per-account path,
- * `resolveStorePath` — Task 1 of the multi-device memory plan). Never throws: every
+ * `resolveStorePath`). Never throws: every
  * documented failure mode (db missing, `-shm` unmappable, read-only filesystem) is caught
  * and degrades to `NULL_READER` — the vault reports "memoria no disponible" instead of
  * breaking the app (V-R6).

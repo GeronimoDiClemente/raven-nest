@@ -73,12 +73,8 @@ export interface VaultWarning {
  * Pasa cuando un proyecto cambia de nombre: la carpeta sale de
  * `remoteSlug || displayName || projectKey`, asi que el nombre nuevo es otra carpeta, las
  * notas se mudan (`stale-path` + write) y la vieja queda con un indice que lista archivos que
- * ya no estan.
- *
- * Antes no pasaba nunca porque `ensureProject()` era insert-only y un nombre congelado en el
- * hash se quedaba congelado para siempre. Al arreglar eso (2026-09-13) el renombre se volvio
- * posible, y con el la carpeta fantasma — en la carpeta que el usuario abre con Obsidian, que
- * es justo donde la basura se ve.
+ * ya no estan. Hay que borrarla: es la carpeta que el usuario abre con Obsidian, justo donde
+ * la basura se ve.
  */
 export interface VaultIndexDelete {
   filePath: string

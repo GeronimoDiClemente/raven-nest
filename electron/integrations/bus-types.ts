@@ -70,9 +70,7 @@ export interface MeetingTranscribedEvent {
   items: string[]
 }
 
-// H4 Motor 3 — señales de review. Su emisión efectiva al bus y sus recetas
-// `notify` son H5; en H4 sólo se declaran los tipos (+ guards) para que el motor
-// pueda tiparlos. `changes.requested` viaja hoy por IPC directo (no bus).
+// Señales de review por worktree (las emite worktree-signals.ts).
 export interface ChangesRequestedEvent {
   type: 'changes.requested'
   branch: string
@@ -90,7 +88,7 @@ export interface ReviewRequestedEvent {
 // Graph orchestration — a role-graph runs per ticket (Architect → Coder → N
 // Reviewers → Gate → Tester). The runner emits these on node/gate transitions;
 // recipes map the human-facing ones (needs_input / gate_blocked / completed)
-// to `notify` so the team sees them without the app open (diferencial vs Orca).
+// to `notify` so the team sees them without the app open.
 export interface GraphNodeStartedEvent {
   type: 'graph.node_started'
   ticketId: string
@@ -204,7 +202,7 @@ export interface ScheduleBlockCommand {
   label: string
 }
 
-// H5 Motor 4 — auto-status del terminal (Slack users.profile.set). El emoji es
+// Auto-status del terminal (Slack users.profile.set). El emoji es
 // opcional; el handler usa `:hammer_and_wrench:` por defecto. Requiere el scope
 // `users.profile:write`; sin él, el handler degrada a no-op con warn.
 export interface SetPresenceCommand {

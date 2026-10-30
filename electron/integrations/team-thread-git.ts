@@ -1,6 +1,6 @@
 // Parseo puro de la salida de git para el estado de cada rama del hilo de equipo. Sin fs,
 // sin child_process — separado de main.ts para que se pueda testear sin invocar git de
-// verdad y sin arrastrar `main.ts` entero. Ver team-thread-run.test.ts / Task 7.
+// verdad y sin arrastrar `main.ts` entero. Ver team-thread-run.test.ts.
 import type { EstadoRama } from './team-thread-note'
 
 /**
@@ -10,7 +10,7 @@ import type { EstadoRama } from './team-thread-note'
  * Si `gitDisponible` es `false` (el caller no pudo correr git: no esta instalado, cwd
  * ilegible, etc.) TODAS las ramas quedan en `sin-worktree` — el default menos afirmativo.
  * `cerrada` es una afirmacion mas fuerte ("la rama fue borrada o mergeada") y devolverla
- * cuando en realidad no sabemos nada seria falso, ademas de que el grafo de la Task 10
+ * cuando en realidad no sabemos nada seria falso, ademas de que el grafo del panel
  * dibuja los nodos `cerrada` apagados: un git roto no puede hacer parecer que todo el
  * trabajo del equipo esta cerrado.
  */

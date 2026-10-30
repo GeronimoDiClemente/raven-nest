@@ -1,7 +1,6 @@
 // `memory-vault.json` — same validated/atomic-write pattern as `worker-spec-store.ts` and
-// `scheduler.ts`. Per-account, mirroring `resolveStorePath`'s layout (Task 1 of the
-// multi-device memory plan added per-account stores; the vault is "a folder per account,
-// mirror of that account's store — not a global one", per the plan doc's Task 5 line).
+// `scheduler.ts`. Per-account, mirroring `resolveStorePath`'s layout: the vault is a
+// folder per account, mirror of that account's store — not a global one.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { randomBytes } from 'crypto'

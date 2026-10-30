@@ -1,4 +1,4 @@
-// H7 — parseo puro de los envelopes de Slack Socket Mode. Sin red, sin estado:
+// Parseo puro de los envelopes de Slack Socket Mode. Sin red, sin estado:
 // toma el objeto JSON ya deserializado que llega por el WebSocket y lo clasifica
 // en una unión discriminada por `kind` (mention/action/control). El cliente
 // SlackSocket usa esto para decidir qué callback disparar; el ACK lo hace por

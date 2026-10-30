@@ -1,5 +1,5 @@
-// Contrato del Motor 1 (ticket loop). Providers viven en main: reciben deps
-// inyectadas (token/config/fetch) igual que ServerPanelAdapter (hito 2).
+// Contrato del ticket loop. Providers viven en main: reciben deps
+// inyectadas (token/config/fetch) igual que ServerPanelAdapter.
 import type { PanelAdapterDeps } from '../integration-panels'
 
 export type TicketState = 'todo' | 'in_progress' | 'in_review' | 'done'

@@ -130,11 +130,10 @@ export function renderThreadIndex(input: ThreadIndexInput): string {
   return [...head, ...cuerpo, ...pie].join('\n') + '\n'
 }
 
-// === Agrupamiento compartido entre el camino de ESCRITURA (team-thread-plan.ts, Task 2) y
-// el de LECTURA (team-thread-index-query.ts, Task 10). Antes vivia duplicado caracter por
-// caracter en los dos modulos — el review de Task 10 lo marco: si EL GUARDIA suma una
-// exclusion en un lado, el otro no se entera. Vive aca porque este ya es el modulo comun
-// de ambos (branchSlug y ThreadIndexBranch ya estaban aca). ===
+// === Agrupamiento compartido entre el camino de ESCRITURA (team-thread-plan.ts) y el de
+// LECTURA (team-thread-index-query.ts). Tiene que ser uno solo: si EL GUARDIA suma una
+// exclusion en un lado, el otro no se entera. Vive aca porque este es el modulo comun de
+// ambos (branchSlug y ThreadIndexBranch tambien viven aca). ===
 
 export interface ThreadGroupingConfig {
   projectKey: string
@@ -188,7 +187,7 @@ export interface ThreadGroupingConfigWithStates extends ThreadGroupingConfig {
 }
 
 /** Filtra (EL GUARDIA) y agrupa por slug de rama, con el estado de cada grupo ya resuelto.
- *  Comun a `planTeamThread` (escritura) y `queryThreadIndexBranches` (lectura, Task 10) —
+ *  Comun a `planTeamThread` (escritura) y `queryThreadIndexBranches` (lectura) —
  *  ver el comentario de seccion arriba. */
 export function groupThreadBranches(records: MemoryRecord[], config: ThreadGroupingConfigWithStates): ThreadBranchGroup[] {
   const elegibles = eligibleTeamThreadRecords(records, config)

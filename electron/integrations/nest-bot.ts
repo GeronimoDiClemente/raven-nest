@@ -1,4 +1,4 @@
-// H7 spec §6 — @Nest bot orchestration intents. Runs on top of the existing
+// @Nest bot orchestration intents. Runs on top of the existing
 // Socket Mode mention handler (slack-socket.ts): instead of only echoing the
 // mention to the renderer, a plain-text command directed at @Nest gets
 // parsed and ACTED on ("grab PROJ-142" creates a worktree and starts work),

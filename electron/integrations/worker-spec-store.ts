@@ -1,6 +1,6 @@
 // Worker-spec store: a reusable named config `{agents, model, effort,
-// instructions}` describing how a type of task is run. Persistence-only for
-// now (UI/IPC come later) — same validated/atomic/versioned-JSON pattern as
+// instructions}` describing how a type of task is run. Persistence-only —
+// same validated/atomic/versioned-JSON pattern as
 // scheduler.ts's loadAutomations/saveAutomations and recipes.ts.
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { dirname, join } from 'path'
@@ -17,7 +17,7 @@ export interface WorkerStep {
   instructions?: string
   role?: string
   /** Saved CLI account to launch this step with (bypasses the account picker
-   *  at run time). Unset = ask at launch, same as before this field existed. */
+   *  at run time). Unset = ask at launch. */
   account?: string
 }
 

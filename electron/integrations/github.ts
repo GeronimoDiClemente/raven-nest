@@ -1,4 +1,4 @@
-// Adapter real de GitHub (plan Hito 2+ Task G). Implementa ServerPanelAdapter
+// Adapter real de GitHub. Implementa ServerPanelAdapter
 // (electron/integration-panels.ts) contra la API REST de GitHub, usando el
 // token OAuth ya persistido en pluginCreds('github') por el flujo de Connect
 // existente (deps.getToken('github')).
@@ -334,7 +334,7 @@ export function createGitHubServerAdapter(
 
     actions(detail: DetailModel): PanelAction[] {
       const { kind } = parseItemId(detail.ref.itemId)
-      if (kind === 'pr') return [] // merge queda fuera de alcance (plan Task G)
+      if (kind === 'pr') return [] // merge queda fuera de alcance
       return detail.status === 'open'
         ? [{ id: 'close', label: 'Close issue', kind: 'primary' }]
         : [{ id: 'reopen', label: 'Reopen', kind: 'secondary' }]

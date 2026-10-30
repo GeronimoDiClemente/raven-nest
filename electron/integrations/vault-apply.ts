@@ -4,8 +4,6 @@
 import { randomBytes } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, appendFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
-// La extraccion del Ruling 7 (vault-hash.ts) habia quedado a mitad de camino: este modulo
-// seguia con su propia copia identica de sha256.
 import { sha256 } from './vault-hash'
 import type { VaultManifest, VaultManifestEntry, VaultPlan, VaultWarning } from './vault-plan'
 

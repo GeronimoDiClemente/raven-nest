@@ -190,14 +190,14 @@ export function bridgeEvent(ev: DomainEvent, ctx: BridgeContext): MemorySaveInpu
 }
 
 /** Human judgement over machine judgement. This is the highest-value memory in the
- *  system and the one no MCP-only competitor can capture: an approve says "these
+ *  system: an approve says "these
  *  concerns were not blocking in this context", which is what stops the reviewers
  *  from blocking on the same thing next run.
  *
  *  Decisions don't travel on the bus — the IPC handlers in main.ts only queue
  *  `run.pendingDecision` for planTick to apply later, so this takes the run
- *  directly instead of a DomainEvent (see Task 7 for where this gets called,
- *  before that overwrite happens). */
+ *  directly instead of a DomainEvent. It must run in those handlers, before planTick
+ *  applies the decision and rewrites the verdicts and round it reads. */
 export function bridgeDecision(
   decision: PendingDecision,
   run: GraphRun,

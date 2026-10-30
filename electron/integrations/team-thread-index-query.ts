@@ -1,4 +1,4 @@
-// Query de solo lectura del indice del hilo, para `memory:teamThread:read` (Task 10, el
+// Query de solo lectura del indice del hilo, para `memory:teamThread:read` (el
 // panel). Usa el mismo agrupamiento que `planTeamThread` (EL GUARDIA + agrupamiento por
 // rama, en team-thread-note.ts) pero sin escribir a disco ni calcular contenido/hash/
 // warnings — el panel solo necesita las filas del indice.

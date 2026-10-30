@@ -1,4 +1,4 @@
-// Motor 3 (H4) — señales por worktree. Observa el estado de CI y de review de
+// Señales por worktree. Observa el estado de CI y de review de
 // cada worktree vivo (token en main, credential-free vía deps) y lo expone por
 // get() para la UI. Fuente única de la señal `ci.failed` del bus. No importa
 // worktree-store ni electron: la lista de worktrees y la resolución de repo se
@@ -118,7 +118,7 @@ export class WorktreeSignals {
     // gh() colapsa 401/403/429/5xx/timeout a null, indistinguible de "sin data".
     // Un blip NO debe pisar el último estado bueno del worktree (badge rojo, runId
     // para fixCiPrompt): retornamos temprano y el próximo poll OK lo actualiza. (Un
-    // 401 persistente deja el estado viejo; el push "reconectá GitHub" es follow-up.)
+    // 401 persistente deja el estado viejo: no hay aviso de "reconectá GitHub".)
     if (runsJson === null) return
     const runs = runsJson.workflow_runs ?? []
     const ci = runsToStatus(runs)

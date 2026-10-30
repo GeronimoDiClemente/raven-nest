@@ -1,4 +1,4 @@
-// Handlers de comandos del bus v1 (T5). El EventBus enruta eventos → comandos
+// Handlers de comandos del bus v1. El EventBus enruta eventos → comandos
 // (recetas) y estos handlers EJECUTAN cada comando estándar contra el adapter
 // real. Credential-free: los tokens/red llegan SOLO por `deps` inyectadas
 // (getToken/getConfig/fetch) — el repo es público, cero secretos hardcodeados.
@@ -55,8 +55,8 @@ function canCreateTask(p: unknown): p is TaskCreatingProvider {
 export type OpenSessionFn = (cmd: OpenSessionCommand, ev: DomainEvent) => Promise<void>
 
 /**
- * Superficie mínima del adapter de Calendar que el handler `logOutcome` (H6,
- * Motor 4 salida) necesita: buscar el evento por taskId y, según exista o no,
+ * Superficie mínima del adapter de Calendar que el handler `logOutcome`
+ * necesita: buscar el evento por taskId y, según exista o no,
  * apendear el outcome o crear un evento de registro. Estructural (no importa
  * gcal.ts) — el `GcalAdapter` real es asignable a esto.
  */
@@ -67,7 +67,7 @@ export interface GcalOutcomeSink {
 }
 
 /**
- * Turns a `scheduleBlock` command into a persisted automation (epic C —
+ * Turns a `scheduleBlock` command into a persisted automation (see
  * electron/integrations/scheduler.ts). Sync by design: the real work is a
  * cheap local file write (`saveAutomations`), not network I/O, so there's
  * nothing worth awaiting from the bus's perspective. Injected so bus-commands
@@ -82,7 +82,7 @@ export interface BusCommandDeps {
   /** Resuelve el sink de Calendar con las deps inyectadas. Sin él (o si devuelve
    *  null), `logOutcome` degrada a no-op con warn — igual que notify sin token. */
   gcal?: (deps: PanelAdapterDeps) => GcalOutcomeSink | null
-  /** Handles `scheduleBlock` (epic C reactivation). Without it, no-op with warn
+  /** Handles `scheduleBlock`. Without it, no-op with warn
    *  — same best-effort degradation as the other optional hooks above. */
   scheduleBlock?: ScheduleBlockFn
 }
@@ -94,11 +94,11 @@ async function handleUpdateStatus(cmd: UpdateStatusCommand, deps: PanelAdapterDe
     // best-effort y degradan a no-op), updateStatus ES la transición: si no hay
     // provider TIRAMOS para que el bus lo reporte en failed[]. Así el ticket loop
     // conserva el tracking y reintenta, en vez de destrackear un ticket que nunca
-    // transicionó (paridad con el path sin-bus de H3).
+    // transicionó (paridad con el path sin bus).
     throw new Error(`updateStatus: provider ausente ${cmd.pluginId}`)
   }
-  // No envolvemos el error de transition: el best-effort del bus (T2) ya lo
-  // captura, y en el path sin-bus (H3) el propio TicketLoop maneja el reintento.
+  // No envolvemos el error de transition: el best-effort del bus ya lo
+  // captura, y en el path sin bus el propio TicketLoop maneja el reintento.
   await provider.transition(cmd.providerId, cmd.to)
 }
 
@@ -108,7 +108,7 @@ async function handleNotify(cmd: NotifyCommand, deps: PanelAdapterDeps): Promise
     console.warn('[bus-commands] notify sin token de Slack, no-op', cmd.channel)
     return
   }
-  // Las recetas H5 emiten channel:'' a propósito: el destino canónico vive en
+  // Las recetas por defecto emiten channel:'' a propósito: el destino canónico vive en
   // la config del plugin Slack (getConfig('slack').channel). Un cmd con channel
   // explícito (recetas custom) lo pisa. Sin ninguno de los dos, no-op con warn.
   const channel = cmd.channel || String((deps.getConfig('slack') as { channel?: unknown }).channel ?? '')
@@ -167,7 +167,7 @@ async function handleCreateTask(cmd: CreateTaskCommand, deps: PanelAdapterDeps, 
   await provider.createTask(cmd.title, cmd.body)
 }
 
-// H6 Motor 4 (salida) — registra el outcome real en el calendario. Resuelve el
+// Registra el outcome real en el calendario. Resuelve el
 // evento por `ref` (taskId): si existe, apendea la línea a su description; si no,
 // crea un evento corto de registro. Credential-free (el sink llega por opts.gcal);
 // sin gcal → no-op con warn. Best-effort: un fallo de la API de Calendar no debe
@@ -189,7 +189,7 @@ async function handleLogOutcome(cmd: LogOutcomeCommand, deps: PanelAdapterDeps, 
   }
 }
 
-// Epic C — turns a `scheduleBlock` command into a persisted automation via
+// Turns a `scheduleBlock` command into a persisted automation via
 // the injected hook. Sin gancho inyectado, no-op con warn (mismo contrato
 // best-effort que openSession/logOutcome).
 async function handleScheduleBlock(cmd: ScheduleBlockCommand, opts: BusCommandDeps): Promise<void> {
@@ -204,12 +204,12 @@ async function handleScheduleBlock(cmd: ScheduleBlockCommand, opts: BusCommandDe
  * Registra en `bus` los handlers de los comandos estándar:
  *  - `updateStatus` → `provider.transition` (provider resuelto vía ticketLoop).
  *  - `notify`       → Slack chat.postMessage (token por deps; sin token no-op).
- *  - `setPresence`  → Slack users.profile.set (H5; sin token/scope no-op con warn).
+ *  - `setPresence`  → Slack users.profile.set (sin token/scope no-op con warn).
  *  - `openSession`  → callback inyectado (worktree:create vive en main).
  *  - `createTask`   → `provider.createTask` si lo soporta; si no, no-op con warn.
- *  - `logOutcome`   → Calendar (H6): apendea/crea el registro de la sesión; sin
+ *  - `logOutcome`   → Calendar: apendea/crea el registro de la sesión; sin
  *                     gcal inyectado, no-op con warn.
- *  - `scheduleBlock` → persiste una automation (epic C); sin gancho, no-op con warn.
+ *  - `scheduleBlock` → persiste una automation; sin gancho, no-op con warn.
  */
 export function registerBusCommands(bus: EventBus, opts: BusCommandDeps): void {
   bus.registerHandler('updateStatus', async (cmd, _ev, deps) => {

@@ -1,7 +1,5 @@
-// Punto único de wiring de los adapters main-side de paneles (plan Hito 2+,
-// Fase 2). Cada adapter se agrega en UNA línea acá para que el merge de los
-// worktrees en paralelo (slack/github/jira/notion) no pise otros archivos
-// compartidos aparte de este.
+// Punto único de wiring de los adapters main-side de paneles. Cada adapter se
+// agrega en UNA línea acá, sin tocar otros archivos compartidos.
 import { registerPanelAdapter } from '../integration-panels'
 import { createNotionServerAdapter } from './notion'
 import { createSlackServerAdapter } from './slack'
@@ -19,7 +17,7 @@ export function registerAllPanelAdapters(): void {
   registerPanelAdapter('github', createGitHubServerAdapter)
 }
 
-// Motor 1 (H3 ticket loop): one line per platform, same single-wiring-point
+// Ticket loop providers: one line per platform, same single-wiring-point
 // rationale as the panel adapters above.
 export function registerAllTicketProviders(): void {
   ticketLoop.register('jira', createJiraTicketProvider)

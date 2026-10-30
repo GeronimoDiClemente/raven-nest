@@ -1,6 +1,6 @@
 // Motor de recetas del bus v1. Las `Recipe`s (definidas en event-bus.ts para
 // evitar ciclos) mapean eventos → comandos; acá viven las DEFAULT_RECIPES que
-// REPLICAN H3 (PR abierto → in_review, merge → done) y la persistencia opcional
+// REPLICAN el ticket loop (PR abierto → in_review, merge → done) y la persistencia opcional
 // a `<ravenHome>/.raven-nest/recipes.json`. Cadena de imports permitida:
 // ticket-loop → event-bus → bus-types → ticket-types. Este módulo importa
 // event-bus (tipo Recipe) y bus-types (Command/DomainEvent/guards); NUNCA
@@ -37,12 +37,12 @@ function branchOf(ev: DomainEvent): string | undefined {
 }
 
 /**
- * Recetas por defecto que replican el comportamiento de H3 exactamente:
+ * Recetas por defecto que replican el comportamiento del ticket loop exactamente:
  *  - `pr.opened`  → `updateStatus(to: 'in_review')`
  *  - `pr.merged`  → `updateStatus(to: 'done')`
  *  - `task.created` → no-op en v1 (gancho para `notify` opcional; ver comentario)
  * pluginId/providerId se resuelven vía `lookup(branch)`. Si el branch no está
- * trackeado, la receta no produce comando (igual que H3, que hace `if(!t) return`).
+ * trackeado, la receta no produce comando (igual que el ticket loop, que hace `if(!t) return`).
  */
 export function defaultRecipes(lookup: TrackedLookup): Recipe[] {
   const statusRecipe = (
@@ -65,14 +65,14 @@ export function defaultRecipes(lookup: TrackedLookup): Recipe[] {
     statusRecipe('h3:pr.opened→in_review', 'pr.opened', 'in_review'),
     statusRecipe('h3:pr.merged→done', 'pr.merged', 'done'),
     {
-      // v1 no-op a propósito: la transición a in_progress la hace startWork
+      // No-op a propósito: la transición a in_progress la hace startWork
       // directo (sincrónica, esperada por los tests). Enrutarla acá causaría
-      // doble transición. Gancho futuro: `then: () => [{ cmd: 'notify', ... }]`.
+      // doble transición.
       id: 'h3:task.created→noop',
       when: 'task.created',
       then: () => [],
     },
-    // H5 Motor 4 — notify DIRIGIDO (eventos del ciclo propio → Slack). El
+    // Notify DIRIGIDO (eventos del ciclo propio → Slack). El
     // channel va vacío: lo resuelve handleNotify desde getConfig('slack').channel.
     {
       id: 'h5:pr.merged→notify',
@@ -107,13 +107,13 @@ export function defaultRecipes(lookup: TrackedLookup): Recipe[] {
       },
     },
     // Auto-status del terminal: al abrir una sesión, refleja el foco en Slack.
-    // El clear en session.closed queda como follow-up (nadie emite ese evento hoy).
+    // No hay clear en session.closed: nadie emite ese evento hoy.
     {
       id: 'h5:session.opened→presence',
       when: 'session.opened',
       then: (ev) => [{ cmd: 'setPresence', text: `focus: ${(ev as { branch: string }).branch}` }],
     },
-    // H6 Motor 4 (salida) — registra el outcome del merge en el calendario. `ref`
+    // Registra el outcome del merge en el calendario. `ref`
     // es el branch como fallback (el matcheo por taskId mejora cuando el evento lo
     // traiga). El handler resuelve append-vs-create y degrada a no-op sin gcal.
     {
@@ -125,8 +125,7 @@ export function defaultRecipes(lookup: TrackedLookup): Recipe[] {
       },
     },
     // Graph orchestration — cada transición que necesita al humano o cierra el
-    // grafo sale al Slack del equipo (el diferencial vs Orca: te enterás sin la
-    // app abierta). `channel` vacío → lo resuelve handleNotify desde config.
+    // grafo sale al Slack del equipo: te enterás sin la app abierta. `channel` vacío → lo resuelve handleNotify desde config.
     {
       id: 'graph:node_needs_input→notify',
       when: 'graph.node_needs_input',
@@ -166,7 +165,6 @@ export function defaultRecipes(lookup: TrackedLookup): Recipe[] {
  * Forma serializable de una receta (para recipes.json). Las DEFAULT_RECIPES
  * tienen `then` dinámico (resuelven branch→ticket) y NO se persisten; lo que
  * round-trippea son recetas declarativas: emiten una lista fija de comandos.
- * La UI de recetas editables (bus v2) construirá estas.
  */
 export interface StoredRecipe {
   id: string
@@ -227,8 +225,7 @@ function loadStoredRecipes(filePath: string): StoredRecipe[] {
 }
 
 /**
- * Carga las recetas desde disco. Archivo inexistente → DEFAULT_RECIPES (replican
- * H3). JSON ilegible → warn + DEFAULT_RECIPES (nunca crashea). Recetas con forma
+ * Carga las recetas desde disco. Archivo inexistente → DEFAULT_RECIPES. JSON ilegible → warn + DEFAULT_RECIPES (nunca crashea). Recetas con forma
  * o comandos inválidos se descartan (con warn). El `lookup` sólo se usa para las
  * defaults; las recetas almacenadas emiten comandos fijos.
  */
@@ -273,7 +270,7 @@ export function saveRecipes(filePath: string, recipes: StoredRecipe[]): void {
   }
 }
 
-// ── Recipes tab (renderer, read-only — Plan 5 Task 1) ───────────────────────
+// ── Recipes tab (renderer, read-only) ────────────────────────────────────────
 // `recipeDescriptors()` backs the `recipes:list` IPC: a read-only "when event
 // → commands" view for the Recipes tab. It never invokes a Recipe's dynamic
 // `then(ev)` (that needs a real event + `lookup`, which display code doesn't
