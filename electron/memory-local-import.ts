@@ -8,7 +8,7 @@
 // cambiar su comportamiento: best-effort en cada paso (un fallo en uno no aborta el resto).
 import { basename } from 'path'
 import { existsSync } from 'fs'
-import { execSync } from 'child_process'
+import { runGit } from './git-exec'
 import { MemoryStore } from './memory-store'
 import { resolveProjectKey, GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { importAllMarkdownSources } from './memory-importers/markdown'
@@ -22,7 +22,7 @@ export interface LocalMemoryImportInput {
   claudeAccountDirs: string[]
 }
 
-export function runLocalMemoryImport(store: MemoryStore, input: LocalMemoryImportInput): void {
+export async function runLocalMemoryImport(store: MemoryStore, input: LocalMemoryImportInput): Promise<void> {
   const globalKey = resolveProjectKey({})
 
   const knownRepoRoots: Array<{ path: string; projectKey: string; remoteUrl: string | null }> = []
@@ -31,7 +31,7 @@ export function runLocalMemoryImport(store: MemoryStore, input: LocalMemoryImpor
       if (!existsSync(localPath)) continue // stale entry — repo no longer on disk
       let remoteUrl: string | null = null
       try {
-        remoteUrl = execSync('git remote get-url origin', { cwd: localPath, encoding: 'utf8', timeout: 3000 }).trim()
+        remoteUrl = await runGit(['remote', 'get-url', 'origin'], { cwd: localPath, timeout: 3000 })
       } catch { /* no remote configured — resolveProjectKey falls back to the path hash */ }
       knownRepoRoots.push({ path: localPath, projectKey: resolveProjectKey({ remoteUrl, rootPath: localPath }), remoteUrl })
     }

@@ -22,35 +22,35 @@ const base = {
 }
 
 describe('performWorktreeAdd', () => {
-  it('reusa un worktree existente sin correr git (idempotente)', () => {
+  it('reusa un worktree existente sin correr git (idempotente)', async () => {
     // El bug: reclickear "Work on this" tiraba el "already exists" crudo de git.
     const runGit = vi.fn()
-    const res = performWorktreeAdd(ports({ worktreeExists: () => true, runGit }), base)
+    const res = await performWorktreeAdd(ports({ worktreeExists: () => true, runGit }), base)
     expect(res).toEqual({ ok: true, created: false })
     expect(runGit).not.toHaveBeenCalled()
   })
 
-  it('crea rama+worktree nuevos con -b cuando no existe nada', () => {
+  it('crea rama+worktree nuevos con -b cuando no existe nada', async () => {
     const runGit = vi.fn()
-    const res = performWorktreeAdd(ports({ runGit }), base)
+    const res = await performWorktreeAdd(ports({ runGit }), base)
     expect(res).toEqual({ ok: true, created: true })
     expect(runGit).toHaveBeenCalledWith(
       ['-C', '/repo', 'worktree', 'add', '-b', 'gero/ENG-1-fix', '/repo-gero-ENG-1-fix', 'HEAD'],
     )
   })
 
-  it('adjunta una rama existente (sin -b) si la rama ya existe pero no hay worktree', () => {
+  it('adjunta una rama existente (sin -b) si la rama ya existe pero no hay worktree', async () => {
     const runGit = vi.fn()
-    const res = performWorktreeAdd(ports({ branchExists: () => true, runGit }), base)
+    const res = await performWorktreeAdd(ports({ branchExists: () => true, runGit }), base)
     expect(res).toEqual({ ok: true, created: true })
     expect(runGit).toHaveBeenCalledWith(
       ['-C', '/repo', 'worktree', 'add', '/repo-gero-ENG-1-fix', 'gero/ENG-1-fix'],
     )
   })
 
-  it('mapea un fallo de git a un error limpio, no la excepción cruda', () => {
+  it('mapea un fallo de git a un error limpio, no la excepción cruda', async () => {
     const runGit = vi.fn(() => { throw new Error("fatal: '/x' already exists") })
-    const res = performWorktreeAdd(ports({ runGit }), base)
+    const res = await performWorktreeAdd(ports({ runGit }), base)
     expect(res.ok).toBe(false)
     if (!res.ok) expect(res.error).toContain('git worktree add failed')
   })
@@ -91,15 +91,15 @@ describe('performWorktreeAdd — git real (idempotencia del re-click)', () => {
     rmSync(wt, { recursive: true, force: true })
   })
 
-  it('primer llamado crea el worktree; segundo (re-click) lo reusa sin error', () => {
+  it('primer llamado crea el worktree; segundo (re-click) lo reusa sin error', async () => {
     const opts = { repoPath: repo, branch: 'gero/OWNER-repo-9-x', wtPath: wt, fromBranch: 'HEAD' }
 
-    const first = performWorktreeAdd(realPorts, opts)
+    const first = await performWorktreeAdd(realPorts, opts)
     expect(first).toEqual({ ok: true, created: true })
     expect(existsSync(wt)).toBe(true)
 
     // Sin el fix, aquí git tiraría "fatal: '<wt>' already exists".
-    const second = performWorktreeAdd(realPorts, opts)
+    const second = await performWorktreeAdd(realPorts, opts)
     expect(second).toEqual({ ok: true, created: false })
   })
 })

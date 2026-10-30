@@ -25,14 +25,14 @@ describe('runLocalMemoryImport', () => {
     cleanupTmp(dir)
   })
 
-  it('registra el proyecto global aunque no haya ningun repo ni cuenta conocidos', () => {
-    runLocalMemoryImport(store, { ravenHomeDir: dir, localPathRepos: [], claudeAccountDirs: [] })
+  it('registra el proyecto global aunque no haya ningun repo ni cuenta conocidos', async () => {
+    await runLocalMemoryImport(store, { ravenHomeDir: dir, localPathRepos: [], claudeAccountDirs: [] })
 
     const keys = store.listProjects().map((p) => p.projectKey)
     expect(keys).toContain(GLOBAL_PROJECT_KEY)
   })
 
-  it('importa un CLAUDE.md existente sin necesitar login/connect', () => {
+  it('importa un CLAUDE.md existente sin necesitar login/connect', async () => {
     mkdirSync(join(dir, '.claude'), { recursive: true })
     writeFileSync(
       join(dir, '.claude', 'CLAUDE.md'),
@@ -40,7 +40,7 @@ describe('runLocalMemoryImport', () => {
     )
 
     expect(store.count()).toBe(0)
-    runLocalMemoryImport(store, { ravenHomeDir: dir, localPathRepos: [], claudeAccountDirs: [] })
+    await runLocalMemoryImport(store, { ravenHomeDir: dir, localPathRepos: [], claudeAccountDirs: [] })
 
     expect(store.count()).toBeGreaterThan(0)
   })

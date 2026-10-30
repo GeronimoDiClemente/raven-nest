@@ -1,5 +1,5 @@
 import { existsSync } from 'fs'
-import { execSync } from 'child_process'
+import { runGit } from './git-exec'
 
 /**
  * Branch + remote origin for a cwd, best-effort (null on any failure — not a git repo, no
@@ -10,12 +10,12 @@ import { execSync } from 'child_process'
  * MCP escribe sin Nest, y la clave de proyecto tiene que salir del remote igual que adentro
  * de la app, o una memoria guardada desde el paquete caería en otro proyecto.
  */
-export function resolveGitInfoForCwd(cwd: string): { branch: string; remoteUrl: string | null } | null {
+export async function resolveGitInfoForCwd(cwd: string): Promise<{ branch: string; remoteUrl: string | null } | null> {
   try {
     if (!existsSync(cwd)) return null
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    const branch = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, timeout: 3000 })
     let remoteUrl: string | null = null
-    try { remoteUrl = execSync('git remote get-url origin', { cwd, encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() } catch { /* no remote */ }
+    try { remoteUrl = await runGit(['remote', 'get-url', 'origin'], { cwd, timeout: 3000 }) } catch { /* no remote */ }
     return { branch, remoteUrl }
   } catch {
     return null

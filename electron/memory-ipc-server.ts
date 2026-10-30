@@ -42,8 +42,11 @@ import { generateSyncId } from './memory-store'
 import type { MemoryDaemon } from './memory-daemon'
 import { renderMemoryGraphText } from './memory-graph-text'
 
+type GitInfo = { remoteUrl?: string | null; branch?: string | null }
+
+/** Puede ser async: el de main.ts (git-info.ts) corre git sin bloquear el event loop. */
 export interface GitInfoResolver {
-  (cwd: string): { remoteUrl?: string | null; branch?: string | null } | null
+  (cwd: string): GitInfo | null | Promise<GitInfo | null>
 }
 
 // M22: an unbounded per-connection buffer lets a misbehaving or malicious local client
@@ -256,8 +259,8 @@ export class MemoryIpcServer {
       return
     }
     // M26: dispatch() is now async (memory.search may await a bounded pull-through
-    // fallback) — every other method still resolves synchronously inside it, so this is
-    // a no-op timing-wise for them. One line per connection in practice (client.ts opens
+    // fallback, and the methods that resolve a project key await git via resolveGitInfo).
+    // One line per connection in practice (client.ts opens
     // a fresh socket per call), so there's no request-ordering concern from not awaiting
     // this inline.
     this.dispatch(request).then(
@@ -272,8 +275,8 @@ export class MemoryIpcServer {
     )
   }
 
-  private projectKeyForCwd(cwd: string): string {
-    const info = this.deps.resolveGitInfo?.(cwd) ?? null
+  private async projectKeyForCwd(cwd: string): Promise<string> {
+    const info = (await this.deps.resolveGitInfo?.(cwd)) ?? null
     const projectKey = resolveProjectKey({ remoteUrl: info?.remoteUrl, rootPath: cwd })
     this.deps.store.ensureProject({
       projectKey,
@@ -292,7 +295,7 @@ export class MemoryIpcServer {
    * store convierte un segundo Stop —o el PreCompact seguido del Stop— en un update de la
    * misma memoria en vez de una fila nueva por cada vez.
    */
-  private guardarRollup(sessionId: string, cwd: string, transcriptPath: string | undefined, origen: string): void {
+  private async guardarRollup(sessionId: string, cwd: string, transcriptPath: string | undefined, origen: string): Promise<void> {
     if (!transcriptPath) return  // shim viejo, o una CLI que no pasa transcript
     try {
       if (!existsSync(transcriptPath)) return
@@ -300,7 +303,7 @@ export class MemoryIpcServer {
       if (!rollup) return  // sesión sin prompts: no hay nada que recordar
 
       const session = this.deps.store.getSession(sessionId)
-      const projectKey = session?.project_key ?? this.projectKeyForCwd(cwd)
+      const projectKey = session?.project_key ?? await this.projectKeyForCwd(cwd)
       this.deps.store.save({
         projectKey,
         scope: 'personal',
@@ -351,8 +354,8 @@ export class MemoryIpcServer {
 
         case 'memory.save': {
           const params = request.params as SaveMemoryParams
-          const projectKey = this.projectKeyForCwd(params.cwd)
-          const gitInfo = this.deps.resolveGitInfo?.(params.cwd) ?? null
+          const projectKey = await this.projectKeyForCwd(params.cwd)
+          const gitInfo = (await this.deps.resolveGitInfo?.(params.cwd)) ?? null
           const result = store.save({
             projectKey,
             scope: 'personal', // auto-capture ALWAYS writes personal — no code path can override this (§2.1)
@@ -372,7 +375,7 @@ export class MemoryIpcServer {
 
         case 'memory.search': {
           const params = request.params as SearchMemoryParams
-          const projectKey = this.projectKeyForCwd(params.cwd)
+          const projectKey = await this.projectKeyForCwd(params.cwd)
           const limit = params.limit ?? 10
           const items = store.search(projectKey, params.query, limit)
           if (items.length > 0) return { items } as SearchMemoryResult
@@ -399,7 +402,7 @@ export class MemoryIpcServer {
 
         case 'memory.context': {
           const params = request.params as ContextMemoryParams
-          const projectKey = this.projectKeyForCwd(params.cwd)
+          const projectKey = await this.projectKeyForCwd(params.cwd)
           return { items: store.context(projectKey, params.limit ?? 10) }
         }
 
@@ -494,8 +497,8 @@ export class MemoryIpcServer {
 
         case 'hook.sessionStart': {
           const params = request.params as HookSessionStartParams
-          const projectKey = this.projectKeyForCwd(params.cwd)
-          const gitInfo = this.deps.resolveGitInfo?.(params.cwd) ?? null
+          const projectKey = await this.projectKeyForCwd(params.cwd)
+          const gitInfo = (await this.deps.resolveGitInfo?.(params.cwd)) ?? null
           store.openSession({
             id: params.sessionId,
             projectKey,
@@ -515,7 +518,7 @@ export class MemoryIpcServer {
 
         case 'hook.stop': {
           const params = request.params as HookStopParams
-          this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'stop')
+          await this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'stop')
           store.closeSession(params.sessionId)
           this.deps.onMutation?.()
           return { ok: true }
@@ -526,7 +529,7 @@ export class MemoryIpcServer {
           // Antes escribía un placeholder que decía "rollup pending on session close" — y ese
           // rollup NUNCA llegaba, porque `Stop` no escribía nada. Ahora guarda el resumen de
           // verdad: si la sesión se compacta, lo hablado hasta acá ya quedó.
-          this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'precompact')
+          await this.guardarRollup(params.sessionId, params.cwd, params.transcriptPath, 'precompact')
           this.deps.onMutation?.()
           return { ok: true }
         }

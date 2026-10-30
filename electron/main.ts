@@ -138,6 +138,7 @@ import { SettingsStore } from './settings-store'
 import { MemoryStore, resolveStorePath, migrateLegacyStorePath } from './memory-store'
 import { usarAbridorPorDefecto, usarAbridorDeLecturaPorDefecto } from './sqlite-motor'
 import { resolveGitInfoForCwd } from './git-info'
+import { runGit, type GitExecError } from './git-exec'
 import { abrirConBetterSqlite3, abrirSoloLecturaConBetterSqlite3 } from './sqlite-better'
 import { MemoryIpcServer } from './memory-ipc-server'
 import { MemoryDaemon, TEAM_KEY_HOLD_REASONS, MOTIVO_TOPE_DE_PROYECTOS } from './memory-daemon'
@@ -476,8 +477,8 @@ usarAbridorDeLecturaPorDefecto(abrirSoloLecturaConBetterSqlite3)
 /** Task 4: same project-key resolution memory-ipc-server.ts's `projectKeyForCwd` uses for
  *  every other write path, so a handoff observation lands under the exact project a
  *  `memory.search`/`memory.save` from that same worktree would. */
-function projectKeyForWorktree(worktreePath: string): string {
-  const info = resolveGitInfoForCwd(worktreePath)
+async function projectKeyForWorktree(worktreePath: string): Promise<string> {
+  const info = await resolveGitInfoForCwd(worktreePath)
   return resolveProjectKey({ remoteUrl: info?.remoteUrl, rootPath: worktreePath })
 }
 
@@ -1007,30 +1008,30 @@ ipcMain.handle('conversations:export', async (_event, id: string) => {
 })
 
 // Git IPC handlers
-ipcMain.handle('git:info', (_event, repoPath: string) => {
+ipcMain.handle('git:info', async (_event, repoPath: string) => {
   const empty = { branch: null, remoteUrl: null, githubUrl: null, isDirty: false }
   if (!repoPath || typeof repoPath !== 'string' || !isAbsolute(repoPath)) return empty
   try { if (!statSync(repoPath).isDirectory()) return empty } catch { return empty }
 
   let gitMissing = false
-  const run = (cmd: string) => {
+  const run = async (args: string[]) => {
     try {
-      return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim()
+      return await runGit(args, { cwd: repoPath, timeout: 3000 })
     } catch (err) {
-      const e = err as NodeJS.ErrnoException
+      const e = err as GitExecError
       if (e.code === 'ENOENT') {
         gitMissing = true
       } else {
-        console.warn('[git:info]', cmd, e.message)
+        console.warn('[git:info]', `git ${args.join(' ')}`, e.message)
       }
       return null
     }
   }
-  const branch = run('git rev-parse --abbrev-ref HEAD')
+  const branch = await run(['rev-parse', '--abbrev-ref', 'HEAD'])
   if (gitMissing) return { error: 'git-not-found' as const }
-  const remoteUrl = run('git remote get-url origin')
+  const remoteUrl = await run(['remote', 'get-url', 'origin'])
   if (gitMissing) return { error: 'git-not-found' as const }
-  const dirty = run('git status --porcelain')
+  const dirty = await run(['status', '--porcelain'])
   if (gitMissing) return { error: 'git-not-found' as const }
 
   let githubUrl: string | null = null
@@ -1044,35 +1045,35 @@ ipcMain.handle('git:info', (_event, repoPath: string) => {
   return { branch, remoteUrl, githubUrl, isDirty: !!dirty && dirty.length > 0 }
 })
 
-ipcMain.handle('git:status', (_event, repoPath: string) => {
+ipcMain.handle('git:status', async (_event, repoPath: string) => {
   const empty = { files: [], ahead: 0, behind: 0 }
   if (!repoPath || typeof repoPath !== 'string' || !isAbsolute(repoPath)) return empty
   try { if (!statSync(repoPath).isDirectory()) return empty } catch { return empty }
 
   let gitMissing = false
-  const run = (cmd: string) => {
+  const run = async (args: string[]) => {
     try {
-      return execSync(cmd, { cwd: repoPath, encoding: 'utf8', timeout: 3000 }).trim()
+      return await runGit(args, { cwd: repoPath, timeout: 3000 })
     } catch (err) {
-      const e = err as NodeJS.ErrnoException
+      const e = err as GitExecError
       if (e.code === 'ENOENT') {
         gitMissing = true
       } else {
-        console.warn('[git:status]', cmd, e.message)
+        console.warn('[git:status]', `git ${args.join(' ')}`, e.message)
       }
       return null
     }
   }
 
-  const porcelain = run('git status --porcelain') ?? ''
+  const porcelain = (await run(['status', '--porcelain'])) ?? ''
   if (gitMissing) return { error: 'git-not-found' as const }
   const files = porcelain
     .split('\n')
     .filter(Boolean)
     .map(line => ({ status: line.slice(0, 2).trim(), path: line.slice(3).trim() }))
 
-  const aheadRaw = run('git rev-list --count @{upstream}..HEAD')
-  const behindRaw = run('git rev-list --count HEAD..@{upstream}')
+  const aheadRaw = await run(['rev-list', '--count', '@{upstream}..HEAD'])
+  const behindRaw = await run(['rev-list', '--count', 'HEAD..@{upstream}'])
   if (gitMissing) return { error: 'git-not-found' as const }
   const ahead = aheadRaw ? parseInt(aheadRaw, 10) : 0
   const behind = behindRaw ? parseInt(behindRaw, 10) : 0
@@ -1088,13 +1089,11 @@ ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
 
   let branches: string[] = []
   try {
-    // execFileSync (no shell) — same defense as `git:pushBranch` and
+    // runGit → execFile (no shell) — same defense as `git:pushBranch` and
     // `parseRemoteOrigin`. The "no double-quotes" guard above doesn't cover
     // backticks/$()/newlines that would break execSync's quoting.
-    const out = execFileSync('git', ['-C', repoPath, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/'], {
-      encoding: 'utf8',
+    const out = await runGit(['-C', repoPath, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/'], {
       timeout: 3000,
-      stdio: ['pipe', 'pipe', 'pipe'],
     })
     branches = out.split('\n').map((s) => s.trim()).filter(Boolean)
   } catch {
@@ -1109,11 +1108,9 @@ ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
 
   let defaultBranch: string | null = null
   try {
-    const head = execFileSync('git', ['-C', repoPath, 'symbolic-ref', 'refs/remotes/origin/HEAD'], {
-      encoding: 'utf8',
+    const head = await runGit(['-C', repoPath, 'symbolic-ref', 'refs/remotes/origin/HEAD'], {
       timeout: 3000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
+    })
     defaultBranch = head.replace(/^refs\/remotes\/origin\//, '')
   } catch {
     // No origin/HEAD set — fall back to the usual suspects.
@@ -1136,18 +1133,16 @@ ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
     return { ok: false as const, error: `Worktree path no longer exists on disk: ${worktreePath}` }
   }
 
-  // Read current branch. Use execFileSync (no shell) — execSync with string
+  // Read current branch. Use runGit → execFile (no shell) — execSync with string
   // interpolation would let a worktreePath/branch with `&` `|` `` ` `` etc.
   // execute arbitrary commands. Branch values come from git itself but we
   // still don't want to trust them blindly: git allows many chars in branch
   // names that are dangerous in a shell context.
   let branch: string
   try {
-    branch = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--abbrev-ref', 'HEAD'], {
-      encoding: 'utf8',
+    branch = await runGit(['-C', worktreePath, 'rev-parse', '--abbrev-ref', 'HEAD'], {
       timeout: 3000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
+    })
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err)
     const fatalLine = raw.split('\n').find((l) => l.includes('fatal:'))?.trim()
@@ -1159,10 +1154,8 @@ ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
   }
 
   try {
-    execFileSync('git', ['-C', worktreePath, 'push', '-u', 'origin', branch], {
-      encoding: 'utf8',
+    await runGit(['-C', worktreePath, 'push', '-u', 'origin', branch], {
       timeout: 60000,
-      stdio: ['pipe', 'pipe', 'pipe'],
     })
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err)
@@ -1172,10 +1165,9 @@ ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
 
   let compareUrl: string | undefined
   try {
-    const remote = execFileSync('git', ['-C', worktreePath, 'remote', 'get-url', 'origin'], {
-      encoding: 'utf8',
+    const remote = await runGit(['-C', worktreePath, 'remote', 'get-url', 'origin'], {
       timeout: 3000,
-    }).trim()
+    })
     const gh = remote.match(/github\.com[:/]([^/]+\/[^/.]+)/i)
     const gl = remote.match(/gitlab\.com[:/]([^/]+\/[^/.]+)/i)
     if (gh) compareUrl = `https://github.com/${gh[1]}/pull/new/${encodeURIComponent(branch)}`
@@ -1242,9 +1234,9 @@ ipcMain.handle('git:clone', async (
     if (statSync(dest).isDirectory()) {
       let existingRemote: string | null = null
       try {
-        existingRemote = execFileSync('git', ['-C', dest, 'remote', 'get-url', 'origin'], {
-          encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
-        }).trim() || null
+        existingRemote = (await runGit(['-C', dest, 'remote', 'get-url', 'origin'], {
+          timeout: 3000,
+        })) || null
       } catch {
         // Not a git repo (or no origin). Treat as collision — don't adopt.
       }
@@ -1319,7 +1311,7 @@ ipcMain.handle('git:clone', async (
 
     if (tokenSafe) {
       try {
-        execFileSync('git', ['-C', dest, 'remote', 'set-url', 'origin', cloneUrl], { stdio: 'pipe' })
+        await runGit(['-C', dest, 'remote', 'set-url', 'origin', cloneUrl])
       } catch (scrubErr: unknown) {
         // CRITICAL: token is now persisted in .git/config. Try to remove the clone
         // so the user doesn't unknowingly leak credentials. If even that fails,
@@ -1381,9 +1373,9 @@ ipcMain.handle('dialog:pickRepoFolder', async (_evt, expectedRemote?: string) =>
   if (expectedRemote && typeof expectedRemote === 'string') {
     let actualRemote: string | null = null
     try {
-      actualRemote = execFileSync('git', ['-C', folder, 'remote', 'get-url', 'origin'], {
-        encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim() || null
+      actualRemote = (await runGit(['-C', folder, 'remote', 'get-url', 'origin'], {
+        timeout: 3000,
+      })) || null
     } catch {
       // No `origin` remote — uncommon but legal (local-only repo). Skip the
       // match check and let the user proceed; we already verified .git exists.
@@ -1426,7 +1418,7 @@ type RemoteUrlResult =
   | { ok: true; url: string }
   | { ok: false; reason: 'no-git' | 'not-repo' | 'no-origin' | 'io-error' }
 
-ipcMain.handle('git:getRemoteUrl', (_event, folder: string): RemoteUrlResult => {
+ipcMain.handle('git:getRemoteUrl', async (_event, folder: string): Promise<RemoteUrlResult> => {
   if (!folder || typeof folder !== 'string' || !isAbsolute(folder)) {
     return { ok: false, reason: 'not-repo' }
   }
@@ -1441,13 +1433,13 @@ ipcMain.handle('git:getRemoteUrl', (_event, folder: string): RemoteUrlResult => 
     return { ok: false, reason: 'not-repo' }
   }
   try {
-    const out = execFileSync('git', ['-C', folder, 'remote', 'get-url', 'origin'], {
-      encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
+    const out = await runGit(['-C', folder, 'remote', 'get-url', 'origin'], {
+      timeout: 3000,
+    })
     if (!out) return { ok: false, reason: 'no-origin' }
     return { ok: true, url: out }
   } catch (err) {
-    const e = err as NodeJS.ErrnoException
+    const e = err as GitExecError
     if (e.code === 'ENOENT') return { ok: false, reason: 'no-git' }
     const msg = e.message || ''
     // `git remote get-url origin` exits non-zero with "No such remote 'origin'"
@@ -1619,14 +1611,14 @@ ipcMain.handle('graph:runs:list', () => graphRunStore.list())
 // por la memoria de la cuenta (type:'handoff'), que sí replica, así que "retomar en otra
 // máquina" tiene de dónde reconstruir el archivo que el propio worker-run.ts (composeStepInput)
 // espera encontrar.
-ipcMain.handle('handoff:read', (_e, worktreePath: string) => {
+ipcMain.handle('handoff:read', async (_e, worktreePath: string) => {
   const local = readHandoff(worktreePath)
   if (local !== null) return local
   // Step 3: sin archivo local, ¿hay uno más nuevo en la nube? (llegó por sync desde otra
   // máquina, o esta es una copia fresca del worktree que nunca escribió uno propio.)
   if (!memory) return null
   try {
-    const projectKey = projectKeyForWorktree(worktreePath)
+    const projectKey = await projectKeyForWorktree(worktreePath)
     const latest = memory.store.latestByType(projectKey, 'handoff')
     if (!latest) return null
     // Materializa el archivo (writeHandoff es la función pura de siempre, sin volver a
@@ -1639,11 +1631,14 @@ ipcMain.handle('handoff:read', (_e, worktreePath: string) => {
     return null
   }
 })
-ipcMain.handle('handoff:write', (_e, worktreePath: string, content: string) => {
+ipcMain.handle('handoff:write', async (_e, worktreePath: string, content: string) => {
   writeHandoff(worktreePath, content)
   if (!memory) return
   try {
-    const projectKey = projectKeyForWorktree(worktreePath)
+    const projectKey = await projectKeyForWorktree(worktreePath)
+    // resolveHandoffBranch (handoff-capture.ts) sigue siendo síncrono: se le pasa la info
+    // de git ya resuelta, con la misma llamada que hacía antes adentro.
+    const gitInfo = await resolveGitInfoForCwd(worktreePath)
     const folder = worktreePath.split(/[\\/]/).filter(Boolean).pop() ?? worktreePath
     const title = `Handoff — ${folder}`
     memory.store.ensureProject({ projectKey, displayName: folder, rootPath: worktreePath })
@@ -1652,7 +1647,7 @@ ipcMain.handle('handoff:write', (_e, worktreePath: string, content: string) => {
     // testeable. Sin el `gitBranch` que agrega ahi, TODA fila del hilo caia en general.md.
     const { input, heldBack } = buildHandoffSave(
       { worktreePath, projectKey, title, content, settings: ttSettings },
-      { resolveGitInfo: resolveGitInfoForCwd },
+      { resolveGitInfo: () => gitInfo },
     )
     memory.store.save(input)
     if (heldBack) {
@@ -1815,17 +1810,16 @@ function runWorktreeAdd(repoPath: string, branch: string, wtPath: string, fromBr
   return performWorktreeAdd(
     {
       worktreeExists: (p) => worktreeStore.get(p) != null,
-      branchExists: (repoPath, branch) => {
+      branchExists: async (repoPath, branch) => {
         try {
-          execFileSync('git', ['-C', repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
+          await runGit(['-C', repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
             timeout: 3000,
-            stdio: ['pipe', 'pipe', 'pipe'],
           })
           return true
         } catch { return false }
       },
-      runGit: (args) => {
-        execFileSync('git', args, { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
+      runGit: async (args) => {
+        await runGit(args, { timeout: 10000 })
       },
     },
     { repoPath, branch, wtPath, fromBranch },
@@ -1869,7 +1863,7 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
   }
 
   const from = opts.fromBranch ?? 'HEAD'
-  const addResult = runWorktreeAdd(opts.repoPath, opts.branch, wtPath, from)
+  const addResult = await runWorktreeAdd(opts.repoPath, opts.branch, wtPath, from)
   if (!addResult.ok) return { ok: false as const, error: addResult.error }
   if (!addResult.created) {
     // Reused an existing worktree ("Work on this" clicked twice): return its
@@ -1915,7 +1909,7 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
 // above (path/slug computation, runWorktreeAdd, idempotent reuse), minus the
 // preset/setup-runner step — the bot only creates a worktree and starts work,
 // same scope as "Do NOT open a real terminal pane" in the spec.
-function createWorktreeForBot(repoPath: string, branch: string): Promise<
+async function createWorktreeForBot(repoPath: string, branch: string): Promise<
   { ok: true; worktreePath: string } | { ok: false; error: string }
 > {
   if (!isAbsolute(repoPath)) return Promise.resolve({ ok: false, error: 'repoPath must be absolute' })
@@ -1925,7 +1919,7 @@ function createWorktreeForBot(repoPath: string, branch: string): Promise<
   const slug = branch.replace(/[\/]/g, '-').replace(/[^a-zA-Z0-9._\-]/g, '')
   const wtPath = pathJoin(dirname(repoPath), `${basename(repoPath)}-${slug}`)
 
-  const addResult = runWorktreeAdd(repoPath, branch, wtPath, 'HEAD')
+  const addResult = await runWorktreeAdd(repoPath, branch, wtPath, 'HEAD')
   if (!addResult.ok) return Promise.resolve({ ok: false, error: addResult.error })
   if (!addResult.created) {
     const existing = worktreeStore.get(wtPath)
@@ -1970,10 +1964,8 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
 
   let needsManualCleanup = false
   try {
-    execFileSync('git', ['-C', meta.rootRepoPath, 'worktree', 'remove', worktreePath, '--force'], {
-      encoding: 'utf8',
+    await runGit(['-C', meta.rootRepoPath, 'worktree', 'remove', worktreePath, '--force'], {
       timeout: 10000,
-      stdio: ['pipe', 'pipe', 'pipe'],
     })
   } catch (err) {
     // Legacy worktrees created before v1.0 sometimes ended up pointing inside
@@ -2004,8 +1996,8 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
       cleanupFailures.push(`rmSync: ${msg}`)
     }
     try {
-      execFileSync('git', ['-C', meta.rootRepoPath, 'worktree', 'prune'], {
-        encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+      await runGit(['-C', meta.rootRepoPath, 'worktree', 'prune'], {
+        timeout: 5000,
       })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -2706,15 +2698,15 @@ ipcMain.handle('git:shortstat', async (_evt, worktreePath: string, base?: string
   let baseRef = base
   if (!baseRef) {
     try {
-      const head = execFileSync('git', ['-C', worktreePath, 'symbolic-ref', 'refs/remotes/origin/HEAD'], {
-        encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim()
+      const head = await runGit(['-C', worktreePath, 'symbolic-ref', 'refs/remotes/origin/HEAD'], {
+        timeout: 3000,
+      })
       baseRef = head.replace(/^refs\/remotes\//, '')
     } catch {
       for (const candidate of ['origin/main', 'origin/master', 'origin/develop', 'main', 'master']) {
         try {
-          execFileSync('git', ['-C', worktreePath, 'rev-parse', '--verify', candidate], {
-            timeout: 2000, stdio: 'pipe',
+          await runGit(['-C', worktreePath, 'rev-parse', '--verify', candidate], {
+            timeout: 2000,
           })
           baseRef = candidate
           break
@@ -2727,8 +2719,8 @@ ipcMain.handle('git:shortstat', async (_evt, worktreePath: string, base?: string
 
   let out = ''
   try {
-    out = execFileSync('git', ['-C', worktreePath, 'diff', '--shortstat', `${baseRef}...HEAD`], {
-      encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+    out = await runGit(['-C', worktreePath, 'diff', '--shortstat', `${baseRef}...HEAD`], {
+      timeout: 5000,
     })
   } catch {
     return empty
@@ -2754,8 +2746,8 @@ ipcMain.handle('git:listUntrackedEnvFiles', async (_evt, repoPath: string) => {
   try { if (!statSync(repoPath).isDirectory()) return [] } catch { return [] }
   let out: string
   try {
-    out = execFileSync('git', ['-C', repoPath, 'ls-files', '--others', '--exclude-standard'], {
-      encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+    out = await runGit(['-C', repoPath, 'ls-files', '--others', '--exclude-standard'], {
+      timeout: 5000,
     })
   } catch {
     return []
@@ -2793,18 +2785,18 @@ function prCacheSet(key: string, value: PRChip): void {
   prCache.set(key, { value, expiresAt: Date.now() + PR_CACHE_TTL_MS })
 }
 
-function parseRemoteOrigin(repoPath: string): {
+async function parseRemoteOrigin(repoPath: string): Promise<{
   provider: 'github' | 'gitlab'
   ownerRepo: string
-} | null {
+} | null> {
   try {
-    // Use execFileSync (no shell) — `repoPath` flows from the renderer's
+    // Use runGit → execFile (no shell) — `repoPath` flows from the renderer's
     // session/tab state with only `isAbsolute` validation upstream. With
     // execSync + string interpolation, a path containing `"`, `` ` ``, `$`,
     // `\n`, etc. could inject arbitrary commands in main.
-    const remote = execFileSync('git', ['-C', repoPath, 'remote', 'get-url', 'origin'], {
-      encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
+    const remote = await runGit(['-C', repoPath, 'remote', 'get-url', 'origin'], {
+      timeout: 3000,
+    })
     const gh = remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/i)
     if (gh) return { provider: 'github', ownerRepo: gh[1]! }
     const gl = remote.match(/gitlab\.com[:/]([^/]+(?:\/[^/]+)+?)(?:\.git)?$/i)
@@ -2830,7 +2822,7 @@ ipcMain.handle('git:findPRForBranch', async (
   const cached = prCacheGet(cacheKey)
   if (cached !== undefined) return cached
 
-  const remote = parseRemoteOrigin(repoPath)
+  const remote = await parseRemoteOrigin(repoPath)
   if (!remote) { prCacheSet(cacheKey, null); return null }
 
   // Only cache null on a confirmed "no PR exists" (200 + empty array, or 404).
@@ -3322,7 +3314,7 @@ ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string)
   // app.whenReady() and its own module for why). Best-effort: a partial import beats a
   // failed connect (R-7). Re-running on every connect is safe: every importer underneath
   // is idempotent (§5.3 guard 1).
-  runLocalMemoryImport(memory.store, {
+  await runLocalMemoryImport(memory.store, {
     ravenHomeDir: ravenHome(),
     localPathRepos: Object.values(localPathsStore.getAllLocalPaths()),
     claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
@@ -3898,23 +3890,23 @@ ipcMain.handle('memory:graph', (_event, query?: Partial<MemoryGraphQuery>): Memo
  * Sin repo vinculado la memoria va al proyecto GLOBAL, que es exactamente lo que significa:
  * algo que vale mas alla de un repo. No se inventa un proyecto ni se rechaza la escritura.
  */
-ipcMain.handle('memory:save', (_event, input: {
+ipcMain.handle('memory:save', async (_event, input: {
   title?: string
   content?: string
   type?: string
   tags?: string[]
   topicKey?: string | null
   worktreePath?: string | null
-}): { ok: boolean; syncId?: string; error?: string } => {
+}): Promise<{ ok: boolean; syncId?: string; error?: string }> => {
   if (!memory) return { ok: false, error: 'memory_unavailable' }
   const title = (input?.title ?? '').trim()
   if (!title) return { ok: false, error: 'title_required' }
 
   const tipo = (input?.type ?? 'decision') as ObservationType
   const projectKey = input?.worktreePath
-    ? projectKeyForWorktree(input.worktreePath)
+    ? await projectKeyForWorktree(input.worktreePath)
     : GLOBAL_PROJECT_KEY
-  const gitInfo = input?.worktreePath ? resolveGitInfoForCwd(input.worktreePath) : null
+  const gitInfo = input?.worktreePath ? await resolveGitInfoForCwd(input.worktreePath) : null
 
   try {
     const result = memory.store.save({
@@ -4326,13 +4318,13 @@ ipcMain.handle('memory:vault:reveal', async () => {
 /** Wrapper que consulta git — es lo UNICO de este flujo que lo hace, el planner
  *  (`planTeamThread`) es puro a proposito. El parseo en si (y el caso "git fallo") vive en
  *  `parseBranchStates`, puro y testeado aparte en team-thread-git.test.ts. */
-function collectBranchStates(worktreePath: string, branches: string[]): Record<string, EstadoRama> {
+async function collectBranchStates(worktreePath: string, branches: string[]): Promise<Record<string, EstadoRama>> {
   let branchOutput = ''
   let worktreeOutput = ''
   let gitDisponible = false
   try {
-    branchOutput = execFileSync('git', ['branch', '--format=%(refname:short)'], { cwd: worktreePath, encoding: 'utf8', timeout: 5000 })
-    worktreeOutput = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: worktreePath, encoding: 'utf8', timeout: 5000 })
+    branchOutput = await runGit(['branch', '--format=%(refname:short)'], { cwd: worktreePath, timeout: 5000 })
+    worktreeOutput = await runGit(['worktree', 'list', '--porcelain'], { cwd: worktreePath, timeout: 5000 })
     gitDisponible = true
   } catch {
     // Sin git no hay estado que informar: parseBranchStates devuelve `sin-worktree` para
@@ -4393,7 +4385,7 @@ async function runTeamThreadRegenerationLocked(
         projectKey,
         displayName: project?.displayName ?? projectKey,
         includedTypes: settings.includedTypes,
-        branchStates: collectBranchStates(worktreePath, branches),
+        branchStates: await collectBranchStates(worktreePath, branches),
         ultimaSync: Date.now(),
       },
       onDiskHashes: computeOnDiskHashes(rootDir, manifest),
@@ -4467,11 +4459,11 @@ function scheduleTeamThreadRegenDebounced(worktreePath: string): void {
 // entradas distintas aca.
 const teamThreadProjectKeyCache = new Map<string, string>()
 
-function cachedProjectKeyForWorktree(worktreePath: string): string {
+async function cachedProjectKeyForWorktree(worktreePath: string): Promise<string> {
   const clave = normalizeWorktreeKey(worktreePath)
   const cacheado = teamThreadProjectKeyCache.get(clave)
   if (cacheado !== undefined) return cacheado
-  const projectKey = projectKeyForWorktree(worktreePath)
+  const projectKey = await projectKeyForWorktree(worktreePath)
   teamThreadProjectKeyCache.set(clave, projectKey)
   return projectKey
 }
@@ -4537,7 +4529,7 @@ async function reconcileTeamThreads(opts: { soloSiCambio: boolean; semillas?: st
     if (!rep || !isAbsolute(rep) || !existsSync(rep)) continue
     let projectKey: string
     try {
-      projectKey = cachedProjectKeyForWorktree(rep)
+      projectKey = await cachedProjectKeyForWorktree(rep)
     } catch {
       continue
     }
@@ -4605,27 +4597,27 @@ ipcMain.handle('memory:teamThread:regenerate', (_e, worktreePath: string, projec
 // getSettings/setSettings. Misma guarda y mismo envelope `{ ok, ... }` que el handler
 // `read` de aca abajo (review de Task 10: un worktreePath invalido no debe producir un
 // projectKey basura indistinguible de uno valido).
-ipcMain.handle('memory:teamThread:projectKeyForWorktree', (_e, worktreePath: string) => {
+ipcMain.handle('memory:teamThread:projectKeyForWorktree', async (_e, worktreePath: string) => {
   if (!worktreePath || !isAbsolute(worktreePath)) return { ok: false, error: 'invalid_worktree_path' }
-  return { ok: true, projectKey: projectKeyForWorktree(worktreePath) }
+  return { ok: true, projectKey: await projectKeyForWorktree(worktreePath) }
 })
 
 // Task 10 (el panel): proyeccion de solo lectura del indice, para pintar el grafo. Separado
 // de getSettings/setSettings/regenerate (que son config y pase de escritura) — este handler
 // no toca disco, solo lee memoria + git y devuelve filas. worktreePath alcanza: projectKey
 // sale de el, igual que arriba.
-ipcMain.handle('memory:teamThread:read', (_e, worktreePath: string) => {
+ipcMain.handle('memory:teamThread:read', async (_e, worktreePath: string) => {
   if (!worktreePath || !isAbsolute(worktreePath)) return { ok: false, error: 'invalid_worktree_path' }
   if (!memory) return { ok: false, error: 'memory_unavailable' }
   const userId = memory.store.getOwnerUserId()
-  const projectKey = projectKeyForWorktree(worktreePath)
+  const projectKey = await projectKeyForWorktree(worktreePath)
   const settings = loadTeamThreadSettings(teamThreadSettingsPath(ravenHome(), userId), projectKey)
 
   const { reader, close } = openReadonlyReader(ravenHome(), userId)
   try {
     const records = reader.listRecords(projectKey)
     const branches = [...new Set(records.map((r) => r.gitBranch).filter((b): b is string => b !== null))]
-    const branchStates = collectBranchStates(worktreePath, branches)
+    const branchStates = await collectBranchStates(worktreePath, branches)
     return {
       ok: true,
       branches: queryThreadIndexBranches(records, { projectKey, includedTypes: settings.includedTypes, branchStates }),
@@ -4918,7 +4910,7 @@ const automationRunnerPorts: AutomationRunnerPorts = {
     const slug = branch.replace(/[\/]/g, '-').replace(/[^a-zA-Z0-9._\-]/g, '')
     const wtPath = pathJoin(dirname(repoPath), `${basename(repoPath)}-${slug}`)
     try {
-      const res = runWorktreeAdd(repoPath, branch, wtPath, 'HEAD')
+      const res = await runWorktreeAdd(repoPath, branch, wtPath, 'HEAD')
       if (!res.ok) return { ok: false, error: res.error }
       return { ok: true, wtPath }
     } catch (err) {
@@ -4969,17 +4961,17 @@ const automationRunnerPorts: AutomationRunnerPorts = {
   removeWorktree: async (repoPath, wtPath) => {
     let branch = ''
     try {
-      branch = execFileSync('git', ['-C', wtPath, 'branch', '--show-current'], { encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+      branch = await runGit(['-C', wtPath, 'branch', '--show-current'], { timeout: 5000 })
     } catch {}
     try { ptyManager.killByCwdPrefix(wtPath) } catch {}
     try {
-      execFileSync('git', ['-C', repoPath, 'worktree', 'remove', wtPath, '--force'], { encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] })
+      await runGit(['-C', repoPath, 'worktree', 'remove', wtPath, '--force'], { timeout: 10000 })
     } catch (err) {
       console.warn('[automations] worktree remove failed', wtPath, err instanceof Error ? err.message : err)
-      try { execFileSync('git', ['-C', repoPath, 'worktree', 'prune'], { timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }) } catch {}
+      try { await runGit(['-C', repoPath, 'worktree', 'prune'], { timeout: 5000 }) } catch {}
     }
     if (branch && branch.startsWith('nest-auto/')) {
-      try { execFileSync('git', ['-C', repoPath, 'branch', '-D', branch], { timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }) } catch {}
+      try { await runGit(['-C', repoPath, 'branch', '-D', branch], { timeout: 5000 }) } catch {}
     }
   },
   // model-per-task (worker-spec Capa 1): inline model wins, else the referenced
@@ -5676,7 +5668,7 @@ app.whenReady().then(async () => {
     // startup, not only on `memory:connect`, so the memory hub has real numbers to show
     // even to a Free user who never connects to Cloud. Idempotent, best-effort — see
     // memory-local-import.ts.
-    runLocalMemoryImport(memory.store, {
+    await runLocalMemoryImport(memory.store, {
       ravenHomeDir: ravenHome(),
       localPathRepos: Object.values(localPathsStore.getAllLocalPaths()),
       claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
