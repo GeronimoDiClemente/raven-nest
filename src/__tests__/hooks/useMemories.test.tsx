@@ -144,3 +144,38 @@ describe('useMemories', () => {
     expect(result.current.maxProjects).toBeNull()
   })
 })
+
+describe('useMemories — poll sólo con la ventana visible', () => {
+  const setVisibilidad = (v: 'visible' | 'hidden'): void => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+    setVisibilidad('visible')
+  })
+
+  it('con la ventana tapada no relee, y al volver a verse relee en el acto', async () => {
+    vi.useFakeTimers()
+    const status = vi.fn().mockResolvedValue({
+      connected: true, deviceId: 'd1', itemCount: 1, pendingCount: 0, daemonStatus: 'idle',
+    })
+    setMemoryApi({ status })
+
+    renderHook(() => useMemories(5_000))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(status).toHaveBeenCalledTimes(1)
+
+    act(() => setVisibilidad('hidden'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(status).toHaveBeenCalledTimes(1)
+
+    act(() => setVisibilidad('visible'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(status).toHaveBeenCalledTimes(2)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+    expect(status).toHaveBeenCalledTimes(3)
+  })
+})

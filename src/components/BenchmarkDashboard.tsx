@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { intervaloVisibleEnDocumento } from '../hooks/useIntervaloVisible'
 
 interface Sample {
   ts: number
@@ -51,9 +52,9 @@ export function BenchmarkDashboard() {
         if (!cancelled) setSessions(list)
       } catch (e) { console.error(e) }
     }
-    void tick()
-    const id = setInterval(tick, 2000)
-    return () => { cancelled = true; clearInterval(id) }
+    // Las muestras las toma main igual; con la ventana tapada no hace falta pedirlas.
+    const parar = intervaloVisibleEnDocumento(() => { void tick() }, 2000)
+    return () => { cancelled = true; parar() }
   }, [])
 
   if (sessions.length === 0) {

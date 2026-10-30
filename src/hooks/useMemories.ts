@@ -7,6 +7,7 @@
 // doctor falle no puede dejar la fila sin el conteo.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { bloqueadasPorFalla, summarizeMemories, type MemoriesStatus } from '../lib/memories-status'
+import { intervaloVisibleEnDocumento } from './useIntervaloVisible'
 
 export interface SessionVerdictLite {
   paneId: string
@@ -117,10 +118,10 @@ export function useMemories(pollMs: number = DEFAULT_POLL_MS): MemoriesState {
   }, [])
 
   useEffect(() => {
-    void refresh()
-    if (pollMs <= 0) return
-    const id = setInterval(() => { void refresh() }, pollMs)
-    return () => clearInterval(id)
+    if (pollMs <= 0) { void refresh(); return }
+    // Es el chip de estado: con la ventana tapada no lo mira nadie, y al volver a verse se
+    // relee en el acto (ver intervalo-visible.ts).
+    return intervaloVisibleEnDocumento(() => { void refresh() }, pollMs)
   }, [refresh, pollMs])
 
   const silentSessions = sessions.filter((s) => s.health === 'silent')

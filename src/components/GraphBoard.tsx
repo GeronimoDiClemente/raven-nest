@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { GraphTemplate, GraphRun, PersistedGraphRun, NodeRunState } from '../types'
 import { toFlow, type FlowInputNode, type FlowNodeState } from '../lib/graph-view'
+import { intervaloVisibleEnDocumento } from '../hooks/useIntervaloVisible'
 import { GraphNodeTerminal } from './GraphNodeTerminal'
 import { GraphRunDecision } from './GraphRunDecision'
 
@@ -158,10 +159,9 @@ export function GraphBoard({ onClose, activeRepoPath }: GraphBoardProps) {
     void window.graphTemplates?.list?.().then(setTemplates)
   }
   useEffect(() => {
-    refresh()
-    // The orchestrator tick persists every ~3s; poll a bit faster to reflect it.
-    const t = setInterval(refresh, 2000)
-    return () => clearInterval(t)
+    // The orchestrator tick persists every ~3s; poll a bit faster to reflect it — only
+    // while the window is visible (the runs keep going in main either way).
+    return intervaloVisibleEnDocumento(refresh, 2000)
   }, [])
 
   const templateById = useMemo(() => new Map(templates.map((t) => [t.id, t])), [templates])

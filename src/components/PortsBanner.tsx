@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { WorktreeMeta } from '../types'
 import { useBridge } from '../lib/bridge'
+import { intervaloVisibleEnDocumento } from '../hooks/useIntervaloVisible'
 import type { Bridge } from '../lib/bridge'
 
 interface CellRef {
@@ -94,9 +95,9 @@ export function PortsBanner({ cells, rootRepoPath, onOpenInternal }: Props) {
       }
     }
 
-    void tick()
-    const id = setInterval(tick, POLL_MS)
-    return () => { cancelled = true; clearInterval(id) }
+    // Cosmético: con la ventana tapada no hay nadie mirando los chips (ver intervalo-visible.ts).
+    const parar = intervaloVisibleEnDocumento(() => { void tick() }, POLL_MS)
+    return () => { cancelled = true; parar() }
   }, [rootRepoPath, cellsByWorktree, bridge])
 
   if (groups.length === 0) return null
