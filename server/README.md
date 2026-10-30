@@ -51,8 +51,13 @@ el supersede igual que `push.ts`).
 ## Límites por plan
 
 La única fuente de verdad es `src/limits.ts` (`limitsFor(plan)`), verificado en producción
-el 2026-09-02 contra `https://sync-production-75a4.up.railway.app` (ver
-`.superpowers/sdd/2026-09-02-limites-del-servicio-de-sync/task-9-report.md`). El nombre de
+el 2026-09-02 contra el deploy de ese momento, `https://sync-production-75a4.up.railway.app`
+(proyecto Railway `nest-memory`; ver
+`.superpowers/sdd/2026-09-02-limites-del-servicio-de-sync/task-9-report.md`). **Ese deploy ya
+no es el actual**: desde el 2026-09-14 el servicio corre en el proyecto `nest-memory-sync` y
+se publica como `https://sync.nestmux.com` (alias de
+`https://sync-production-54ba.up.railway.app`). El viejo quedó con código anterior y, por
+ejemplo, no tiene `/v1/devices`: no sirve para verificar nada nuevo. El nombre de
 plan que efectivamente llega en `auth.plan` sigue siendo el histórico: `pro` mapea a los
 límites de **Cloud** y `team`/`enterprise` mapean a los de **Teams** — el rename comercial
 (`pro` → `cloud`) es trabajo aparte, no tocado acá.
