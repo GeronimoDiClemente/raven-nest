@@ -1,9 +1,8 @@
 // WorktreePicker opens from a board task row (OrchestrationBoard/IntegrationsRail).
-// Unlinked rows (row.branch === null) get a create form that reuses MyTicketsView's
-// exact flow (tickets.branchName -> worktree.create -> tickets.startWork); linked
-// rows get an Open action that shells out to the ticket URL. Mock every window
-// bridge + the two data hooks (useGitHub, useUserRepos) so nothing touches
-// real IPC/supabase (pattern from MyTicketsView.test.tsx / MyReposPanel-integrations.test.tsx).
+// Unlinked rows (row.branch === null) get a create form
+// (tickets.branchName -> worktree.create -> tickets.startWork); linked rows get an
+// Open action that shells out to the ticket URL. Mock every window bridge + the two
+// data hooks (useGitHub, useUserRepos) so nothing touches real IPC/supabase.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import type { BoardRow } from '../../integrations/board'

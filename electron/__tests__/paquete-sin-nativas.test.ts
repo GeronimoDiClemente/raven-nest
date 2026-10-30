@@ -24,7 +24,6 @@ const ENTRADAS = [
   'setup-del-paquete.ts',
   'aplicar-setup.ts',
   'login-del-paquete.ts',
-  'sync-del-paquete.ts',
   'enrolamiento-del-paquete.ts',
   'llavero-del-sistema.ts',
   'panel-de-la-extension.ts',

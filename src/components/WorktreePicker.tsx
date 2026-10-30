@@ -6,8 +6,7 @@ import type { Ticket, WorkerSpec, WorktreeMeta } from '../types'
 
 // worktree:create actually resolves to this union (see the handler in
 // electron/main.ts); the bridge type in src/types.ts predates it and still
-// says Promise<WorktreeMeta>, so we narrow here through unknown — same
-// pattern as MyTicketsView/MyReposPanel.
+// says Promise<WorktreeMeta>, so we narrow here through unknown.
 type WorktreeCreateResult = { ok: true; meta: WorktreeMeta } | { ok: false; error: string }
 
 interface Props {
@@ -32,9 +31,8 @@ function deriveRepoFullName(row: BoardRow): string | null {
 
 /**
  * Opens when a board task row is clicked (OrchestrationBoard/IntegrationsRail).
- * Unlinked rows (`row.branch === null`) get a "Create worktree" form that
- * reuses MyTicketsView.workOn's exact flow: tickets.branchName -> worktree.create
- * -> tickets.startWork. Linked rows get an "Open" action for the ticket URL —
+ * Unlinked rows (`row.branch === null`) get a "Create worktree" form:
+ * tickets.branchName -> worktree.create -> tickets.startWork. Linked rows get an "Open" action for the ticket URL —
  * opening a real terminal pane on the worktree is App-level and out of scope here.
  */
 export function WorktreePicker({ row, onClose, onCreated, onOpenWorktree }: Props) {

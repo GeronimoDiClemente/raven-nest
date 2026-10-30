@@ -2,9 +2,8 @@
 // final de cada operación de escritura y un `pull` perezoso al arrancar. No corre un daemon
 // de fondo».
 //
-// `sync-del-paquete.ts` resuelve el caso de un comando que sincroniza una vez y se muere.
-// El MCP es distinto: vive lo que dura la sesión del editor —horas— y escribe muchas veces.
-// Eso trae dos problemas que este archivo resuelve, y nada más:
+// El MCP vive lo que dura la sesión del editor —horas— y escribe muchas veces. Eso trae dos
+// problemas que este archivo resuelve, y nada más:
 //
 // - **El candado.** Un `MemoryDaemon` arrancado lo toma en el primer sync y lo suelta recién
 //   en `stop()`. Un MCP que lo tomara y lo guardara dejaría a Nest, abierto en esta misma

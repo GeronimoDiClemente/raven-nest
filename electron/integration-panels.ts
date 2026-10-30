@@ -1,13 +1,7 @@
-// Host genérico para los paneles de integración (spec §3/§6/§7, plan Hito 2+
-// Task F1). Cada servicio (Slack/GitHub/Jira/Notion) registra acá un
-// `ServerPanelAdapter` main-side que hace fetch real con el token guardado en
-// PluginCredentialStore. El renderer nunca ve el token: llama por IPC
-// `plugins:panel:call` (ver main.ts) y consume la respuesta a través del
-// proxy `src/integrations/ipcAdapter.ts`.
-//
-// electron/ no importa desde src/ (boundary renderer/main — ver cómo el
-// resto de electron/*.ts evita imports de src/), así que estos tipos
-// duplican la forma de `src/integrations/types.ts` en vez de reexportarlos.
+// Host genérico para los paneles de integración. Cada servicio (Slack/GitHub/Jira/Notion)
+// registra acá un `ServerPanelAdapter` main-side que hace fetch real con el token guardado
+// en PluginCredentialStore. El renderer nunca ve el token: llama por IPC
+// `plugins:panel:call` (ver main.ts).
 
 export interface WorktreeContext {
   repoPath: string | null
@@ -93,8 +87,7 @@ type PanelAdapterFactory = (deps: PanelAdapterDeps) => ServerPanelAdapter
 
 // Métodos invocables por IPC. `actions` queda afuera a propósito: es sync en
 // el contrato y viaja empaquetado junto a la respuesta de `fetchDetail` (ver
-// más abajo) — el proxy renderer (ipcAdapter.ts) lo cachea por ref y así
-// puede exponer `actions(detail)` sin otro roundtrip.
+// más abajo).
 const CALLABLE_METHODS = ['fetchSections', 'fetchDetail', 'resolveWorktreeEntity', 'runAction', 'compose'] as const
 type CallableMethod = typeof CALLABLE_METHODS[number]
 

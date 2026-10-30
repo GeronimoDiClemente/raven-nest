@@ -29,12 +29,10 @@ const MARCA = /[áéíóúñ¿¡]/i
  * - `memory-mcp/tools.ts` — las descripciones de las herramientas incluyen frases de EJEMPLO
  *   en otros idiomas ("cómo resolvimos") para que el modelo reconozca a un usuario que
  *   pregunta por su trabajo pasado sin hablar ingles. Sacarlas empeoraria la herramienta.
- * - `mockAdapter.ts` — nombres de personas de mentira para los mocks.
  */
 const EXCEPCIONES = [
   'src/tutorial/',
   'electron/memory-mcp/tools.ts',
-  'src/integrations/mockAdapter.ts',
 ]
 
 function archivosDeFuente(): string[] {
