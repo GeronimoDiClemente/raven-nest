@@ -173,3 +173,10 @@ no hubo `db push`, deploys, secrets ni llamadas a Stripe. La salida va en `docs/
     `useMemory.test` no restaura `onStatus`/`window.memory` en `afterEach`.
 - **Entorno Mac:** node de Homebrew = 26 y rompe `electron-rebuild`; usar
   `export PATH=/opt/homebrew/opt/node@22/bin:$PATH`. Tests del server: Postgres 16 nativo en :55432.
+
+## Addendum 29-10 (3): seguridad e infraestructura de prod
+
+- **Policy abierta en `profiles` (Supabase prod):** la policy «Service role can upsert profiles», creada en el dashboard, valía para `public` con `using (true)`. Con la anon key se podían leer `github_token`/`gitlab_token` de los 94 perfiles y modificar o borrar cualquiera. **Cerrada el 29-10** con `supabase/migrations/20261030000000_close_open_profiles_policy.sql`, aplicada por `supabase db query --linked -f` (no queda en el historial de migraciones; es idempotente).
+- **PENDIENTE (decisión de Gero, postergada): revocar los tokens de GitHub y GitLab** que pudieron haberse leído. En GitHub: OAuth App de Nest › Revoke all user tokens. En GitLab: la Application › Renew secret. Después, los usuarios reconectan desde Settings.
+- **Sync de prod:** `sync.nestmux.com` activo. Se rotaron `BETA_LINK_SECRET` y la contraseña de Postgres (incidente de Railway del 20 al 22-10). Hay backup diario a R2 con restore verificado. Ver `docs/RUNBOOK-DOMINIOS.md` §C.
+- **Supabase sigue sin backups** (Free). Gero está evaluando opciones.
