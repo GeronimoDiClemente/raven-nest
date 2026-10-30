@@ -372,7 +372,7 @@ export class PtyManager extends EventEmitter {
     this.ptys.get(paneId)?.write(data)
   }
 
-  resize(paneId: string, cols: number, rows: number, source?: string): void {
+  resize(paneId: string, cols: number, rows: number): void {
     if (!this.ptys.has(paneId)) return
     // Un panel colapsado a su minSize mide ~15 columnas y el reflow deja
     // formas de 4-6 filas. No son tamanos de trabajo: aplicarlos hace que la
@@ -380,12 +380,7 @@ export class PtyManager extends EventEmitter {
     // el scrollback para siempre. Que el pty conserve el ultimo tamano usable
     // es preferible a corromper la sesion (mismo criterio que la guarda del
     // 2x1 en useXterm).
-    if (cols < PtyManager.MIN_COLS || rows < PtyManager.MIN_ROWS) {
-      console.log(`[resize-trace] SKIP pane=${paneId} ${cols}x${rows} (degenerado) from=${source ?? '?'}`)
-      return
-    }
-    // TRAZA temporal: quien pide cada resize y cual termina llegando al proceso.
-    console.log(`[resize-trace] req  pane=${paneId} ${cols}x${rows} from=${source ?? '?'}`)
+    if (cols < PtyManager.MIN_COLS || rows < PtyManager.MIN_ROWS) return
     const last = this.lastSize.get(paneId)
     if (last && last.cols === cols && last.rows === rows) {
       // Volvio al tamano que el pty ya tiene: lo que estuviera agendado sobra.
@@ -415,7 +410,6 @@ export class PtyManager extends EventEmitter {
       const last = this.lastSize.get(paneId)
       if (last && last.cols === size.cols && last.rows === size.rows) return
       this.lastSize.set(paneId, size)
-      console.log(`[resize-trace] APPLY pane=${paneId} ${size.cols}x${size.rows}`)
       try {
         ptyProc.resize(size.cols, size.rows)
       } catch (err) {

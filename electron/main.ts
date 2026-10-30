@@ -1673,8 +1673,8 @@ ipcMain.on('pty:write', (_event, paneId: string, data: string) => {
   ptyManager.write(paneId, data)
 })
 
-ipcMain.on('pty:resize', (_event, paneId: string, cols: number, rows: number, source?: string) => {
-  ptyManager.resize(paneId, cols, rows, source)
+ipcMain.on('pty:resize', (_event, paneId: string, cols: number, rows: number) => {
+  ptyManager.resize(paneId, cols, rows)
 })
 
 ipcMain.handle('pty:kill', (_event, paneId: string) => {
@@ -3775,9 +3775,6 @@ ipcMain.handle('memory:status', () => {
      * Va acá para que la UI no ofrezca una acción que el servidor va a rechazar. Es una
      * PISTA de interfaz, no la autorización: el que decide es `handleShareProject` del lado
      * del servicio, y lo sigue haciendo aunque esto mienta.
-     *
-     * Ningún plan de autoservicio lo tiene: lo compartido no se cifra de
-     * punta a punta, así que compartir es un despliegue propio y no un botón.
      */
     puedeCompartirMemoria: planAllowsTeamSharing(memory.daemon.getPlan()),
   }

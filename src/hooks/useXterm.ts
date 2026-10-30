@@ -91,7 +91,7 @@ export function useXterm(
       requestAnimationFrame(() => {
         try {
           fitAddon.fit()
-          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows, 'pane')
+          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows)
           onResizeRef.current?.(term.cols, term.rows)
         } catch { /* ignore */ }
         term.focus()
@@ -198,7 +198,7 @@ export function useXterm(
         try {
           if (!container.clientWidth || !container.clientHeight) return
           fitAddon.fit()
-          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows, 'pane')
+          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows)
           onResizeRef.current?.(term.cols, term.rows)
         } catch { /* ignore */ }
       })
@@ -225,7 +225,7 @@ export function useXterm(
             fitAddon.fit()
             const key = `${term.cols}x${term.rows}`
             if (key === lastKey) {
-              window.pty.resize(paneId, term.cols, term.rows, 'settled')
+              window.pty.resize(paneId, term.cols, term.rows)
               onResizeRef.current?.(term.cols, term.rows)
               return
             }
@@ -246,7 +246,7 @@ export function useXterm(
       requestAnimationFrame(() => {
         try {
           fitAddon.fit()
-          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows, 'pane')
+          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows)
           onResizeRef.current?.(term.cols, term.rows)
         } catch { /* ignore */ }
       })
@@ -275,7 +275,7 @@ export function useXterm(
     termRef.current.options.fontSize = fontSize
     try {
       fitAddonRef.current.fit()
-      if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows, 'pane-fontsize')
+      if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows)
     } catch { /* ignore */ }
   }, [fontSize, paneId])
 
@@ -296,7 +296,7 @@ export function useXterm(
     if (!fitAddonRef.current || !termRef.current) return
     try {
       fitAddonRef.current.fit()
-      if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows, 'pane-fontsize')
+      if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows)
     } catch { /* ignore */ }
   }, [paneId])
 
