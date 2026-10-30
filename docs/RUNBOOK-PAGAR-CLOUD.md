@@ -95,6 +95,10 @@ Páginas `/checkout/success` (`You're on Cloud — go back to Nest.`), `/checkou
 (`Checkout cancelled — nothing was charged.`) y `/checkout/portal-return`. Vercel bloquea los
 commits de colaboradores: el deploy lo hace Gero.
 
+**Estado al 2026-10-30:** las tres páginas (también en `/es/`) están en el PR #10 de
+`pagina-nest`, sin mergear. Queda como pendiente de la beta: mergearlo antes de que alguien
+pueda pagar, porque hoy Stripe devuelve a un 404.
+
 ## 5. Recién después: LIVE y prod
 
 Repetir 1–2 en modo live y en los proyectos de producción (Supabase prod, Railway prod), con
