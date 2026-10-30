@@ -1,0 +1,206 @@
+[
+  {
+    "code": "A1",
+    "exit": 0,
+    "result": {
+      "draftId": "5481e3d1-5657-48b5-a4f4-504991410d2d",
+      "title": "Raven Nest Attention Rail",
+      "currentVersion": 4,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-5481e3d1-5657-48b5-a4f4-504991410d2d",
+      "previewUrl": "https://p.superdesign.dev/draft/5481e3d1-5657-48b5-a4f4-504991410d2d"
+    }
+  },
+  {
+    "code": "A2",
+    "exit": 0,
+    "result": {
+      "draftId": "d4484170-225b-4b08-8b73-0802a410d061",
+      "title": "Raven Nest Attention Tray Overlay",
+      "currentVersion": 4,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-d4484170-225b-4b08-8b73-0802a410d061",
+      "previewUrl": "https://p.superdesign.dev/draft/d4484170-225b-4b08-8b73-0802a410d061"
+    }
+  },
+  {
+    "code": "A3",
+    "exit": 0,
+    "result": {
+      "draftId": "e9dad782-7c28-427e-820b-836b06cc689f",
+      "title": "Raven Nest Attention Triage Stack",
+      "currentVersion": 4,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-e9dad782-7c28-427e-820b-836b06cc689f",
+      "previewUrl": "https://p.superdesign.dev/draft/e9dad782-7c28-427e-820b-836b06cc689f"
+    }
+  },
+  {
+    "code": "H1",
+    "exit": 0,
+    "result": {
+      "draftId": "402e1f7e-8f7b-48b4-9b58-dca376671fa2",
+      "title": "Raven Nest Header Concept 1",
+      "currentVersion": 4,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-402e1f7e-8f7b-48b4-9b58-dca376671fa2",
+      "previewUrl": "https://p.superdesign.dev/draft/402e1f7e-8f7b-48b4-9b58-dca376671fa2"
+    }
+  },
+  {
+    "code": "H2",
+    "exit": 0,
+    "result": {
+      "draftId": "8ed25177-4a0a-434b-8759-464bde02cc59",
+      "title": "Raven Nest Header-Centric Workspace",
+      "currentVersion": 4,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-8ed25177-4a0a-434b-8759-464bde02cc59",
+      "previewUrl": "https://p.superdesign.dev/draft/8ed25177-4a0a-434b-8759-464bde02cc59"
+    }
+  },
+  {
+    "code": "H3",
+    "exit": 0,
+    "result": {
+      "draftId": "3bec578c-0b89-4781-9365-09b567ff92a4",
+      "title": "Raven Nest Two-Zone Header System",
+      "currentVersion": 4,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-3bec578c-0b89-4781-9365-09b567ff92a4",
+      "previewUrl": "https://p.superdesign.dev/draft/3bec578c-0b89-4781-9365-09b567ff92a4"
+    }
+  },
+  {
+    "code": "S1",
+    "exit": 0,
+    "result": {
+      "draftId": "fc39ea13-3373-416f-a72e-3ad5307fccd1",
+      "title": "Raven Nest: Hierarchical Repo Sidebar",
+      "currentVersion": 4,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-fc39ea13-3373-416f-a72e-3ad5307fccd1",
+      "previewUrl": "https://p.superdesign.dev/draft/fc39ea13-3373-416f-a72e-3ad5307fccd1"
+    }
+  },
+  {
+    "code": "S2",
+    "exit": 0,
+    "result": {
+      "draftId": "b97c6970-d48d-4b24-bcc1-dab9ac204beb",
+      "title": "Raven Nest Sidebar Architecture",
+      "currentVersion": 4,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-b97c6970-d48d-4b24-bcc1-dab9ac204beb",
+      "previewUrl": "https://p.superdesign.dev/draft/b97c6970-d48d-4b24-bcc1-dab9ac204beb"
+    }
+  },
+  {
+    "code": "S3",
+    "exit": 0,
+    "result": {
+      "draftId": "ec82ccfb-5c48-472c-b837-48f224c18f12",
+      "title": "Raven Nest Agent-First Sidebar",
+      "currentVersion": 4,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-ec82ccfb-5c48-472c-b837-48f224c18f12",
+      "previewUrl": "https://p.superdesign.dev/draft/ec82ccfb-5c48-472c-b837-48f224c18f12"
+    }
+  },
+  {
+    "code": "M1",
+    "exit": 0,
+    "result": {
+      "draftId": "3193b3a9-a35f-4db6-8f5b-acb3731b8360",
+      "title": "M1 · Context receipt",
+      "currentVersion": 3,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-3193b3a9-a35f-4db6-8f5b-acb3731b8360",
+      "previewUrl": "https://p.superdesign.dev/draft/3193b3a9-a35f-4db6-8f5b-acb3731b8360"
+    }
+  },
+  {
+    "code": "M2",
+    "exit": 0,
+    "result": {
+      "draftId": "7166d9bf-6082-41c4-a3fb-adcabac128c1",
+      "title": "M2 · Recall in place",
+      "currentVersion": 3,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-7166d9bf-6082-41c4-a3fb-adcabac128c1",
+      "previewUrl": "https://p.superdesign.dev/draft/7166d9bf-6082-41c4-a3fb-adcabac128c1"
+    }
+  },
+  {
+    "code": "M3",
+    "exit": 0,
+    "result": {
+      "draftId": "1322a15b-0ddb-4918-bdf7-568d2b6a2dbc",
+      "title": "M3 · Decision beside the question",
+      "currentVersion": 3,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-1322a15b-0ddb-4918-bdf7-568d2b6a2dbc",
+      "previewUrl": "https://p.superdesign.dev/draft/1322a15b-0ddb-4918-bdf7-568d2b6a2dbc"
+    }
+  },
+  {
+    "code": "M4",
+    "exit": 0,
+    "result": {
+      "draftId": "b6a68f96-0b49-4247-bf7b-c75e70f605bd",
+      "title": "M4 · Branch brief",
+      "currentVersion": 3,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-b6a68f96-0b49-4247-bf7b-c75e70f605bd",
+      "previewUrl": "https://p.superdesign.dev/draft/b6a68f96-0b49-4247-bf7b-c75e70f605bd"
+    }
+  },
+  {
+    "code": "M5",
+    "exit": 0,
+    "result": {
+      "draftId": "27a8b4e3-7fe1-4714-b96c-ed2ffcedd4f5",
+      "title": "M5 · Memory health",
+      "currentVersion": 3,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-27a8b4e3-7fe1-4714-b96c-ed2ffcedd4f5",
+      "previewUrl": "https://p.superdesign.dev/draft/27a8b4e3-7fe1-4714-b96c-ed2ffcedd4f5"
+    }
+  },
+  {
+    "code": "M6",
+    "exit": 0,
+    "result": {
+      "draftId": "94f92435-7b38-4351-b268-99d81d25c111",
+      "title": "M6 · First real reuse",
+      "currentVersion": 3,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-94f92435-7b38-4351-b268-99d81d25c111",
+      "previewUrl": "https://p.superdesign.dev/draft/94f92435-7b38-4351-b268-99d81d25c111"
+    }
+  },
+  {
+    "code": "W1",
+    "exit": 0,
+    "result": {
+      "draftId": "21055f82-01c5-4570-a0cd-cd28660962ff",
+      "title": "W1 · Result with evidence",
+      "currentVersion": 3,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-21055f82-01c5-4570-a0cd-cd28660962ff",
+      "previewUrl": "https://p.superdesign.dev/draft/21055f82-01c5-4570-a0cd-cd28660962ff"
+    }
+  },
+  {
+    "code": "W2",
+    "exit": 0,
+    "result": {
+      "draftId": "f572fcdb-f1af-4768-9d4e-4dcb8cc0299b",
+      "title": "W2 · Shared worktree awareness",
+      "currentVersion": 3,
+      "projectUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01",
+      "nodeUrl": "https://superdesign.dev/teams/5c845e5a-51b2-4840-ba0c-2bf218ff0336/projects/5eb42c61-2309-4070-81c2-2657f6203e01?node=draft-variant-f572fcdb-f1af-4768-9d4e-4dcb8cc0299b",
+      "previewUrl": "https://p.superdesign.dev/draft/f572fcdb-f1af-4768-9d4e-4dcb8cc0299b"
+    }
+  }
+]

@@ -1,0 +1,242 @@
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raven Nest - Agent Navigation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {
+            --background: #0a0a0a;
+            --card: #141414;
+            --popover: #1f1f1f;
+            --foreground: #f2f2f2;
+            --muted-foreground: #9b9b9b;
+            --ok: #4ade80;
+            --warn: #e3b341;
+            --destructive: #ff6568;
+            --border: rgb(255 255 255 / 0.08);
+            --header-height: 40px;
+            --sidebar-expanded: 200px;
+            --sidebar-rail: 44px;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            color: var(--foreground);
+            background-color: var(--background);
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .sidebar-item {
+            height: 32px;
+            padding: 0 10px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sidebar-item:hover {
+            background-color: rgb(255 255 255 / 0.04);
+        }
+
+        .sidebar-item.active {
+            background-color: rgb(255 255 255 / 0.08);
+        }
+
+        .state-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .state-waiting {
+            background-color: var(--warn);
+            box-shadow: 0 0 8px var(--warn);
+        }
+
+        .state-working {
+            background-color: var(--ok);
+            animation: pulse 2s infinite;
+        }
+
+        .state-unread {
+            background-color: #3b82f6;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        .truncate-sidebar {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 110px;
+        }
+
+        .custom-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="flex h-screen w-full bg-[#0a0a0a]" data-sd-id="1">
+        <!-- Main Sidebar -->
+        <aside class="w-[200px] flex flex-col border-r border-[rgb(255,255,255,0.08)] bg-[#0a0a0a] z-40" data-sd-id="2">
+            
+            <!-- Header / Project Context Crumb -->
+            <div class="h-[var(--header-height)] flex items-center px-3 border-b border-[rgb(255,255,255,0.08)] shrink-0" data-sd-id="3">
+                <div class="flex items-center gap-2 overflow-hidden" data-sd-id="4">
+                    <iconify-icon icon="lucide:folder-git-2" class="text-muted-foreground text-sm shrink-0"></iconify-icon>
+                    <div class="flex flex-col leading-none overflow-hidden" data-sd-id="5">
+                        <span class="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold" data-sd-id="6">nest-core</span>
+                        <span class="text-[11px] text-[#f2f2f2] truncate" data-sd-id="7">main</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation Scroll Area -->
+            <div class="flex-1 py-2 custom-scroll overflow-y-auto overflow-x-hidden" data-sd-id="8">
+                
+                <!-- Section: Claude -->
+                <div class="mb-4" data-sd-id="9">
+                    <div class="px-3 mb-1 flex items-center justify-between" data-sd-id="10">
+                        <span class="text-[10px] font-bold text-muted-foreground uppercase tracking-widest" data-sd-id="11">Claude</span>
+                        <span class="text-[10px] mono text-muted-foreground bg-white/5 px-1 rounded" data-sd-id="12">3</span>
+                    </div>
+                    
+                    <!-- Active Working Pane -->
+                    <a href="#" id="pane-claude-refactor" class="sidebar-item active flex items-center gap-2 group cursor-pointer" data-sd-id="13">
+                        <div class="w-4 h-4 flex items-center justify-center shrink-0" data-sd-id="14">
+                            <iconify-icon icon="simple-icons:anthropic" class="text-[#D97757] text-xs"></iconify-icon>
+                        </div>
+                        <div class="flex flex-col leading-none flex-1 overflow-hidden" data-sd-id="15">
+                            <span class="text-xs text-[#f2f2f2] truncate-sidebar" data-sd-id="16">refactor-auth</span>
+                            <span class="text-[9px] text-muted-foreground mono" data-sd-id="17">working</span>
+                        </div>
+                        <div class="state-dot state-working" data-sd-id="18"></div>
+                    </a>
+
+                    <a href="#" id="pane-claude-test" class="sidebar-item flex items-center gap-2 group cursor-pointer" data-sd-id="19">
+                        <div class="w-4 h-4 flex items-center justify-center shrink-0" data-sd-id="20">
+                            <iconify-icon icon="simple-icons:anthropic" class="text-[#D97757] text-xs opacity-60"></iconify-icon>
+                        </div>
+                        <div class="flex flex-col leading-none flex-1 overflow-hidden" data-sd-id="21">
+                            <span class="text-xs text-muted-foreground group-hover:text-[#f2f2f2] truncate-sidebar" data-sd-id="22">unit-tests</span>
+                            <span class="text-[9px] text-muted-foreground/60 mono" data-sd-id="23">idle</span>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- Section: Codex -->
+                <div class="mb-4" data-sd-id="24">
+                    <div class="px-3 mb-1 flex items-center justify-between" data-sd-id="25">
+                        <span class="text-[10px] font-bold text-muted-foreground uppercase tracking-widest" data-sd-id="26">Codex</span>
+                        <span class="text-[10px] mono text-muted-foreground bg-white/5 px-1 rounded" data-sd-id="27">1</span>
+                    </div>
+                    
+                    <!-- Waiting for input -->
+                    <a href="#" id="pane-codex-fix" class="sidebar-item flex items-center gap-2 group cursor-pointer" data-sd-id="28">
+                        <div class="w-4 h-4 flex items-center justify-center shrink-0" data-sd-id="29">
+                            <iconify-icon icon="simple-icons:openai" class="text-white text-xs"></iconify-icon>
+                        </div>
+                        <div class="flex flex-col leading-none flex-1 overflow-hidden" data-sd-id="30">
+                            <span class="text-xs text-[#f2f2f2] truncate-sidebar font-medium" data-sd-id="31">bug-hunting</span>
+                            <span class="text-[9px] text-warn font-semibold mono uppercase tracking-tighter" data-sd-id="32">needs you</span>
+                        </div>
+                        <div class="state-dot state-waiting" data-sd-id="33"></div>
+                    </a>
+                </div>
+
+                <!-- Section: Gemini -->
+                <div class="mb-4" data-sd-id="34">
+                    <div class="px-3 mb-1 flex items-center justify-between" data-sd-id="35">
+                        <span class="text-[10px] font-bold text-muted-foreground uppercase tracking-widest" data-sd-id="36">Gemini</span>
+                        <span class="text-[10px] mono text-muted-foreground bg-white/5 px-1 rounded" data-sd-id="37">2</span>
+                    </div>
+                    
+                    <a href="#" id="pane-gemini-docs" class="sidebar-item flex items-center gap-2 group cursor-pointer" data-sd-id="38">
+                        <div class="w-4 h-4 flex items-center justify-center shrink-0" data-sd-id="39">
+                            <iconify-icon icon="simple-icons:googlegemini" class="text-[#4285F4] text-xs"></iconify-icon>
+                        </div>
+                        <div class="flex flex-col leading-none flex-1 overflow-hidden" data-sd-id="40">
+                            <span class="text-xs text-muted-foreground group-hover:text-[#f2f2f2] truncate-sidebar" data-sd-id="41">doc-gen</span>
+                            <span class="text-[9px] text-muted-foreground/60 mono" data-sd-id="42">unread</span>
+                        </div>
+                        <div class="state-dot state-unread" data-sd-id="43"></div>
+                    </a>
+
+                    <a href="#" id="pane-gemini-review" class="sidebar-item flex items-center gap-2 group cursor-pointer" data-sd-id="44">
+                        <div class="w-4 h-4 flex items-center justify-center shrink-0" data-sd-id="45">
+                            <iconify-icon icon="simple-icons:googlegemini" class="text-[#4285F4] text-xs opacity-60"></iconify-icon>
+                        </div>
+                        <div class="flex flex-col leading-none flex-1 overflow-hidden" data-sd-id="46">
+                            <span class="text-xs text-muted-foreground group-hover:text-[#f2f2f2] truncate-sidebar" data-sd-id="47">pr-review</span>
+                            <span class="text-[9px] text-muted-foreground/60 mono" data-sd-id="48">idle</span>
+                        </div>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Sidebar Footer -->
+            <div class="p-2 border-t border-[rgb(255,255,255,0.08)] bg-[#0c0c0c]" data-sd-id="49">
+                <div class="flex items-center gap-2 px-2 py-1" data-sd-id="50">
+                    <div class="w-2 h-2 rounded-full bg-ok shrink-0" data-sd-id="51"></div>
+                    <span class="text-[11px] text-muted-foreground" data-sd-id="52">Connected to Hub</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Content Area Placeholder -->
+        <main class="flex-1 flex flex-col relative" data-sd-id="53">
+            <header class="h-[var(--header-height)] border-b border-[rgb(255,255,255,0.08)] flex items-center justify-between px-4 bg-[#0a0a0a]" data-sd-id="54">
+                <div class="flex items-center gap-3" data-sd-id="55">
+                    <div class="w-1 h-3 bg-[#D97757]" data-sd-id="56"></div>
+                    <div class="flex items-center gap-2" data-sd-id="57">
+                        <iconify-icon icon="simple-icons:anthropic" class="text-[#D97757]"></iconify-icon>
+                        <span class="text-sm font-medium" data-sd-id="58">Claude</span>
+                        <span class="text-muted-foreground" data-sd-id="59">/</span>
+                        <span class="text-sm" data-sd-id="60">refactor-auth</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4" data-sd-id="61">
+                    <div class="flex items-center gap-2 text-xs text-muted-foreground mono" data-sd-id="62">
+                        <iconify-icon icon="lucide:cpu"></iconify-icon>
+                        <span data-sd-id="63">12.4%</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs text-muted-foreground mono" data-sd-id="64">
+                        <iconify-icon icon="lucide:database"></iconify-icon>
+                        <span data-sd-id="65">42MB</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="flex-1 p-8 flex items-center justify-center" data-sd-id="66">
+                <div class="text-center" data-sd-id="67">
+                    <iconify-icon icon="lucide:terminal" class="text-6xl text-[rgb(255,255,255,0.03)] mb-4"></iconify-icon>
+                    <div class="text-muted-foreground mono text-sm" data-sd-id="68">Selected agent view active</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Collapsed Rail Mockup (Hidden usually, but here for context) -->
+        <!-- <aside class="w-[44px] border-l border-white/10 ..."> ... </aside> -->
+    </div>
+
+</body></html>

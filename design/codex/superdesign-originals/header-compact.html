@@ -1,0 +1,168 @@
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-variable.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono-variable.min.css">
+    <style>
+        :root {
+            --background: #0a0a0a;
+            --card: #141414;
+            --popover: #1f1f1f;
+            --foreground: #f2f2f2;
+            --muted-foreground: #9b9b9b;
+            --ok: #4ade80;
+            --warn: #e3b341;
+            --destructive: #ff6568;
+            --border: rgb(255 255 255 / 0.08);
+            --header-height: 44px;
+        }
+        body {
+            font-family: 'Geist Variable', sans-serif;
+            background-color: var(--background);
+            color: var(--foreground);
+            -webkit-font-smoothing: antialiased;
+        }
+        .mono {
+            font-family: 'Geist Mono Variable', monospace;
+        }
+        .pane-border {
+            border: 1px solid var(--border);
+        }
+        .state-pulse {
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen bg-[#0a0a0a] p-8 flex flex-col items-center justify-start gap-12" data-sd-id="1">
+        
+        <div class="w-full max-w-[1440px]" data-sd-id="2">
+            <div class="mb-4" data-sd-id="3">
+                <h1 class="text-xs font-semibold uppercase tracking-widest text-[#9b9b9b] mono" data-sd-id="4">Direction 1: Single-Line Header (Identity Focused)</h1>
+            </div>
+
+            <!-- Pane Example 1: Agent Waiting (Urgent) -->
+            <div class="w-full mb-8 overflow-hidden rounded-md pane-border bg-[#141414] shadow-2xl" data-sd-id="5">
+                <!-- Header -->
+                <header class="flex items-center justify-between px-[12px] h-[var(--header-height)] border-b border-[rgb(255,255,255,0.08)] bg-[rgba(59,130,246,0.05)]" data-sd-id="6">
+                    <div class="flex items-center gap-[8px] overflow-hidden" data-sd-id="7">
+                        <!-- Identity Marker (User Color: Blue) -->
+                        <div class="flex items-center gap-2" data-sd-id="8">
+                            <span class="mono text-[10px] font-bold text-blue-400 opacity-80" data-sd-id="9">01</span>
+                            <div class="w-[3px] h-[14px] rounded-full bg-blue-500" data-sd-id="10"></div>
+                        </div>
+
+                        <!-- Agent Identity -->
+                        <div class="flex items-center gap-2 flex-shrink-0" data-sd-id="11">
+                            <iconify-icon icon="logos:claude" class="text-sm"></iconify-icon>
+                            <span class="text-[13px] font-medium tracking-tight whitespace-nowrap" data-sd-id="12">Claude 3.5 Sonnet</span>
+                        </div>
+
+                        <span class="text-[#9b9b9b] opacity-30" data-sd-id="13">/</span>
+
+                        <!-- Task Title & Metadata Stack -->
+                        <div class="flex flex-col min-w-0" data-sd-id="14">
+                            <span class="text-[13px] font-normal truncate" data-sd-id="15">implement user-auth-middleware</span>
+                            <div class="flex items-center gap-1.5" data-sd-id="16">
+                                <iconify-icon icon="lucide:git-branch" class="text-[10px] text-[#9b9b9b]"></iconify-icon>
+                                <span class="text-[10px] text-[#9b9b9b] mono uppercase tracking-tighter truncate" data-sd-id="17">feature/auth-validation</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Actions & Semantic State -->
+                    <div class="flex items-center gap-3 ml-4" data-sd-id="18">
+                        <!-- Semantic State (WAITING) -->
+                        <div class="flex items-center gap-2 px-2 py-1 rounded bg-[#e3b341]/10 border border-[#e3b341]/20" data-sd-id="19">
+                            <div class="w-1.5 h-1.5 rounded-full bg-[#e3b341] state-pulse" data-sd-id="20"></div>
+                            <span class="text-[10px] mono font-bold text-[#e3b341] uppercase tracking-wider" data-sd-id="21">Waiting</span>
+                        </div>
+
+                        <!-- Terminal Controls -->
+                        <div class="flex items-center gap-1 text-[#9b9b9b]" data-sd-id="22">
+                            <button class="p-1.5 hover:text-white transition-colors" id="pane-01-search" data-sd-id="23"><iconify-icon icon="lucide:search" class="text-sm"></iconify-icon></button>
+                            <button class="p-1.5 hover:text-white transition-colors" id="pane-01-settings" data-sd-id="24"><iconify-icon icon="lucide:settings" class="text-sm"></iconify-icon></button>
+                            <button class="p-1.5 hover:text-[#ff6568] transition-colors" id="pane-01-close" data-sd-id="25"><iconify-icon icon="lucide:x" class="text-sm"></iconify-icon></button>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- Mock Terminal Content -->
+                <div class="p-4 h-[240px] bg-black/40 mono text-[13px] leading-relaxed overflow-hidden" data-sd-id="26">
+                    <div class="text-green-400" data-sd-id="27">$ raven-agent analyze --task="user-auth-middleware"</div>
+                    <div class="text-[#9b9b9b] opacity-60" data-sd-id="28">[info] Loading local context from /src/middleware...</div>
+                    <div class="text-[#9b9b9b] opacity-60" data-sd-id="29">[info] Identified 4 missing validation layers.</div>
+                    <div class="mt-2 p-3 border border-[#e3b341]/20 rounded bg-[#e3b341]/5" data-sd-id="30">
+                        <div class="text-[#e3b341] font-bold mb-1" data-sd-id="31">⚠️ USER ATTENTION REQUIRED</div>
+                        <div class="text-[#f2f2f2]" data-sd-id="32">I found an existing `auth.ts` file that conflicts with the proposed structure. Should I overwrite or merge?</div>
+                    </div>
+                    <div class="mt-2 flex gap-2" data-sd-id="33">
+                        <span class="inline-block w-2 h-4 bg-blue-500 animate-pulse" data-sd-id="34"></span>
+                        <span class="text-[#9b9b9b] italic" data-sd-id="35">waiting for response...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pane Example 2: Working (Neutral) -->
+            <div class="w-full overflow-hidden rounded-md pane-border bg-[#141414] shadow-2xl opacity-90" data-sd-id="36">
+                <header class="flex items-center justify-between px-[12px] h-[var(--header-height)] border-b border-[rgb(255,255,255,0.08)] bg-[rgba(232,121,249,0.05)]" data-sd-id="37">
+                    <div class="flex items-center gap-[8px] overflow-hidden" data-sd-id="38">
+                        <!-- Identity Marker (User Color: Purple) -->
+                        <div class="flex items-center gap-2" data-sd-id="39">
+                            <span class="mono text-[10px] font-bold text-purple-400 opacity-80" data-sd-id="40">02</span>
+                            <div class="w-[3px] h-[14px] rounded-full bg-purple-500" data-sd-id="41"></div>
+                        </div>
+
+                        <!-- Agent Identity -->
+                        <div class="flex items-center gap-2 flex-shrink-0" data-sd-id="42">
+                            <iconify-icon icon="logos:google-gemini" class="text-sm"></iconify-icon>
+                            <span class="text-[13px] font-medium tracking-tight whitespace-nowrap" data-sd-id="43">Gemini Flash</span>
+                        </div>
+
+                        <span class="text-[#9b9b9b] opacity-30" data-sd-id="44">/</span>
+
+                        <!-- Task Title & Metadata Stack -->
+                        <div class="flex flex-col min-w-0" data-sd-id="45">
+                            <span class="text-[13px] font-normal truncate" data-sd-id="46">run-full-test-suite</span>
+                            <div class="flex items-center gap-1.5" data-sd-id="47">
+                                <iconify-icon icon="lucide:git-branch" class="text-[10px] text-[#9b9b9b]"></iconify-icon>
+                                <span class="text-[10px] text-[#9b9b9b] mono uppercase tracking-tighter truncate" data-sd-id="48">main</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Actions & Semantic State -->
+                    <div class="flex items-center gap-3 ml-4" data-sd-id="49">
+                        <!-- Semantic State (WORKING) -->
+                        <div class="flex items-center gap-2 px-2 py-1 rounded bg-white/5 border border-white/5" data-sd-id="50">
+                            <iconify-icon icon="lucide:loader-2" class="text-[10px] text-[#9b9b9b] animate-spin"></iconify-icon>
+                            <span class="text-[10px] mono font-bold text-[#9b9b9b] uppercase tracking-wider" data-sd-id="51">Working</span>
+                        </div>
+
+                        <!-- Terminal Controls -->
+                        <div class="flex items-center gap-1 text-[#9b9b9b]" data-sd-id="52">
+                            <button class="p-1.5 hover:text-white transition-colors" id="pane-02-search" data-sd-id="53"><iconify-icon icon="lucide:search" class="text-sm"></iconify-icon></button>
+                            <button class="p-1.5 hover:text-white transition-colors" id="pane-02-settings" data-sd-id="54"><iconify-icon icon="lucide:settings" class="text-sm"></iconify-icon></button>
+                            <button class="p-1.5 hover:text-[#ff6568] transition-colors" id="pane-02-close" data-sd-id="55"><iconify-icon icon="lucide:x" class="text-sm"></iconify-icon></button>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- Mock Terminal Content -->
+                <div class="p-4 h-[120px] bg-black/40 mono text-[13px] leading-relaxed overflow-hidden" data-sd-id="56">
+                    <div class="text-[#9b9b9b] opacity-60" data-sd-id="57">PASS  src/tests/auth.test.ts (4.12s)</div>
+                    <div class="text-[#9b9b9b] opacity-60" data-sd-id="58">PASS  src/tests/api.test.ts (2.8s)</div>
+                    <div class="text-green-400" data-sd-id="59">RUNS  src/tests/integration.test.ts</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</body></html>

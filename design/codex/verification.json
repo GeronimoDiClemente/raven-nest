@@ -1,0 +1,869 @@
+{
+  "checkedAt": "2026-10-30T03:06:20.092Z",
+  "viewport": "1440x960",
+  "offline": true,
+  "pages": [
+    {
+      "slug": "index",
+      "title": "Nest · Codex design directions",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [],
+      "headers": [],
+      "terminals": [],
+      "paneBackgrounds": [],
+      "links": [
+        "attention-rail.html",
+        "attention-palette.html",
+        "attention-stack.html",
+        "header-compact.html",
+        "header-task.html",
+        "header-zones.html",
+        "sidebar-tree.html",
+        "sidebar-state.html",
+        "sidebar-agent.html",
+        "memory-receipt.html",
+        "memory-recall.html",
+        "memory-decision.html",
+        "memory-branch.html",
+        "memory-health.html",
+        "memory-first-reuse.html",
+        "workspace-evidence.html",
+        "workspace-ownership.html",
+        "README.md"
+      ]
+    },
+    {
+      "slug": "attention-rail",
+      "title": "Nest · A1 Attention rail",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "attention-palette.html"
+      ]
+    },
+    {
+      "slug": "attention-palette",
+      "title": "Nest · A2 Attention palette",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 44,
+      "links": [
+        "index.html",
+        "attention-stack.html"
+      ]
+    },
+    {
+      "slug": "attention-stack",
+      "title": "Nest · A3 Triage stack",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "header-compact.html"
+      ]
+    },
+    {
+      "slug": "header-compact",
+      "title": "Nest · H1 Compact identity",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "header-task.html"
+      ]
+    },
+    {
+      "slug": "header-task",
+      "title": "Nest · H2 Task first",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "header-zones.html"
+      ]
+    },
+    {
+      "slug": "header-zones",
+      "title": "Nest · H3 Fixed identity dock",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "sidebar-tree.html"
+      ]
+    },
+    {
+      "slug": "sidebar-tree",
+      "title": "Nest · S1 Workspace tree",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "sidebar-state.html"
+      ]
+    },
+    {
+      "slug": "sidebar-state",
+      "title": "Nest · S2 Triage groups",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "sidebar-agent.html"
+      ]
+    },
+    {
+      "slug": "sidebar-agent",
+      "title": "Nest · S3 Agent roster",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "memory-receipt.html"
+      ]
+    },
+    {
+      "slug": "memory-receipt",
+      "title": "Nest · M1 Context receipt",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "memory-recall.html"
+      ]
+    },
+    {
+      "slug": "memory-recall",
+      "title": "Nest · M2 Recall in place",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "memory-decision.html"
+      ]
+    },
+    {
+      "slug": "memory-decision",
+      "title": "Nest · M3 Decision beside the question",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "memory-branch.html"
+      ]
+    },
+    {
+      "slug": "memory-branch",
+      "title": "Nest · M4 Branch brief",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "memory-health.html"
+      ]
+    },
+    {
+      "slug": "memory-health",
+      "title": "Nest · M5 Memory health",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "memory-first-reuse.html"
+      ]
+    },
+    {
+      "slug": "memory-first-reuse",
+      "title": "Nest · M6 First real reuse",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32,
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "workspace-evidence.html"
+      ]
+    },
+    {
+      "slug": "workspace-evidence",
+      "title": "Nest · W1 Result with evidence",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "workspace-ownership.html"
+      ]
+    },
+    {
+      "slug": "workspace-ownership",
+      "title": "Nest · W2 Shared worktree awareness",
+      "width": 1440,
+      "viewport": 1440,
+      "font": "\"Geist Variable\", sans-serif",
+      "fontsReady": true,
+      "images": [
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/codex.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/gemini.svg",
+          "ok": true
+        },
+        {
+          "src": "assets/claude.svg",
+          "ok": true
+        }
+      ],
+      "headers": [
+        32,
+        32
+      ],
+      "terminals": [
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)",
+        "rgba(0, 0, 0, 0)"
+      ],
+      "paneBackgrounds": [
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)",
+        "rgb(0, 0, 0)"
+      ],
+      "sidebar": 200,
+      "links": [
+        "index.html",
+        "attention-rail.html"
+      ]
+    }
+  ],
+  "errors": []
+}

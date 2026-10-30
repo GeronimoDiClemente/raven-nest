@@ -1,0 +1,265 @@
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+    <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&amp;f[]=jet-brains-mono@400,500&amp;display=swap">
+    <style>
+        :root {
+            --background: #0a0a0a;
+            --card: #141414;
+            --popover: #1f1f1f;
+            --foreground: #f2f2f2;
+            --muted-foreground: #9b9b9b;
+            --ok: #4ade80;
+            --warn: #e3b341;
+            --destructive: #ff6568;
+            --border: rgba(255, 255, 255, 0.08);
+            --header-height: 40px;
+        }
+
+        body {
+            font-family: 'Satoshi', sans-serif;
+            background-color: var(--background);
+            color: var(--foreground);
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .attention-bar {
+            background-color: var(--background);
+            border-bottom: 1px solid var(--border);
+            height: var(--header-height);
+        }
+
+        .pane {
+            background-color: var(--card);
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pane-header {
+            height: 36px;
+            padding: 0 12px 0 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .state-waiting {
+            background-color: rgba(227, 179, 65, 0.15);
+            color: var(--warn);
+            border: 1px solid rgba(227, 179, 65, 0.3);
+        }
+
+        .state-unread {
+            background-color: rgba(242, 242, 242, 0.05);
+            color: var(--foreground);
+            border: 1px solid var(--border);
+        }
+
+        .state-working {
+            color: var(--muted-foreground);
+        }
+
+        .terminal-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 1.2em;
+            background-color: var(--foreground);
+            vertical-align: middle;
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            from, to { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        .active-ring {
+            box-shadow: 0 0 0 1px var(--warn);
+        }
+
+        .key-hint {
+            background: rgba(255,255,255,0.05);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 10px;
+            color: var(--muted-foreground);
+            border: 1px solid var(--border);
+        }
+    </style>
+</head>
+<body>
+    <div class="flex h-screen overflow-hidden" data-sd-id="1">
+        <!-- Sidebar Rail -->
+        <aside class="w-[44px] flex flex-col items-center py-4 border-r border-[var(--border)] shrink-0" data-sd-id="2">
+            <div class="flex flex-col gap-6" data-sd-id="3">
+                <iconify-icon icon="lucide:box" class="text-xl text-[var(--muted-foreground)]"></iconify-icon>
+                <iconify-icon icon="lucide:git-branch" class="text-xl text-[var(--muted-foreground)]"></iconify-icon>
+                <iconify-icon icon="lucide:search" class="text-xl text-[var(--muted-foreground)]"></iconify-icon>
+                <iconify-icon icon="lucide:layers" class="text-xl text-[var(--foreground)]"></iconify-icon>
+                <iconify-icon icon="lucide:terminal" class="text-xl text-[var(--muted-foreground)]"></iconify-icon>
+            </div>
+            <div class="mt-auto flex flex-col gap-6" data-sd-id="4">
+                <iconify-icon icon="lucide:settings" class="text-xl text-[var(--muted-foreground)]"></iconify-icon>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="flex-1 flex flex-col min-w-0" data-sd-id="5">
+            
+            <!-- Attention Status Rail (Expanded) -->
+            <div class="attention-bar flex items-center px-4 justify-between select-none" data-sd-id="6">
+                <div class="flex items-center gap-6" data-sd-id="7">
+                    <div class="flex items-center gap-2 group cursor-pointer" data-sd-id="8">
+                        <span class="flex items-center gap-1.5" data-sd-id="9">
+                            <iconify-icon icon="lucide:alert-circle" class="text-[var(--warn)]"></iconify-icon>
+                            <span class="text-xs font-bold text-[var(--warn)] uppercase tracking-wider" data-sd-id="10">Needs You</span>
+                        </span>
+                        <div class="bg-[var(--warn)] text-black text-[10px] font-bold px-1.5 rounded-sm" data-sd-id="11">2</div>
+                    </div>
+                    <div class="flex items-center gap-2 group cursor-pointer" data-sd-id="12">
+                        <span class="flex items-center gap-1.5" data-sd-id="13">
+                            <iconify-icon icon="lucide:mail" class="text-[var(--foreground)] opacity-70"></iconify-icon>
+                            <span class="text-xs font-medium text-[var(--muted-foreground)]" data-sd-id="14">Unread</span>
+                        </span>
+                        <div class="bg-[var(--border)] text-[var(--foreground)] text-[10px] font-bold px-1.5 rounded-sm" data-sd-id="15">4</div>
+                    </div>
+                    <div class="h-4 w-[1px] bg-[var(--border)] mx-1" data-sd-id="16"></div>
+                    <div class="flex items-center gap-2" data-sd-id="17">
+                        <span class="text-xs text-[var(--muted-foreground)]" data-sd-id="18">Working</span>
+                        <div class="flex gap-1" data-sd-id="19">
+                            <div class="w-1 h-1 rounded-full bg-[var(--ok)] animate-pulse" data-sd-id="20"></div>
+                            <div class="w-1 h-1 rounded-full bg-[var(--ok)]" data-sd-id="21"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-4" data-sd-id="22">
+                    <div class="flex items-center gap-2" data-sd-id="23">
+                        <span class="text-[10px] text-[var(--muted-foreground)]" data-sd-id="24">NEXT ACTION</span>
+                        <span class="key-hint mono" data-sd-id="25">Cmd+J</span>
+                    </div>
+                    <iconify-icon icon="lucide:maximize-2" class="text-[var(--muted-foreground)] hover:text-white cursor-pointer"></iconify-icon>
+                </div>
+            </div>
+
+            <!-- Terminal Grid -->
+            <div class="flex-1 p-3 grid grid-cols-2 md:grid-cols-3 gap-3 overflow-auto" data-sd-id="26">
+                
+                <!-- Pane 1: WAITING (Needs You) -->
+                <div class="pane rounded-md active-ring" data-sd-id="27">
+                    <div class="pane-header" data-sd-id="28">
+                        <div class="w-1.5 h-1.5 rounded-full bg-[#f97316]" data-sd-id="29"></div>
+                        <iconify-icon icon="simple-icons:anthropic" class="text-[14px]"></iconify-icon>
+                        <span class="text-xs font-medium" data-sd-id="30">Claude-3.5</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded-sm state-waiting uppercase font-bold tracking-tighter" data-sd-id="31">Waiting</span>
+                        <div class="ml-auto flex gap-2 text-[var(--muted-foreground)]" data-sd-id="32">
+                            <iconify-icon icon="lucide:copy" class="hover:text-white"></iconify-icon>
+                            <iconify-icon icon="lucide:x" class="hover:text-white"></iconify-icon>
+                        </div>
+                    </div>
+                    <div class="flex-1 p-3 mono text-[12px] leading-relaxed overflow-hidden" data-sd-id="33">
+                        <div class="text-[var(--muted-foreground)]" data-sd-id="34">$ raven run-tests --fix</div>
+                        <div class="mt-2 text-white" data-sd-id="35">Error: 2 vulnerabilities found in 'auth.ts'.</div>
+                        <div class="mt-1 text-[var(--warn)] underline" data-sd-id="36">Would you like to apply automatic patches? [y/N]</div>
+                        <div class="terminal-cursor" data-sd-id="37"></div>
+                    </div>
+                </div>
+
+                <!-- Pane 2: WORKING -->
+                <div class="pane rounded-md opacity-90" data-sd-id="38">
+                    <div class="pane-header" data-sd-id="39">
+                        <div class="w-1.5 h-1.5 rounded-full bg-[#8b5cf6]" data-sd-id="40"></div>
+                        <iconify-icon icon="simple-icons:google" class="text-[14px]"></iconify-icon>
+                        <span class="text-xs font-medium" data-sd-id="41">Gemini-Pro</span>
+                        <span class="text-[10px] text-[var(--muted-foreground)] italic" data-sd-id="42">Refactoring...</span>
+                        <div class="ml-auto flex items-center gap-2" data-sd-id="43">
+                            <iconify-icon icon="lucide:loader-2" class="animate-spin text-[var(--ok)] text-xs"></iconify-icon>
+                        </div>
+                    </div>
+                    <div class="flex-1 p-3 mono text-[12px] leading-relaxed opacity-60 overflow-hidden" data-sd-id="44">
+                        <div class="text-[var(--muted-foreground)]" data-sd-id="45">[12:04:11] Indexing codebase...</div>
+                        <div class="text-[var(--muted-foreground)]" data-sd-id="46">[12:04:15] Found 43 calls to deprecated API</div>
+                        <div class="text-[var(--foreground)]" data-sd-id="47">Migrating 'useTransition(v1)' -&gt; 'useTransition(v2)'</div>
+                    </div>
+                </div>
+
+                <!-- Pane 3: UNREAD -->
+                <div class="pane rounded-md border-white/20" data-sd-id="48">
+                    <div class="pane-header" data-sd-id="49">
+                        <div class="w-1.5 h-1.5 rounded-full bg-[#3b82f6]" data-sd-id="50"></div>
+                        <iconify-icon icon="lucide:binary" class="text-[14px]"></iconify-icon>
+                        <span class="text-xs font-medium" data-sd-id="51">Codex-7B</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded-sm state-unread font-medium" data-sd-id="52">+2 Updates</span>
+                        <div class="ml-auto" data-sd-id="53">
+                             <iconify-icon icon="lucide:maximize" class="text-[var(--muted-foreground)] text-xs"></iconify-icon>
+                        </div>
+                    </div>
+                    <div class="flex-1 p-3 mono text-[12px] overflow-hidden" data-sd-id="54">
+                        <div class="text-[var(--muted-foreground)] italic" data-sd-id="55">Process finished with 0 errors.</div>
+                        <div class="mt-2 bg-white/5 p-2 rounded border border-white/10 text-[11px]" data-sd-id="56">
+                            SUMMARY: Migration complete. All components in /src/ui/ updated to v2.3.1.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Additional panes for density reference -->
+                <div class="pane rounded-md h-[180px]" data-sd-id="57">
+                    <div class="pane-header" data-sd-id="58">
+                         <div class="w-1.5 h-1.5 rounded-full bg-slate-500" data-sd-id="59"></div>
+                         <span class="text-xs font-medium" data-sd-id="60">Shell</span>
+                    </div>
+                    <div class="flex-1 p-3 mono text-[12px] text-[var(--muted-foreground)]" data-sd-id="61">$ _</div>
+                </div>
+
+                <div class="pane rounded-md h-[180px] bg-red-950/5" data-sd-id="62">
+                    <div class="pane-header" data-sd-id="63">
+                         <div class="w-1.5 h-1.5 rounded-full bg-[#ef4444]" data-sd-id="64"></div>
+                         <span class="text-xs font-medium" data-sd-id="65">Linter</span>
+                         <span class="text-[10px] px-1.5 py-0.5 rounded-sm state-waiting uppercase font-bold text-[var(--destructive)] border-[var(--destructive)]/30" data-sd-id="66">Failed</span>
+                    </div>
+                    <div class="flex-1 p-3 mono text-[12px] text-[var(--destructive)]" data-sd-id="67">
+                        Critical Syntax Error: Unexpected token '?' at line 42.
+                    </div>
+                </div>
+
+                <div class="pane rounded-md h-[180px] opacity-40" data-sd-id="68">
+                    <div class="pane-header" data-sd-id="69">
+                         <div class="w-1.5 h-1.5 rounded-full bg-emerald-500" data-sd-id="70"></div>
+                         <span class="text-xs font-medium text-[var(--muted-foreground)]" data-sd-id="71">Docker</span>
+                    </div>
+                    <div class="flex-1 p-3 mono text-[12px] text-[var(--muted-foreground)]" data-sd-id="72">
+                        Container: postgres_db [Up]
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Bottom Command Bar -->
+            <div class="h-8 border-t border-[var(--border)] flex items-center px-4 gap-4 text-[10px] text-[var(--muted-foreground)]" data-sd-id="73">
+                <div class="flex items-center gap-1.5" data-sd-id="74">
+                    <iconify-icon icon="lucide:cpu" class="text-xs"></iconify-icon>
+                    <span data-sd-id="75">CPU: 12%</span>
+                </div>
+                <div class="flex items-center gap-1.5" data-sd-id="76">
+                    <iconify-icon icon="lucide:database" class="text-xs"></iconify-icon>
+                    <span data-sd-id="77">MEM: 1.2GB</span>
+                </div>
+                <div class="ml-auto flex items-center gap-3" data-sd-id="78">
+                    <span data-sd-id="79">UTF-8</span>
+                    <span data-sd-id="80">main*</span>
+                    <span class="text-[var(--ok)]" data-sd-id="81">Connected</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+</body></html>

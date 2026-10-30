@@ -1,0 +1,67 @@
+{
+  "checkedAt": "2026-10-30T12:09:16.868Z",
+  "viewport": "1440x960",
+  "visibilityTest": "Document visibility state simulated; native OS occlusion not tested",
+  "pages": [
+    {
+      "slug": "index",
+      "offline": true
+    },
+    {
+      "slug": "working",
+      "offline": true,
+      "header32": true,
+      "movingElements": 3,
+      "onlyTransformOpacity": true,
+      "hiddenGate": true,
+      "manualPause": true,
+      "reducedMotion": true,
+      "terminalUnchanged": true
+    },
+    {
+      "slug": "needs-you",
+      "offline": true,
+      "header32": true,
+      "movingElements": 1,
+      "onlyTransformOpacity": true,
+      "hiddenGate": true,
+      "manualPause": true,
+      "reducedMotion": true,
+      "terminalUnchanged": true
+    },
+    {
+      "slug": "unread",
+      "offline": true,
+      "header32": true,
+      "movingElements": 1,
+      "onlyTransformOpacity": true,
+      "hiddenGate": true,
+      "manualPause": true,
+      "reducedMotion": true,
+      "terminalUnchanged": true
+    },
+    {
+      "slug": "memory",
+      "offline": true,
+      "header32": true,
+      "movingElements": 1,
+      "onlyTransformOpacity": true,
+      "hiddenGate": true,
+      "manualPause": true,
+      "reducedMotion": true,
+      "terminalUnchanged": true
+    },
+    {
+      "slug": "pane",
+      "offline": true,
+      "header32": true,
+      "movingElements": 1,
+      "onlyTransformOpacity": true,
+      "hiddenGate": true,
+      "manualPause": true,
+      "reducedMotion": true,
+      "terminalUnchanged": true
+    }
+  ],
+  "errors": []
+}
