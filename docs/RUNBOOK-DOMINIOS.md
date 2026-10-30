@@ -62,12 +62,17 @@ https://blog.railway.com/p/preliminary-report-october-security-incident) y pide 
 El 29-10 el servicio `sync` tenía `BETA_LINK_SECRET`, `DATABASE_URL`, `SUPABASE_URL` y
 `SUPABASE_ANON_KEY`. La anon key es pública por diseño, y la base no tiene endpoint público.
 
-- [ ] Rotar `BETA_LINK_SECRET`. Invalida los links de beta ya mandados.
-- [ ] Rotar la contraseña de Postgres (`POSTGRES_PASSWORD`/`PGPASSWORD`) y la `DATABASE_URL` del servicio.
+- [x] Rotar `BETA_LINK_SECRET` (29-10). No cortó nada, porque la beta no estaba activa en prod (faltan `R2_BETAS_BUCKET`/`R2_*`).
+- [x] Rotar la contraseña de Postgres (29-10). Antes se sacó un dump manual: 13 tablas, prod tenía 6
+  usuarios y 0 memorias. Orden usado, sin corte:
+  1. `ALTER ROLE CURRENT_USER WITH PASSWORD` por `railway ssh` al contenedor `sync`.
+  2. `POSTGRES_PASSWORD` y `PGPASSWORD` del servicio Postgres con `railway variable set --stdin --skip-deploys`.
+     La `DATABASE_URL` de los dos servicios es referencia y tomó la nueva sola.
+  3. `railway redeploy --service sync`. `/health` respondió 200 tras migrar.
 - [ ] Renovar el token del CLI de Railway y revisar los accesos de GitHub.
 - [ ] Al deployar el código nuevo, cargar `R2_*` (hoy prod **no hace backups**) y `PLAN_SYNC_SECRET`.
   Después, probar un restore con `server/scripts/restore-check.mjs`.
-- [ ] Activar los backups de volumen y el PITR de Railway en el Postgres.
+- [ ] Activar los backups de volumen y el PITR de Railway en el Postgres. **Es por dashboard**: el CLI no tiene comandos de backup.
 - [ ] Releer el informe final de Railway. Si confirma acceso a código o a volúmenes, reabrir la mudanza.
 
 La validación completa (alternativas, costos y disparadores) está en `docs/railway-validacion-2026-10-29.md`.
