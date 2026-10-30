@@ -15,14 +15,6 @@ import type { ObservationSummary, ObservationType } from './memory-protocol'
 // con `memory-store.ts` —que importa las funciones de acá— aunque el tipo viva allá.
 import type { ObservationRow } from './memory-store'
 
-/** La fila como la ve quien consume la memoria: sin columnas de replicación. */
-/**
- * Corta un texto en el limite pedido, en el ultimo corte limpio que encuentre.
- *
- * Prefiere terminar en un parrafo, y si no hay, en una oracion, y si no hay, en una palabra.
- * Un corte a la mitad de una palabra le hace creer al modelo que el texto sigue y lo empuja a
- * completar lo que falta en vez de pedirlo.
- */
 /**
  * El presupuesto de `memory_context`, en caracteres por memoria.
  *
@@ -34,6 +26,13 @@ import type { ObservationRow } from './memory-store'
  */
 export const CONTEXT_MAX_CHARS = 400
 
+/**
+ * Corta un texto en el limite pedido, en el ultimo corte limpio que encuentre.
+ *
+ * Prefiere terminar en un parrafo, y si no hay, en una oracion, y si no hay, en una palabra.
+ * Un corte a la mitad de una palabra le hace creer al modelo que el texto sigue y lo empuja a
+ * completar lo que falta en vez de pedirlo.
+ */
 export function recortar(texto: string, maxChars: number): { texto: string; cortado: boolean } {
   if (texto.length <= maxChars) return { texto, cortado: false }
   const ventana = texto.slice(0, maxChars)
@@ -56,6 +55,7 @@ export function recortar(texto: string, maxChars: number): { texto: string; cort
   return { texto: ventana.trimEnd(), cortado: true }
 }
 
+/** La fila como la ve quien consume la memoria: sin columnas de replicación. */
 export function toSummary(row: ObservationRow, maxContentChars?: number): ObservationSummary {
   return {
     syncId: row.sync_id,
@@ -130,15 +130,6 @@ export function searchObservations(
 }
 
 /**
- * Lo último de un proyecto, sin filtro.
- *
- * `updated_at` es un `Date.now()` en ms: dos escrituras en el mismo milisegundo (rutina en un
- * test rápido, y no imposible para un agente charlatán) empatan bajo un `ORDER BY updated_at`
- * pelado, y SQLite no garantiza que el empate se resuelva en orden de escritura. `lamport`
- * existe justo para dar un orden total más fino que el reloj (§4.3), así que es la clave
- * secundaria correcta en cualquier orden por recencia.
- */
-/**
  * Lo que el agente ya sabe de este proyecto, para el arranque de una sesion.
  *
  * `maxContentChars` es lo que lo vuelve barato, y es la razon de ser de esta funcion.
@@ -170,6 +161,9 @@ export function contextObservations(
     ? ''
     : '(project_key = ? OR project_key = ?) AND'
   const args: unknown[] = projectKey === null ? [] : [projectKey, globalProjectKey]
+  // `updated_at` es un `Date.now()` en ms: dos escrituras en el mismo milisegundo empatan, y
+  // SQLite no garantiza que el empate se resuelva en orden de escritura. `lamport` da el orden
+  // total más fino que el reloj (§4.3), así que es la clave secundaria de cualquier recencia.
   const rows = db
     .prepare(
       `SELECT * FROM observations

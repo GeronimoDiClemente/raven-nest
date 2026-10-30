@@ -112,12 +112,6 @@ export function unwrapWithDevice(privateKey: string, wrapped: string): Buffer {
 }
 
 /**
- * 24 caracteres de un alfabeto de 32 = 120 bits de entropia. `randomInt` y no
- * `randomBytes(n) % 32`: el modulo sobre 256 sesga los primeros valores del alfabeto, y
- * aunque acá 256 es multiplo de 32 y no habria sesgo, escribirlo con randomInt saca el
- * "esto anda de casualidad porque el alfabeto mide una potencia de dos".
- */
-/**
  * Una huella corta y legible de una clave publica, para comparar A OJO entre dos maquinas.
  *
  * Existe por el adversario que la spec §5.1 nombra explicitamente: alguien con acceso a la
@@ -142,6 +136,12 @@ export function huellaDeClave(publicKey: string): string {
   return huella.replace(/(.{4})/g, '$1-').replace(/-$/, '')
 }
 
+/**
+ * 24 caracteres de un alfabeto de 32 = 120 bits de entropia. `randomInt` y no
+ * `randomBytes(n) % 32`: el modulo sobre 256 sesga los primeros valores del alfabeto, y
+ * aunque acá 256 es multiplo de 32 y no habria sesgo, escribirlo con randomInt saca el
+ * "esto anda de casualidad porque el alfabeto mide una potencia de dos".
+ */
 export function generateRecoveryCode(): string {
   const grupos: string[] = []
   for (let g = 0; g < RECOVERY_GROUPS; g++) {
@@ -154,12 +154,6 @@ export function generateRecoveryCode(): string {
   return grupos.join('-')
 }
 
-/**
- * Lo que el usuario tipea contra lo que generamos. Sube a mayusculas, tira todo lo que no
- * este en el alfabeto (espacios, guiones de mas, guiones de menos) y re-agrupa. Un codigo
- * bien tipeado con formato distinto TIENE que abrir: lo contrario es culpar al usuario de
- * un problema nuestro.
- */
 /**
  * Las letras que el alfabeto EXCLUYE por confundibles, mapeadas a lo que el usuario quiso
  * escribir. Crockford base32 las define así: excluirlas del
@@ -174,6 +168,12 @@ export function generateRecoveryCode(): string {
  */
 const CONFUNDIBLES: Record<string, string> = { O: '0', I: '1', L: '1', U: 'V' }
 
+/**
+ * Lo que el usuario tipea contra lo que generamos. Sube a mayusculas, tira todo lo que no
+ * este en el alfabeto (espacios, guiones de mas, guiones de menos) y re-agrupa. Un codigo
+ * bien tipeado con formato distinto TIENE que abrir: lo contrario es culpar al usuario de
+ * un problema nuestro.
+ */
 export function normalizeRecoveryCode(input: string): string {
   const limpio = input
     .toUpperCase()

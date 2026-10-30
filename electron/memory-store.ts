@@ -217,14 +217,6 @@ export function contentHash(title: string, content: string | null): string {
 }
 
 /**
- * Redacts title/content and hashes the result — the exact sequence save() needs to
- * arrive at the content_hash it persists and dedupes against (Step 2 below). Extracted
- * out of save() (not left inline) so import identity (deriveImportSyncId above) can call
- * this SAME function before save() even runs — an importer must know the content_hash to
- * derive a syncId to pass INTO save() — and therefore can never drift from the hash
- * save() independently arrives at for the same raw title/content.
- */
-/**
  * ¿Cambió algo que REPLICA a la nube?
  *
  * `content_hash` cubre título y contenido a la vez (lo calcula computeContentIdentity abajo
@@ -252,6 +244,14 @@ function hasReplicatedChange(
     || existing.type !== incomingType
 }
 
+/**
+ * Redacts title/content and hashes the result — the exact sequence save() needs to
+ * arrive at the content_hash it persists and dedupes against (Step 2 below). Extracted
+ * out of save() (not left inline) so import identity (deriveImportSyncId above) can call
+ * this SAME function before save() even runs — an importer must know the content_hash to
+ * derive a syncId to pass INTO save() — and therefore can never drift from the hash
+ * save() independently arrives at for the same raw title/content.
+ */
 export function computeContentIdentity(
   title: string,
   content: string
@@ -304,7 +304,7 @@ export interface SaveInput {
  * un tamaño de página).
  */
 export interface CrossProjectMemoryQuery {
-  /** FTS5 (mismo saneo que search()). Vacío/ausente = listado plano por fecha. */
+  /** Frase exacta sobre FTS5. Vacío/ausente = listado plano por fecha. */
   query?: string
   /** Tamaño de página. Sin default: quien pagina siempre lo decide explícito. */
   limit: number
@@ -314,7 +314,6 @@ export interface CrossProjectMemoryQuery {
   includeSuperseded?: boolean
 }
 
-/** Una fila de `crossProjectMemories()` — lo que la fila de la lista necesita mostrar. */
 /**
  * Una memoria ENTERA, con su `content`. Es lo que el grafo muestra al costado cuando tocás
  * un nodo; ni el grafo ni el listado traen el contenido (serían cientos de documentos por
@@ -347,6 +346,7 @@ export interface MemoryObservationDetail {
   mentionedIn?: Array<{ syncId: string; title: string }>
 }
 
+/** Una fila de `crossProjectMemories()` — lo que la fila de la lista necesita mostrar. */
 export interface CrossProjectObservation {
   syncId: string
   projectKey: string
@@ -605,6 +605,16 @@ const BASE_SCHEMA = `
     `
 
 /**
+ * Convierte (proyecto, scope, tema) en el valor estable que viaja al servidor. Se INYECTA
+ * — el store no importa memory-crypto.ts — para que siga sin saber nada de claves y para
+ * que un test pueda usar una funcion legible en vez de un HMAC real.
+ *
+ * `null` es "esta fila no tiene con qué hashearse todavía" (una fila `team` de un equipo sin
+ * clave en este device): la columna queda NULL y `backfillTopicHmacs` la reintenta.
+ */
+export type TopicHasher = (projectKey: string, scope: string, topicKey: string) => string | null
+
+/**
  * Version of the local schema, persisted in `PRAGMA user_version`.
  *
  * To add a step: raise this constant, add the MIGRATIONS entry keyed by the NEW number,
@@ -617,16 +627,6 @@ const BASE_SCHEMA = `
  * correct precisely because all of step 1 is CREATE ... IF NOT EXISTS: running it over an
  * already-populated database writes nothing and does not touch a single row.
  */
-/**
- * Convierte (proyecto, scope, tema) en el valor estable que viaja al servidor. Se INYECTA
- * — el store no importa memory-crypto.ts — para que siga sin saber nada de claves y para
- * que un test pueda usar una funcion legible en vez de un HMAC real.
- *
- * `null` es "esta fila no tiene con qué hashearse todavía" (una fila `team` de un equipo sin
- * clave en este device): la columna queda NULL y `backfillTopicHmacs` la reintenta.
- */
-export type TopicHasher = (projectKey: string, scope: string, topicKey: string) => string | null
-
 export const SCHEMA_VERSION = 8
 
 // The memory dir syncs across two machines, so a v1 database opened by a build that knows v2 is the
@@ -1753,12 +1753,6 @@ export class MemoryStore {
     return searchObservations(this.db, projectKey, GLOBAL_PROJECT_KEY, query, limit)
   }
 
-  // `updated_at` is a JS `Date.now()` ms-epoch value — two writes in the same
-  // millisecond (routine in a fast test, and not impossible for a chatty agent
-  // session) tie under a bare `ORDER BY updated_at DESC`, and SQLite doesn't
-  // guarantee ties resolve in write order. `lamport` exists precisely to give a
-  // total order beyond wall-clock resolution (it's a strictly-increasing counter,
-  // §4.3), so it's the correct secondary sort key wherever recency ordering matters.
   /**
    * `maxContentChars` por default: este es el escalon del INDICE, no el del texto entero.
    * Quien quiera el cuerpo completo de una memoria tiene `getSummary(syncId)`. Ver el
@@ -2063,17 +2057,17 @@ export class MemoryStore {
    *   que adivinar "¿esto es todo o hay más?" (igual espíritu que `MemoryGraph.truncated`:
    *   nunca cortar en silencio sin que el resultado lo diga).
    * - `query` es opcional: vacío o ausente es el listado plano (la pantalla al abrir, antes
-   *   de escribir nada); si viene, reusa la tabla FTS5 `observations_fts` con el mismo
-   *   patrón de saneo/frase exacta que `search()` — no un `LIKE`.
+   *   de escribir nada); si viene, reusa la tabla FTS5 `observations_fts` (no un `LIKE`)
+   *   y busca la FRASE exacta. Ojo: `search()` busca por términos sueltos (`memory-reads.ts`).
    */
   crossProjectMemories(input: CrossProjectMemoryQuery): CrossProjectMemoryPage {
     const limit = Math.max(1, Math.floor(input.limit))
     const includeSuperseded = input.includeSuperseded ?? false
     const rawQuery = input.query?.trim() ?? ''
 
-    // Mismo saneo que search(): FTS5 no permite comillas dobles sueltas en una MATCH
-    // expression sin romper su sintaxis de query; envolver en comillas fuerza frase exacta
-    // en vez de dejar que los tokens se interpreten como operadores FTS5.
+    // FTS5 no permite comillas dobles sueltas en una MATCH expression sin romper su sintaxis
+    // de query; se sacan y la query entera va entre comillas, que fuerza frase exacta en vez
+    // de dejar que los tokens se interpreten como operadores FTS5.
     const safeQuery = rawQuery ? rawQuery.replace(/["]/g, '') : ''
     // Un query no vacío que sanea a vacío (sólo comillas) es una búsqueda real que no puede
     // resolverse — devolver [] explícito, igual que search(), en vez de caer silenciosamente

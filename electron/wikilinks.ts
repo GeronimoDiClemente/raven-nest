@@ -121,6 +121,15 @@ function masEstable(filas: CandidatoMemoria[]): string {
 }
 
 /**
+ * Cuántos caracteres del principio del contenido alcanzan para encontrar el frontmatter.
+ *
+ * Quien resuelve nombres necesita los alias de TODAS las candidatas, y traer el texto entero
+ * de cada una para eso sería absurdo. El frontmatter va al principio por definición, así que
+ * un prefijo acotado alcanza — y deja el costo fijo por fila en vez de proporcional al largo.
+ */
+export const CHARS_DE_FRONTMATTER = 512
+
+/**
  * Los alias que una memoria declara para sí misma, en un frontmatter al principio del texto.
  *
  * Es el `aliases:` de Obsidian, y va en el CONTENIDO por la misma razón que los links: el
@@ -139,15 +148,6 @@ function masEstable(filas: CandidatoMemoria[]): string {
  * El bloque tiene que abrir en la PRIMERA línea y cerrar: sin eso, cualquier memoria que
  * explique qué es un alias —y hay varias en este repo— se autodeclararía uno.
  */
-/**
- * Cuántos caracteres del principio del contenido alcanzan para encontrar el frontmatter.
- *
- * Quien resuelve nombres necesita los alias de TODAS las candidatas, y traer el texto entero
- * de cada una para eso sería absurdo. El frontmatter va al principio por definición, así que
- * un prefijo acotado alcanza — y deja el costo fijo por fila en vez de proporcional al largo.
- */
-export const CHARS_DE_FRONTMATTER = 512
-
 export function parsearAlias(contenido: string): string[] {
   if (!contenido) return []
   const lineas = contenido.split('\n')

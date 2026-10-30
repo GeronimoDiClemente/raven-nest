@@ -117,7 +117,7 @@ export class PtyManager extends EventEmitter {
   // `rmSync` fails with EBUSY but the meta gets deleted anyway (ghost dir).
   private cwdByPaneId = new Map<string, string>()
   // Pending "write the cmd after shell warms up" timers per pane. Cleared on
-  // kill() and on onExit so a teardown during the 3 s Windows delay doesn't
+  // kill() and on onExit so a teardown during the startup delay doesn't
   // fire a write into a dead (or recreated) PTY.
   private startupTimers = new Map<string, NodeJS.Timeout>()
   private memory?: PtyMemoryIntegration
@@ -456,9 +456,9 @@ export class PtyManager extends EventEmitter {
   }
 
   kill(paneId: string): void {
-    // Clear any pending startup-write timer FIRST. If the pane is killed
-    // before the 3 s Windows warmup elapses, the timer would otherwise fire a
-    // write into a dead (or recreated) pty.
+    // Clear any pending startup-write timer FIRST. If the pane is killed before the
+    // startup delay elapses (500 ms; on Windows, first output or 5 s), the timer would
+    // otherwise fire a write into a dead (or recreated) pty.
     const pending = this.startupTimers.get(paneId)
     if (pending) {
       clearTimeout(pending)

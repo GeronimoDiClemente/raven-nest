@@ -138,7 +138,8 @@ function buildStandupText(
     const matched = [...actorMap.values()].find(a =>
       memberLogin ? a.login === memberLogin : false
     )
-    // Fall back to showing all actors not matched if no user_id mapping
+    // A member with no matched activity gets an explicit line; actors that match no member
+    // are listed after the loop.
     if (matched && matched.activities.length > 0) {
       for (const act of matched.activities) {
         lines.push(`  • ${act}`)

@@ -98,27 +98,6 @@ export function decryptField(keys: MemoryKeys, envelope: string, aad: string): s
 }
 
 /**
- * `topic_key` no se puede cifrar: el servidor supersede la version anterior de un tema
- * buscando por igualdad (`server/src/push.ts:537`), y un AES-GCM con IV aleatorio da un
- * valor distinto cada vez. Un HMAC deriva un valor estable que el servidor puede comparar
- * sin poder leer el tema — que es todo lo que necesita.
- *
- * Los tres componentes van con separador y no concatenados a secas: sin el `|`, el par
- * (`proj`, `1personal`) y (`proj1`, `personal`) darian el mismo HMAC, y dos temas distintos
- * colapsarian en uno — el servidor supersede por igualdad de este valor, asi que colisionar
- * es que una memoria pise a la otra.
- *
- * **El separador solo no cierra la ambiguedad**: `topic_key` es texto libre del usuario y
- * puede contener `|`, y ('proj','personal','a|b') y ('proj','personal|a','b') producen el
- * MISMO string. Lo que la cierra es que el unico
- * componente libre es el ULTIMO — el project_key es hex y el scope un enum, asi que no hay
- * donde mover el corte. Si algun dia un componente del medio deja de estar restringido, o se
- * suma un cuarto, hace falta escapar o usar longitudes, no basta con el `|`.
- *
- * 32 hex = 128 bits: sobra para que no colisionen dos temas y entra comodo en la columna
- * `text` que el servidor ya tiene.
- */
-/**
  * Una marca corta y publica de una clave maestra, para detectar que te dieron OTRA.
  *
  * El adversario que la spec §5.1 nombra tiene ESCRITURA sobre la base del servicio. Envolver
@@ -182,6 +161,27 @@ export function teamKeyVerifier(proof: string): string {
   return createHash('sha256').update(proof, 'utf8').digest('hex')
 }
 
+/**
+ * `topic_key` no se puede cifrar: el servidor supersede la version anterior de un tema
+ * buscando por igualdad (`server/src/push.ts:537`), y un AES-GCM con IV aleatorio da un
+ * valor distinto cada vez. Un HMAC deriva un valor estable que el servidor puede comparar
+ * sin poder leer el tema — que es todo lo que necesita.
+ *
+ * Los tres componentes van con separador y no concatenados a secas: sin el `|`, el par
+ * (`proj`, `1personal`) y (`proj1`, `personal`) darian el mismo HMAC, y dos temas distintos
+ * colapsarian en uno — el servidor supersede por igualdad de este valor, asi que colisionar
+ * es que una memoria pise a la otra.
+ *
+ * **El separador solo no cierra la ambiguedad**: `topic_key` es texto libre del usuario y
+ * puede contener `|`, y ('proj','personal','a|b') y ('proj','personal|a','b') producen el
+ * MISMO string. Lo que la cierra es que el unico
+ * componente libre es el ULTIMO — el project_key es hex y el scope un enum, asi que no hay
+ * donde mover el corte. Si algun dia un componente del medio deja de estar restringido, o se
+ * suma un cuarto, hace falta escapar o usar longitudes, no basta con el `|`.
+ *
+ * 32 hex = 128 bits: sobra para que no colisionen dos temas y entra comodo en la columna
+ * `text` que el servidor ya tiene.
+ */
 export function hmacTopicKey(keys: MemoryKeys, projectKey: string, scope: string, topicKey: string): string {
   return createHmac('sha256', keys.topic)
     .update(`${projectKey}|${scope}|${topicKey}`)
