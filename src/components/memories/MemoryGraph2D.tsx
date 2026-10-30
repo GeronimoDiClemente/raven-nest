@@ -148,6 +148,16 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
   const zoomDeEncuadre = useRef<number | null>(null)
   const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (temporizador.current) clearTimeout(temporizador.current) }, [])
+  const marcarQueMovio = () => {
+    usuarioMovio.current = true
+    // Si se movió antes del primer encuadre, ese encuadre ya no llega y sin referencia las
+    // etiquetas no saldrían nunca. La referencia pasa a ser la vista de la que partió: el zoom
+    // que puso la librería, leído en captura, antes de que la rueda lo cambie.
+    if (zoomDeEncuadre.current === null) {
+      const k = instancia.current?.zoom?.()
+      zoomDeEncuadre.current = typeof k === 'number' && k > 0 ? k : 1
+    }
+  }
 
   /**
    * Encuadre propio del local: margen para las etiquetas, que van debajo del punto y se
@@ -213,11 +223,11 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
       className="relative h-full w-full"
       aria-label={modo === 'global' ? 'Memory graph' : 'Local graph'}
       role="group"
-      onWheelCapture={() => { if (modo === 'global') usuarioMovio.current = true }}
+      onWheelCapture={() => { if (modo === 'global') marcarQueMovio() }}
       onPointerDownCapture={(e) => { arrastre.current = { x: e.clientX, y: e.clientY } }}
       onPointerMoveCapture={(e) => {
         const a = arrastre.current
-        if (modo === 'global' && a && e.buttons && Math.hypot(e.clientX - a.x, e.clientY - a.y) > 4) usuarioMovio.current = true
+        if (modo === 'global' && a && e.buttons && Math.hypot(e.clientX - a.x, e.clientY - a.y) > 4) marcarQueMovio()
       }}
       onPointerUpCapture={() => { arrastre.current = null }}
     >
