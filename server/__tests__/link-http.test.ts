@@ -69,6 +69,19 @@ describe('POST /v1/link/start', () => {
   it('rechaza los métodos que no son POST', async () => {
     expect((await fetch(`${base}/v1/link/start`)).status).toBe(405)
   })
+
+  it('guarda el nombre y la plataforma que manda la CLI', async () => {
+    const r = await post('/v1/link/start', { name: 'gero-laptop', platform: 'win32' })
+    expect(r.status).toBe(201)
+    const { user_code } = await r.json()
+    const { rows } = await pool.query('select device_name, platform from link_requests where user_code = $1', [user_code])
+    expect(rows[0]).toEqual({ device_name: 'gero-laptop', platform: 'win32' })
+  })
+
+  it('un JSON roto es 400, no 500', async () => {
+    const r = await fetch(`${base}/v1/link/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{roto' })
+    expect(r.status).toBe(400)
+  })
 })
 
 describe('POST /v1/link/approve', () => {

@@ -9,6 +9,7 @@ import { authenticate, hashToken } from '../src/auth'
 import {
   generarCodigoDeUsuario, ALFABETO_DEL_CODIGO, VIGENCIA_MS, INTERVALO_MS,
   iniciarVinculacion, aprobarVinculacion, reclamarVinculacion,
+  leerDatosDelPedido, LARGO_MAXIMO_DEL_NOMBRE,
 } from '../src/link'
 
 const pool = getPool()
@@ -150,5 +151,42 @@ describe('lo que tiene que fallar', () => {
     expect(segunda).toMatchObject({ ok: false, error: 'already_approved' })
     const { rows } = await pool.query('select user_id from link_requests where user_code = $1', [r.codigoDeUsuario])
     expect(rows[0].user_id).toBe(userId)
+  })
+})
+
+describe('los datos del pedido (spec login sin Nest §3)', () => {
+  it('guarda el nombre recortado y la plataforma conocida', () => {
+    expect(leerDatosDelPedido({ name: '  gero-laptop  ', platform: 'darwin' }))
+      .toEqual({ nombre: 'gero-laptop', plataforma: 'darwin' })
+  })
+
+  it('el nombre se corta en 100 caracteres', () => {
+    const largo = 'x'.repeat(250)
+    expect(leerDatosDelPedido({ name: largo }).nombre).toHaveLength(LARGO_MAXIMO_DEL_NOMBRE)
+  })
+
+  it('una plataforma fuera de la lista, o que no es texto, es null', () => {
+    expect(leerDatosDelPedido({ platform: 'Win32' }).plataforma).toBeNull()
+    expect(leerDatosDelPedido({ platform: 'freebsd' }).plataforma).toBeNull()
+    expect(leerDatosDelPedido({ platform: { malo: true } }).plataforma).toBeNull()
+  })
+
+  it('sin nombre, vacío, o con sólo caracteres de control, es null', () => {
+    expect(leerDatosDelPedido({}).nombre).toBeNull()
+    expect(leerDatosDelPedido({ name: '   ' }).nombre).toBeNull()
+    expect(leerDatosDelPedido({ name: '\u0000\u001b' }).nombre).toBeNull()
+    expect(leerDatosDelPedido({ name: 42 }).nombre).toBeNull()
+  })
+
+  it('iniciar guarda los datos en la fila', async () => {
+    const r = await iniciarVinculacion(pool, Date.now(), { nombre: 'build-box', plataforma: 'linux' })
+    const { rows } = await pool.query('select device_name, platform from link_requests where user_code = $1', [r.codigoDeUsuario])
+    expect(rows[0]).toEqual({ device_name: 'build-box', platform: 'linux' })
+  })
+
+  it('un cliente viejo que no manda nada deja las dos columnas en null', async () => {
+    const r = await iniciarVinculacion(pool, Date.now())
+    const { rows } = await pool.query('select device_name, platform from link_requests where user_code = $1', [r.codigoDeUsuario])
+    expect(rows[0]).toEqual({ device_name: null, platform: null })
   })
 })

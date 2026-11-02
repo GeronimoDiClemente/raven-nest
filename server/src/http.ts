@@ -8,7 +8,7 @@ import { handleDeleteData } from './delete-data'
 import { createRateLimiter } from './rate-limit'
 import { registerDevice, revokeDevices, listDevices, verificarJwtDeSupabase, type ClavesDeFirma, type EmisorDeLogin } from './devices'
 import { clavesDeSupabase } from './jwks'
-import { iniciarVinculacion, aprobarVinculacion, reclamarVinculacion } from './link'
+import { iniciarVinculacion, leerDatosDelPedido, aprobarVinculacion, reclamarVinculacion } from './link'
 import { handleShareProject } from './share'
 import { handleKeepProject } from './keep'
 import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
@@ -453,7 +453,9 @@ async function handleLinkStart(pool: Pool, req: IncomingMessage, res: ServerResp
     if (!verdict.ok) {
       return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
     }
-    const r = await iniciarVinculacion(pool, Date.now())
+    // Un cliente viejo manda `{}`: `leerDatosDelPedido` lo convierte en dos null.
+    const body = (await readBody(req)) as Record<string, unknown>
+    const r = await iniciarVinculacion(pool, Date.now(), leerDatosDelPedido(body))
     return send(res, 201, {
       user_code: r.codigoDeUsuario,
       device_code: r.codigoDeDispositivo,
@@ -461,8 +463,9 @@ async function handleLinkStart(pool: Pool, req: IncomingMessage, res: ServerResp
       interval: Math.ceil(r.intervalo / 1000),
     })
   } catch (err) {
-    console.error('[http] /v1/link/start', err)
-    return send(res, 500, { error: 'internal_error' })
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/link/start', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
   }
 }
 

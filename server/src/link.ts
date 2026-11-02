@@ -53,6 +53,33 @@ export function generarCodigoDeUsuario(): string {
   return `${salida.slice(0, 4).join('')}-${salida.slice(4).join('')}`
 }
 
+/** Largo máximo del nombre de la máquina que manda la CLI al arrancar (spec §3). */
+export const LARGO_MAXIMO_DEL_NOMBRE = 100
+
+/**
+ * Los `process.platform` que la CLI manda y la página sabe nombrar. Otra cosa se guarda como
+ * null: el campo se MUESTRA a alguien que decide si aprobar, y un texto libre ahí es un lugar
+ * donde el que pidió el código escribe lo que quiera.
+ */
+export const PLATAFORMAS_CONOCIDAS: ReadonlySet<string> = new Set(['win32', 'darwin', 'linux'])
+
+export interface DatosDelPedido {
+  nombre: string | null
+  plataforma: string | null
+}
+
+/** Lo que `/v1/link/start` acepta del cuerpo. Nunca lanza: lo que no sirve es null. */
+export function leerDatosDelPedido(body: Record<string, unknown>): DatosDelPedido {
+  const nombre = typeof body.name === 'string'
+    // eslint-disable-next-line no-control-regex
+    ? body.name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, LARGO_MAXIMO_DEL_NOMBRE).trim()
+    : ''
+  const plataforma = typeof body.platform === 'string' && PLATAFORMAS_CONOCIDAS.has(body.platform)
+    ? body.platform
+    : null
+  return { nombre: nombre === '' ? null : nombre, plataforma }
+}
+
 export interface VinculacionIniciada {
   /** El que se muestra en pantalla. */
   codigoDeUsuario: string
@@ -64,13 +91,17 @@ export interface VinculacionIniciada {
   intervalo: number
 }
 
-export async function iniciarVinculacion(pool: Pool, ahora: number): Promise<VinculacionIniciada> {
+export async function iniciarVinculacion(
+  pool: Pool,
+  ahora: number,
+  datos: DatosDelPedido = { nombre: null, plataforma: null }
+): Promise<VinculacionIniciada> {
   const codigoDeUsuario = generarCodigoDeUsuario()
   const codigoDeDispositivo = randomBytes(BYTES_DEL_CODIGO_DE_DISPOSITIVO).toString('base64url')
   await pool.query(
-    `insert into link_requests (id, user_code, device_code_hash, created_at, expires_at)
-     values ($1, $2, $3, to_timestamp($4 / 1000.0), to_timestamp($5 / 1000.0))`,
-    [randomUUID(), codigoDeUsuario, hashToken(codigoDeDispositivo), ahora, ahora + VIGENCIA_MS]
+    `insert into link_requests (id, user_code, device_code_hash, created_at, expires_at, device_name, platform)
+     values ($1, $2, $3, to_timestamp($4 / 1000.0), to_timestamp($5 / 1000.0), $6, $7)`,
+    [randomUUID(), codigoDeUsuario, hashToken(codigoDeDispositivo), ahora, ahora + VIGENCIA_MS, datos.nombre, datos.plataforma]
   )
   return { codigoDeUsuario, codigoDeDispositivo, venceEn: VIGENCIA_MS, intervalo: INTERVALO_MS }
 }
