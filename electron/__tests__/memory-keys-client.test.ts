@@ -224,3 +224,25 @@ describe('errores HTTP', () => {
     await expect(enrollPublicKey(deps, 'PUB')).rejects.toBeInstanceOf(KeysHttpError)
   })
 })
+
+describe('fetchKeyState con respuestas que no son del servidor', () => {
+  const con = (json: () => Promise<unknown>): KeysClientDeps => ({
+    baseUrl: 'http://x', token: 't', deviceId: 'd',
+    fetchImpl: (async () => ({ ok: true, status: 200, json })) as unknown as typeof fetch,
+  })
+  it('un 200 con cuerpo que no es JSON tira, no devuelve época 0', async () => {
+    await expect(fetchKeyState(con(async () => { throw new SyntaxError('Unexpected token <') }))).rejects.toThrow()
+  })
+  it('un 200 JSON sin keyEpoch tira', async () => {
+    await expect(fetchKeyState(con(async () => ({ hola: 1 })))).rejects.toThrow()
+  })
+  it('una época negativa, fraccionaria o no numérica tira', async () => {
+    for (const keyEpoch of [-1, 1.5, '2', null, NaN]) {
+      await expect(fetchKeyState(con(async () => ({ keyEpoch })))).rejects.toThrow()
+    }
+  })
+  it('una respuesta válida sigue parseando (época 0 incluida)', async () => {
+    expect((await fetchKeyState(con(async () => ({ keyEpoch: 0 })))).keyEpoch).toBe(0)
+    expect((await fetchKeyState(con(async () => ({ keyEpoch: 3, wrap: null, devices: [] })))).keyEpoch).toBe(3)
+  })
+})

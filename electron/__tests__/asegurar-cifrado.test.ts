@@ -64,6 +64,24 @@ describe('asegurarCifrado', () => {
     expect(await asegurarCifrado(d)).toEqual({ estado: 'esperando-autorizacion', huella: 'HUELLA' })
   })
 
+  it('carrera con la relectura interna (403 not_authorized_to_rotate): adopta la que quedó', async () => {
+    const adoptar = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ master: 'OTRA', keyEpoch: 1 })
+    const d = deps({ adoptar, activar: vi.fn(async () => { throw new KeysHttpError(403, 'not_authorized_to_rotate') }) })
+    expect(await asegurarCifrado(d)).toEqual({ estado: 'lista', master: 'OTRA', keyEpoch: 1, nueva: true })
+  })
+
+  it('403 not_authorized_to_rotate y todavía sin envoltura: espera', async () => {
+    const d = deps({ activar: vi.fn(async () => { throw new KeysHttpError(403, 'not_authorized_to_rotate') }) })
+    expect(await asegurarCifrado(d)).toEqual({ estado: 'esperando-autorizacion', huella: 'HUELLA' })
+  })
+
+  it('otro 403 no es la carrera: sin-estado', async () => {
+    const d = deps({ activar: vi.fn(async () => { throw new KeysHttpError(403, 'forbidden') }) })
+    expect((await asegurarCifrado(d)).estado).toBe('sin-estado')
+  })
+
   it('maestra local de una época vieja: no cuenta como lista', async () => {
     const d = deps({
       material: () => ({ device, master: 'VIEJA', keyEpoch: 1 }),

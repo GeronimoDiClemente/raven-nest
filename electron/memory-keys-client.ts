@@ -65,8 +65,16 @@ export async function enrollPublicKey(deps: KeysClientDeps, publicKey: string): 
 
 export async function fetchKeyState(deps: KeysClientDeps): Promise<RemoteKeyState> {
   const json = (await pedir(deps, '/v1/keys', { method: 'GET' })) as Partial<RemoteKeyState>
+  // Una época NO LEÍDA no es la época 0: un 200 que no es el JSON del servidor (portal
+  // cautivo, proxy, baseUrl que sirve un index.html) no puede pasar por "cuenta sin cifrado",
+  // porque `asegurarCifrado` activaría y rotaría la clave a ciegas. Se tira y el llamador lo
+  // trata como falta de red.
+  const epoca = json?.keyEpoch
+  if (typeof epoca !== 'number' || !Number.isInteger(epoca) || epoca < 0) {
+    throw new Error('invalid_key_state_response')
+  }
   return {
-    keyEpoch: Number(json.keyEpoch ?? 0),
+    keyEpoch: epoca,
     wrap: json.wrap ?? null,
     devices: Array.isArray(json.devices) ? json.devices : [],
   }

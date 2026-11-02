@@ -8,7 +8,7 @@
 //   2. Adoptar (de paso enrola la clave pública, así otra máquina me ve pendiente).
 //   3. Sólo con la época 0 LEÍDA del servidor, activar. Sin red no se activa nunca: activar
 //      desde una máquina que no ve la época real rota la clave de todas las demás.
-//   4. Un 409 al activar es otra máquina que ganó la carrera: adoptar la suya.
+//   4. Un 409 (o 403 not_authorized_to_rotate) al activar es otra máquina que ganó la carrera: adoptar la suya.
 import type { DeviceKeyPair } from './memory-key-wrap'
 import { KeysHttpError } from './memory-keys-client'
 
@@ -25,6 +25,13 @@ export interface DepsDeAsegurar {
   activar: (device: DeviceKeyPair) => Promise<{ master: string; keyEpoch: number; recoveryCode: string }>
   huella: (publicKey: string) => string
 }
+
+// Que otra máquina activara primero llega como 409, o como 403 `not_authorized_to_rotate` si
+// ganó la carrera entre nuestra lectura y la relectura interna de `activateEncryption` (el
+// cliente publica la época 2 en modo 'activate' y el servidor la rechaza por no ser la 1).
+const perdioLaCarrera = (err: unknown) =>
+  err instanceof KeysHttpError &&
+  (err.status === 409 || (err.status === 403 && err.message === 'not_authorized_to_rotate'))
 
 const mensaje = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
@@ -56,7 +63,7 @@ export async function asegurarCifrado(d: DepsDeAsegurar): Promise<ResultadoDeAse
     const activada = await d.activar(propio.device)
     return { estado: 'activada', ...activada }
   } catch (err) {
-    if (err instanceof KeysHttpError && err.status === 409) {
+    if (perdioLaCarrera(err)) {
       try {
         const adoptada = await d.adoptar(propio.device)
         return adoptada ? { estado: 'lista', ...adoptada, nueva: true } : esperar()
