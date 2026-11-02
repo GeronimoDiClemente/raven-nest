@@ -43,16 +43,16 @@ describe('UpgradeModal', () => {
     expect(screen.getByText('Current plan')).toBeInTheDocument()
   })
 
-  it('el toggle arranca en Monthly ($10 /mo) y Annual muestra $8 /mo billed $96 yearly', () => {
+  it('el toggle arranca en Monthly ($15 /mo) y Annual muestra $12 /mo billed $144 yearly', () => {
     render(<UpgradeModal onClose={() => {}} currentPlan="free" />)
     expect(screen.getByRole('button', { name: 'Monthly' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('$10')).toBeInTheDocument()
-    expect(screen.queryByText('billed $96 yearly')).toBeNull()
+    expect(screen.getByText('$15')).toBeInTheDocument()
+    expect(screen.queryByText('billed $144 yearly')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Annual' }))
     expect(screen.getByRole('button', { name: 'Annual' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('$8')).toBeInTheDocument()
-    expect(screen.getByText('billed $96 yearly')).toBeInTheDocument()
+    expect(screen.getByText('$12')).toBeInTheDocument()
+    expect(screen.getByText('billed $144 yearly')).toBeInTheDocument()
   })
 
   it('Upgrade to Cloud cobra el intervalo elegido, abre la URL y cierra', async () => {

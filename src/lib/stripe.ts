@@ -7,10 +7,10 @@ export type Plan = 'free' | 'cloud' | 'pro' | 'team' | 'enterprise'
  * Los IDs de precio de Stripe NO viven en la app: los elige `stripe-checkout` desde sus
  * secrets según el intervalo, así un cliente no puede pedir un precio arbitrario.
  */
-export const CLOUD_MONTHLY_PRICE = 10
-/** Anual: US$ 96 por año, que se muestra como US$ 8 por mes. */
-export const CLOUD_ANNUAL_MONTHLY_PRICE = 8
-export const CLOUD_ANNUAL_PRICE = 96
+export const CLOUD_MONTHLY_PRICE = 15
+/** Anual: US$ 144 por año, que se muestra como US$ 12 por mes. */
+export const CLOUD_ANNUAL_MONTHLY_PRICE = 12
+export const CLOUD_ANNUAL_PRICE = 144
 
 export type BillingInterval = 'monthly' | 'annual'
 

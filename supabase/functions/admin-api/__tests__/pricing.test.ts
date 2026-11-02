@@ -18,9 +18,9 @@ describe('montoMensualCents', () => {
     expect(montoMensualCents(null)).toBe(0)
   })
 
-  it('Cloud anual de $96 son $8 por mes', () => {
-    expect(montoMensualCents(sub({ unit_amount: 9600, interval: 'year', quantity: 1 }))).toBe(800)
-    expect(montoMensualCents(sub({ unit_amount: 1000, interval: 'month', quantity: 1 }))).toBe(1000)
+  it('Cloud anual de $144 son $12 por mes', () => {
+    expect(montoMensualCents(sub({ unit_amount: 14400, interval: 'year', quantity: 1 }))).toBe(1200)
+    expect(montoMensualCents(sub({ unit_amount: 1500, interval: 'month', quantity: 1 }))).toBe(1500)
   })
 
   it('mensual de 1 seat es el precio', () => {

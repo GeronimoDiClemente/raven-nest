@@ -24,8 +24,10 @@ nombres.
 
 ## 1. Stripe en modo TEST
 
-1. Producto **Nest Cloud** con dos precios recurrentes en USD: `$10 / month` y `$96 / year`.
-   Anotar los dos `price_…` en 1Password.
+1. Producto **Nest Cloud** con dos precios recurrentes en USD: `$15 / month` y `$144 / year`.
+   Anotar los dos `price_…` en 1Password. (Hasta el 2026-11-02 eran $10 y $96; los precios de
+   Stripe no se editan, así que en el sandbox hay que crear los dos nuevos, archivar los viejos y
+   actualizar `STRIPE_PRICE_CLOUD_MONTHLY`/`_ANNUAL`.)
 2. Customer Portal (Settings › Billing › Customer portal): cancelar **al fin del período**,
    cambiar tarjeta, ver facturas, y cambiar de plan **sólo entre los dos precios de Cloud**.
 3. Endpoint de webhook → `https://<ref>.supabase.co/functions/v1/stripe-webhook`, con los eventos
