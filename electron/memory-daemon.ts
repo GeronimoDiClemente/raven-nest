@@ -1072,6 +1072,14 @@ export class MemoryDaemon {
         }
         const reason = result.error ?? 'rejected'
         if (reason === MOTIVO_TOPE_DE_PROYECTOS) recibioElTope = true
+        if (reason === 'encryption_required') {
+          // La cuenta cifra y esta máquina todavía no lo sabía (otra activó después de nuestro
+          // último status). No se marca ni se retiene: queda en la cola, y aprender la época
+          // arma el gate de arriba, que la sella o espera la clave (`needs_key`). La época
+          // real la trae el próximo status; `rememberKeyEpoch` sólo sube.
+          store.rememberKeyEpoch(Math.max(1, store.knownKeyEpoch()))
+          continue
+        }
         if (reason === 'team_encryption_required') {
           // El servidor acaba de decir que el equipo de este proyecto cifra. Se aprende como
           // CONFIRMADO (viene del servidor, no de una inferencia) y la fila queda retenida por

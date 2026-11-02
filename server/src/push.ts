@@ -255,9 +255,14 @@ export async function handlePush(
     )
     const proyectosDeEquipoCifrado = new Set(cifradosRows.map((r) => r.project_key as string))
 
-    // PASADA 1 — los seis rechazos que NO dependen del id del proyecto: `missing_sync_id`,
+    // Si la CUENTA cifra (`key_epoch > 0`), una fila personal en claro no se guarda. Un query
+    // por batch, mismo criterio que los de arriba.
+    const { rows: epochRows } = await client.query('select key_epoch from users where id = $1', [auth.userId])
+    const cuentaCifra = Number(epochRows[0]?.key_epoch ?? 0) > 0
+
+    // PASADA 1 — los siete rechazos que NO dependen del id del proyecto: `missing_sync_id`,
     // `team_scope_not_allowed`, `project_not_shared_with_team`, `team_encryption_required`,
-    // `observation_too_large` y `quota_exceeded`.
+    // `encryption_required`, `observation_too_large` y `quota_exceeded`.
     //
     // Corren antes de resolver proyectos, y ese orden no es cosmético. `ensureProject` corría
     // para toda clave nueva con lugar disponible ANTES de que se evaluara ningún rechazo, así
@@ -342,6 +347,19 @@ export async function handlePush(
         prepared.push({
           kind: 'rejected',
           result: { sync_id: syncId, outcome: 'rejected', project_seq: 0, error: 'team_encryption_required' },
+        })
+        continue
+      }
+
+      // Lo mismo para lo PERSONAL (hueco del 30-oct): con la cuenta cifrando, el servidor
+      // aceptaba claro de un cliente viejo o de uno que todavía no aprendió la época. El gate
+      // del cliente (`isEncryptionExpected`) sigue siendo la primera línea; esto es la segunda.
+      // Reversible: el cliente no la descarta, pide un status, arma su gate y la sube sellada
+      // cuando tenga la maestra.
+      if (scope !== 'team' && cuentaCifra && !viajaSellado(p)) {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: syncId, outcome: 'rejected', project_seq: 0, error: 'encryption_required' },
         })
         continue
       }
