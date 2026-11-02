@@ -171,7 +171,7 @@ const PREFIJO_SOBRE = 'nmc1:'
  * que se equivoca, y uno que sellara a medias subía en claro `origin_account` — que en una
  * máquina real es el mail del usuario — y el nombre del repo (M4, review de Tasks 13–14).
  */
-const CAMPOS_SELLADOS = ['title', 'content', 'project_display_name', 'content_hash', 'origin_account'] as const
+const CAMPOS_SELLADOS = ['title', 'content', 'project_display_name', 'content_hash', 'origin_account', 'git_branch'] as const
 
 function viajaSellado(p: Record<string, unknown>): boolean {
   for (const campo of CAMPOS_SELLADOS) {
@@ -258,7 +258,11 @@ export async function handlePush(
     // Si la CUENTA cifra (`key_epoch > 0`), una fila personal en claro no se guarda. Un query
     // por batch, mismo criterio que los de arriba.
     const { rows: epochRows } = await client.query('select key_epoch from users where id = $1', [auth.userId])
+    // Spec 2026-11-02: ninguna fila personal en claro, cifre la cuenta o no. La única salida
+    // es `ALLOW_PLAINTEXT_PERSONAL=1` con la cuenta en época 0, que sólo setea el vitest del
+    // servidor: con la cuenta ya cifrando, ni los tests pueden subir claro.
     const cuentaCifra = Number(epochRows[0]?.key_epoch ?? 0) > 0
+    const exigeSellado = cuentaCifra || process.env.ALLOW_PLAINTEXT_PERSONAL !== '1'
 
     // PASADA 1 — los siete rechazos que NO dependen del id del proyecto: `missing_sync_id`,
     // `team_scope_not_allowed`, `project_not_shared_with_team`, `team_encryption_required`,
@@ -351,12 +355,13 @@ export async function handlePush(
         continue
       }
 
-      // Lo mismo para lo PERSONAL (hueco del 30-oct): con la cuenta cifrando, el servidor
-      // aceptaba claro de un cliente viejo o de uno que todavía no aprendió la época. El gate
+      // Lo mismo para toda fila PERSONAL (spec 2026-11-02, cifrado obligatorio; antes sólo si la
+      // cuenta ya cifraba, hueco del 30-oct): el servidor aceptaba claro de un cliente viejo o
+      // de uno que todavía no aprendió la época. El gate
       // del cliente (`isEncryptionExpected`) sigue siendo la primera línea; esto es la segunda.
       // Reversible: el cliente no la descarta, pide un status, arma su gate y la sube sellada
       // cuando tenga la maestra.
-      if (scope !== 'team' && cuentaCifra && !viajaSellado(p)) {
+      if (scope !== 'team' && exigeSellado && !viajaSellado(p)) {
         prepared.push({
           kind: 'rejected',
           result: { sync_id: syncId, outcome: 'rejected', project_seq: 0, error: 'encryption_required' },
