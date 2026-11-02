@@ -36,8 +36,10 @@ export interface EnvelopeContext {
  * cambiado por coma. En claro, cada observación guardada por un agente subiría el mail. El
  * servidor sólo lo almacena y lo devuelve: no lo consulta ni filtra por él, así
  * que cifrarlo no rompe nada del lado del servicio.
+ *
+ * `git_branch` (spec 2026-11-02): un nombre de rama dice de qué se trata el trabajo; el servidor sólo lo guarda.
  */
-const SEALED_FIELDS = ['title', 'content', 'project_display_name', 'content_hash', 'origin_account'] as const
+const SEALED_FIELDS = ['title', 'content', 'project_display_name', 'content_hash', 'origin_account', 'git_branch'] as const
 
 // El cifrado de scope `team`: ver `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md`.
 
@@ -167,6 +169,9 @@ export function openPulledRow(ctx: EnvelopeContext | null, row: PulledRow): Open
   // un test que lo fija.
   if (row.originAccount !== undefined) {
     abierto.originAccount = abrir(row.originAccount, 'origin_account') ?? undefined
+  }
+  if (row.gitBranch !== undefined) {
+    abierto.gitBranch = abrir(row.gitBranch, 'git_branch') ?? undefined
   }
 
   if (Array.isArray(row.tags) && row.tags.length === 1 && isCiphertext(row.tags[0])) {

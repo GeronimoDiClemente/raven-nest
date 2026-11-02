@@ -51,6 +51,7 @@ describe('sealMutationPayload', () => {
     expect(isCiphertext(s.content)).toBe(true)
     expect(isCiphertext(s.project_display_name)).toBe(true)
     expect(isCiphertext(s.content_hash)).toBe(true)
+    expect(isCiphertext(s.git_branch)).toBe(true)
     expect(Array.isArray(s.tags) && (s.tags as string[]).length === 1 && isCiphertext((s.tags as string[])[0])).toBe(true)
   })
 
@@ -60,7 +61,6 @@ describe('sealMutationPayload', () => {
     expect(s.project_key).toBe('proj1')
     expect(s.scope).toBe('personal')
     expect(s.type).toBe('decision')
-    expect(s.git_branch).toBe('main')
     expect(s.lamport).toBe(3)
     expect(s.updated_at).toBe(1_700_000_000_000)
   })
