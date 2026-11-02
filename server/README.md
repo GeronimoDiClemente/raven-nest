@@ -11,7 +11,7 @@ estado propio — todo vive en Postgres — que habla el contrato de wire §5: `
 |---|---|---|
 | `POST /v1/sync/push` | `/functions/v1/memory-sync/push` | §5.1 — aplica mutaciones, una transacción por mutación, idempotente por `(device_id, seq)`. |
 | `POST /v1/sync/pull` | `/functions/v1/memory-sync/pull` | §5.2 — filas nuevas por cursor de proyecto. |
-| `GET /v1/sync/status` | — | §5.3 — identidad del device, plan, cuota, `next_poll_ms` y el tope de proyectos del plan (`limits.max_projects`, spec 2b-1), `kept_project_key` y `over_limit` (spec 2b-2). |
+| `GET /v1/sync/status` | — | §5.3 — identidad del device, plan, cuota, `next_poll_ms` y el tope de proyectos del plan (`limits.max_projects`, spec 2b-1), `kept_project_key` y `over_limit` (spec 2b-2), `key_epoch`, `encrypted_teams` y `plaintext_pending` (spec 2026-11-02: cuántas observaciones propias, personales y no borradas siguen con algún campo sellable en claro; el cliente no dice "Encrypted" hasta que es 0). |
 | `POST /v1/projects/keep` | — | Spec 2b-2 §4.7 — `{ project_key }`: con más proyectos que el tope, cuál sigue sincronizando. Sólo proyectos propios y nunca `__global__` (400 `unknown_project`); sin estar por encima del tope, 409 `not_over_limit`. |
 | `POST /internal/plan` | — | Spec 2b-2 §4.5 — el aviso de plan del webhook de Stripe. Firmado con `X-Nest-Signature: t=<seg>,v1=HMAC-SHA256(PLAN_SYNC_SECRET, "<t>.<cuerpo crudo>")`, ventana de 300 s. Escribe `users.plan` y, si es pago, la allowlist (bajar a `free` no saca de la allowlist). Sin `PLAN_SYNC_SECRET` responde 404. |
 | `POST /internal/memberships` | — | El aviso de membresía de equipos que manda Supabase (trigger en `team_members`, migración `20261102000000_membership_sync.sql`). Misma firma y mismo secreto que `/internal/plan`. Cuerpo `{ user_id, as_of, memberships: [{ team_id, team_name, role }] }` con el set COMPLETO de equipos activos: reemplaza `team_memberships` del usuario, así un miembro sacado deja de bajar la memoria del equipo. Un `as_of` más viejo que el último aplicado responde 200 `{ ok: true, ignored: 'stale' }` sin tocar nada. Sin `PLAN_SYNC_SECRET` responde 404. |
@@ -21,9 +21,31 @@ estado propio — todo vive en Postgres — que habla el contrato de wire §5: `
 ## Cifrado del lado del cliente — qué deja de ser legible
 
 Desde el 2026-09-11 el cliente cifra antes de subir (spec
-`2026-09-09-nest-memories-plugin-y-cifrado.md` §5.2). **El servicio no cambia de comportamiento
-y no necesita la clave**: ya sólo medía `octet_length(content)` para la cuota y nunca miró
-adentro de `content` ni de `title`.
+`2026-09-09-nest-memories-plugin-y-cifrado.md` §5.2). **El servicio no necesita la clave**: sólo
+mide `octet_length(content)` para la cuota y nunca mira adentro de `content` ni de `title`.
+
+**Desde el 2026-11-02 el cifrado es obligatorio** (spec `2026-11-02-cifrado-obligatorio-design.md`),
+y eso sí cambió lo que el servicio hace:
+
+- **El push rechaza toda fila personal (`scope <> 'team'`) que no venga sellada**, cifre la cuenta
+  o no, con `encryption_required`. "Sellada" = todo campo sellable con texto (`title`, `content`,
+  `project_display_name`, `content_hash`, `origin_account`, `git_branch`) empieza con `nmc1:`, y
+  los tags viajan como UN sobre (`["nmc1:…"]`). Es reversible: el cliente no la descarta, la
+  sube sellada cuando tiene la maestra. La única salida es `ALLOW_PLAINTEXT_PERSONAL=1` con la
+  cuenta en época 0, y **sólo la setea `server/vitest.config.ts`** (ver Variables de entorno).
+- **`status` trae `plaintext_pending`** (ver Rutas). La migración de una cuenta vieja es el
+  re-upload del cliente: re-encola todo lo propio (las filas superseded incluidas) y el upsert
+  por `sync_id` pisa cada fila en claro con la sellada — `origin_account`, `git_branch`,
+  `origin_ai` y `author_display` incluidos. Una fila que llega superseded y acá ya lo está
+  conserva su `superseded_by` sin pasar por la colisión de temas: re-cifrar no es editar.
+- **Un tombstone no guarda texto**: el delete vacía `title` (`''`, es NOT NULL), `content`,
+  `tags`, `topic_key`, `content_hash`, `origin_account` y `git_branch`. La migración `013` hizo lo
+  mismo con los tombstones que ya estaban.
+- **`POST /v1/keys/publish` tiene un modo `recovery`** para regenerar el código de recuperación
+  sin rotar: un único wrap con `slot` y `kind` `recovery` (si no, 400 `invalid_recovery_wrap`),
+  la época vigente (409 `stale_key_epoch`, o `not_activated` en época 0) y `rotate_proof` contra
+  `users.rotate_verifier` (403 `must_hold_master`). Toca sólo el slot `recovery`: el código viejo
+  deja de abrir. `authorize` sigue sin poder pisarlo (`cannot_overwrite_recovery`).
 
 Lo que cualquier consumidor de esta base tiene que saber antes de romperse solo — en
 particular el back-office, que vive en otro repo (`RavenProjects/aira-admin`):
@@ -35,9 +57,11 @@ particular el back-office, que vive en otro repo (`RavenProjects/aira-admin`):
 | `origin_account` | Cifrado desde el 2026-09-12. Cerraba una fuga que nadie había decidido: sale de `NEST_MEMORY_ACCOUNT`, que se arma con el nombre del directorio de cuenta, y en una máquina real **ese nombre es el email del usuario**. Subía en claro en cada observación guardada por un agente. El servicio sólo lo almacena y lo devuelve — no lo consulta ni filtra por él. |
 | `topic_key` | HMAC hex de 32 caracteres. Sirve para igualdad; no se puede volver al tema. |
 | `projects.display_name` | Cifrado. Cerraba una fuga: `memory-project-key.ts` dice "Cloud never learns the repo name" y el display name viajaba en claro al lado. |
-| `type`, `scope`, `git_branch`, `lamport`, timestamps, `sync_id`, `project_key` | **Sin cambios, en claro.** `scope` decide autorización del lado del servidor y cifrarlo rompería el modelo de permisos. |
+| `git_branch` | Cifrado desde el 2026-11-02 (cifrado obligatorio). Antes viajaba en claro, y un nombre de rama dice de qué se está trabajando. |
+| `type`, `scope`, `lamport`, timestamps, `sync_id`, `project_key`, `superseded_by`, `deleted`, `origin_ai`, `author_display` | **Sin cambios, en claro.** `scope` decide autorización del lado del servidor y cifrarlo rompería el modelo de permisos; el resto lo necesita para ordenar, mezclar y repartir. `project_key` es un sha256 sin sal (pendiente de otro spec). |
 
-Durante la migración conviven filas cifradas y en claro: `nmc1:` es lo único que las separa.
+Durante la migración conviven filas cifradas y en claro: `nmc1:` es lo único que las separa, y
+`plaintext_pending` dice cuántas personales quedan.
 Una observación con `scope = 'team'` se cifra desde el 2026-10-15 con la clave del EQUIPO, si el
 equipo la activó (`team_keys`; spec `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md`):
 mismas columnas cifradas y mismo prefijo `nmc1:` que la tabla de arriba. Un equipo que no la
@@ -93,6 +117,8 @@ aplicaron en el mismo batch.
 | `project_limit_reached` | El `project_key` es nuevo para esa cuenta y ya no quedan lugares (tope de proyectos del plan), **o** la cuenta tiene más proyectos que el tope (bajó de plan) y éste no es uno de los permitidos: el elegido con `POST /v1/projects/keep` o, sin elección, los más viejos (spec 2b-2). |
 | `observation_too_large` | `payload.content` supera 1 MB medido en bytes utf-8 (no en `.length`). |
 | `quota_exceeded` | La suma de bytes de contenido del usuario ya llegó al tope de su plan. Sólo frena mutaciones nuevas — un `op: 'delete'` siempre pasa, porque es la única forma de liberar espacio. |
+| `encryption_required` | Fila personal con algún campo sellable en claro (spec 2026-11-02, cifrado obligatorio). Reversible: el cliente la retiene y la sube sellada cuando tiene la maestra. |
+| `team_encryption_required` | Fila de equipo en claro para un equipo que activó su clave (`team_keys`). Reversible. |
 
 | HTTP | `error` | Cuándo |
 |---|---|---|
@@ -159,6 +185,7 @@ en producción hay que fijar al menos `DATABASE_URL`.
 | `SUPABASE_URL` | ninguno | Base de la API REST de Supabase (`https://<ref>.supabase.co`), usada para sincronizar `team_memberships` en cada `POST /v1/devices` (Team Memory Layer 1, Parte 2). **Sin ella, el registro de device funciona exactamente igual que hoy** — la sincronización de membresía es best-effort y simplemente no escribe nada. |
 | `SUPABASE_ANON_KEY` | ninguno | La anon key pública del mismo proyecto de Supabase. Va como header `apikey`; la identidad real la aporta el JWT del propio login del usuario como `Authorization: Bearer`, así que la consulta a `team_members` respeta la RLS de Supabase — nunca se usa una `service_role` key acá. Sin `SUPABASE_URL` **y** `SUPABASE_ANON_KEY` juntas, la sincronización no corre. |
 | `PLAN_SYNC_SECRET` | ninguno | Secreto compartido con el webhook de Stripe (`stripe-webhook`, secret `PLAN_SYNC_SECRET` en Supabase) para firmar `POST /internal/plan`. **Sin él la ruta responde 404** y los pagos no llegan solos al plan del servidor. Al menos 32 caracteres, desde 1Password. |
+| `ALLOW_PLAINTEXT_PERSONAL` | ninguno | **Sólo para tests. Nunca en un deploy.** Con `1`, el push acepta filas personales en claro de una cuenta en época 0 (con la cuenta ya cifrando, ni así). Existe porque 24 archivos de tests del servidor suben filas en claro para probar otras cosas (cuota, tope, pull, supersede); la setea `server/vitest.config.ts` y nada más. En producción reabriría exactamente el hueco que cierra el cifrado obligatorio. |
 
 `NEXT_POLL_MS` existió como env var pero ya no se lee en ningún lado del código: el
 intervalo que ve el cliente sale siempre de `next_poll_ms` en la tabla de límites por plan
@@ -231,6 +258,31 @@ que manda el body de cada request — es una decisión de seguridad deliberada (
 puede spoofear la identidad de otro sólo cambiando ese campo), así que todas las
 mutaciones de una corrida del checker, sin importar qué "device" simulen, terminan
 autenticadas como el único device real detrás de `--token`.
+
+## Orden de despliegue (cifrado obligatorio, 2026-11-02)
+
+**Publicar primero la app y el plugin (`@nestmux/memory`), y el servidor al final.** La decisión
+final es de Gero; esto es lo que la sostiene.
+
+El servidor nuevo rechaza con `encryption_required` toda fila personal en claro. Si sale antes
+que los clientes, frena a todo el que todavía no actualizó:
+
+- Las versiones con `276148b` retienen la fila en la cola y no la descartan: no se pierde nada,
+  pero su sync personal queda parado hasta que actualicen y activen.
+- Las anteriores la marcan como rechazada (terminal) y siguen como si nada: la memoria sigue en
+  la máquina, pero no llega a la nube. Al actualizar y conseguir la maestra, la app re-encola
+  los borrados que quedaron así y corre el re-upload, que vuelve a subir las filas vivas
+  (`asegurar-en-el-main.ts`, F4 de la review final). El `mutation_log` purga lo acusado a los 7
+  días, así que un borrado más viejo que eso ya no vuelve: su fila queda viva en la nube.
+
+Al revés no hay ese riesgo: una app nueva contra el servidor viejo sube todo sellado y el
+servidor viejo lo acepta (sin pisar `origin_account` ni `git_branch` en el re-upload: eso lo
+arregla el servidor nuevo, y su `plaintext_pending` dispara otra pasada). Lo único que la app
+nueva necesita del servidor nuevo es que conserve
+la marca de las filas superseded al re-subirlas (`conservaSupersede` en `push.ts`; uno viejo las
+resucita), y por eso no las re-sube hasta ver `plaintext_pending` en el status
+(`opcionesDeReupload` en `electron/main.ts`). La migración `013` corre sola al arrancar el
+servidor nuevo (ver abajo).
 
 ## Migraciones — corren solas al arrancar
 

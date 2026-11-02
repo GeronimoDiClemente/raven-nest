@@ -191,6 +191,25 @@ presente al trabajar acá:
 - **Publicar una envoltura para otra máquina exige probar que tenés la maestra**
   (`rotate_proof` contra `users.rotate_verifier`). Sin eso, cualquier device de la cuenta
   sella SU maestra para la pública de la víctima y la víctima la adopta sin aviso.
+- **Desde el 2026-11-02 el cifrado es obligatorio al conectar** (spec
+  `docs/superpowers/specs/2026-11-02-cifrado-obligatorio-design.md`). `memory:connect` y el
+  `login` del paquete corren `asegurarCifrado` (adoptar, y sólo con la época 0 LEÍDA, activar);
+  `requireEncryption` arma el gate del push SIEMPRE: sin maestra no sale nada
+  (`needs_encryption_setup` en época 0, `needs_key` después). El servidor rechaza todo claro
+  personal con `encryption_required`, cifre la cuenta o no; la única salida es
+  `ALLOW_PLAINTEXT_PERSONAL=1`, que setea SÓLO `server/vitest.config.ts` — nunca en un deploy.
+- **`status` trae `plaintext_pending`** (filas propias, personales y vivas con algo legible en
+  el servidor) y la tarjeta no dice "On · key #N" hasta que es 0. Con la maestra y
+  `plaintext_pending > 0` el main corre el re-upload solo, **una vez por sesión** y por cuenta
+  (`reuploadAutomaticoUnaVez`): re-encola TODO, y una fila que sólo existe en el servidor nunca
+  bajaría a 0. El mismo re-upload corre al activar o adoptar (`asegurar-en-el-main.ts`), y ahí
+  también vuelven a la cola los borrados que un build viejo dio por terminales. Re-sube las
+  superseded (el servidor les conserva la marca) sólo si el status ya trajo `plaintext_pending`:
+  un servidor viejo las resucita. Un tombstone no guarda texto en el servidor (migración `013`).
+  Antes de desplegar: "Orden de despliegue" en `server/README.md`.
+- **Regenerar el código de recuperación es el modo `recovery` de `/v1/keys/publish`**: un solo
+  wrap en el slot `recovery`, la época vigente y `rotate_proof`; el código viejo deja de abrir.
+  La tarjeta lo pide con confirmación. El código pendiente vive sólo en memoria del main.
 - Para probarlo hace falta el servicio arriba: ver `server/README.md` y
   `scripts/smoke-cifrado-e2e.mjs` (verde de punta a punta el 2026-10-09; tokens con
   `server/scripts/mint-device-token.mjs`, dos devices de la misma cuenta, y
