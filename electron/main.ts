@@ -416,6 +416,11 @@ function recargarClavesDeMemoria(userId: string | null): void {
   // la misma máquina seguiría cifrando/abriendo con la clave de equipo de la cuenta vieja.
   teamMasterKeys.clear()
   clavesDeEquipoRechazadas.clear()
+  // Spec 2026-11-02: el código pendiente es de la cuenta ANTERIOR. Dárselo a la nueva haría que
+  // el usuario guarde el código de A como si fuera el de B. Y el re-upload automático es uno
+  // por cuenta: la nueva también tiene derecho al suyo en esta sesión.
+  codigoDeRecuperacionPendiente = null
+  reuploadAutomaticoHecho = false
   try {
     memoryKeys = ensureKeyMaterial(ravenHome(), userId, safeStorage)
   } catch {
@@ -3308,6 +3313,9 @@ async function asegurarEnElMain(): Promise<CifradoAlConectar> {
   if (r.estado === 'lista' && !r.nueva) return { estado: 'lista' }
 
   memoryKeys = { ...memoryKeys, master: r.master, keyEpoch: r.keyEpoch }
+  // Antes de cualquier paso que pueda lanzar: si algo de abajo falla y `memory:connect`
+  // rechaza, el código sigue disponible por `memory:encryption:pendingRecoveryCode`.
+  if (r.estado === 'activada') codigoDeRecuperacionPendiente = r.recoveryCode
   let aviso: string | null = null
   try {
     saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
@@ -3324,7 +3332,6 @@ async function asegurarEnElMain(): Promise<CifradoAlConectar> {
     memory.store.clearUndecryptable()
     return { estado: 'lista' }
   }
-  codigoDeRecuperacionPendiente = r.recoveryCode
   return { estado: 'activada', recoveryCode: r.recoveryCode, aviso }
 }
 
