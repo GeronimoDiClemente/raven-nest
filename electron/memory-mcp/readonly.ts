@@ -37,12 +37,17 @@ export function esMetodoDeLectura(method: MemoryMethod): boolean {
 /**
  * Mensaje único para todo lo que necesita la app. Dice qué falta y qué hacer, en vez de un
  * error de transporte — quien lo lee es un agente que tiene que decidir si reintentar.
+ *
+ * No afirma que Nest esté cerrado: sin detectar procesos no se sabe, y con una Nest vieja
+ * abierta (sin Memories, p.ej. v1.5.1) "Nest is not running" era falso y mandaba a abrir algo
+ * que ya estaba abierto. Dice lo que sí se sabe —no contestó el servicio— y las dos causas.
  */
 export const SIN_APP =
-  'Nest is not running, so memory is read-only right now. Reading works — memory_search, ' +
-  'memory_context, memory_get and memory_graph all answer from disk. Saving, updating and ' +
-  'promoting need the Nest app open: it is what keeps the replicas in sync. Open Nest and try ' +
-  'again, or tell the user what you would have saved so it is not lost.'
+  "Couldn't reach Nest's memory service, so memory is read-only right now. Either Nest isn't " +
+  "open, or the Nest that's open is a version without Memories — update Nest to the latest " +
+  'version. Reading works — memory_search, memory_context, memory_get and memory_graph all ' +
+  'answer from disk. Saving, updating and promoting need Nest open: it is what keeps the ' +
+  'replicas in sync. Tell the user what you would have saved so it is not lost.'
 
 export class MemoryReadonlyClient {
   private db: BaseSqlite | null = null
@@ -63,8 +68,8 @@ export class MemoryReadonlyClient {
     const path = this.pathExplicito ?? readActivePointer(this.ravenHomeDir)?.storePath ?? null
     if (!path) {
       throw new Error(
-        'Nest is not running and no memory database was found for this machine. ' +
-        'Open Nest once so it can record which account is active.'
+        "Couldn't reach Nest's memory service and no memory database was found for this " +
+        'machine. Open a Nest version with Memories once so it can record which account is active.'
       )
     }
     try {

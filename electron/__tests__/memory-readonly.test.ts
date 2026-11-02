@@ -139,6 +139,17 @@ describe('MemoryReadonlyClient', () => {
     c.close()
   })
 
+  // Sin detectar procesos no se puede afirmar que Nest esté cerrado: con una Nest vieja abierta
+  // (v1.5.1, sin Memories) el mensaje "Nest is not running" era falso y mandaba a abrir algo que
+  // ya estaba abierto. Lo honesto es decir lo que sí se sabe y las dos causas posibles.
+  it('no afirma que Nest esté cerrado: nombra las dos causas y qué hacer con cada una', () => {
+    expect(SIN_APP).not.toMatch(/not running/i)
+    expect(SIN_APP).toMatch(/Couldn't reach Nest's memory service/)
+    expect(SIN_APP).toMatch(/Nest isn't open/)
+    expect(SIN_APP).toMatch(/version without Memories/)
+    expect(SIN_APP).toMatch(/update Nest to the latest version/)
+  })
+
   // Dos fallas distintas necesitan dos mensajes distintos. Antes las dos colapsaban en "no
   // encontré la base, abrí Nest una vez", que cuando el archivo SÍ está es mentira y manda a
   // hacer algo que no arregla nada. Pasó de verdad: con el binding nativo de better-sqlite3
@@ -162,6 +173,9 @@ describe('MemoryReadonlyClient', () => {
   it('sin puntero, lo dice en vez de inventar una base vacía', async () => {
     const c = new MemoryReadonlyClient(home)
     await expect(c.call('memory.graph', {})).rejects.toThrow(/no memory database was found/i)
+    await expect(c.call('memory.graph', {})).rejects.not.toThrow(/not running/i)
+    await expect(c.call('memory.graph', {})).rejects.toThrow(/Couldn't reach Nest's memory service/)
+    await expect(c.call('memory.graph', {})).rejects.toThrow(/Open a Nest version with Memories once/)
     c.close()
   })
 

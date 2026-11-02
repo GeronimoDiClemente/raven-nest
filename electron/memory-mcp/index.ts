@@ -11,9 +11,8 @@
 // Holds no state and no database handle. Every call is forwarded to the daemon in
 // Electron main over the local IPC channel (see client.ts, memory-ipc-server.ts).
 import { MemoryDaemonClient } from './client'
-import { MemoryReadonlyClient } from './readonly'
+import { elegirClienteDeMemoria } from './elegir-cliente'
 import { ravenHome } from '../raven-home'
-import type { MemoryMethod } from '../memory-protocol'
 import { runMcpServer, writeMessage, type ClienteDeMemoria } from './servidor'
 import { usarAbridorDeLecturaPorDefecto } from '../sqlite-motor'
 import { abrirSoloLecturaConBetterSqlite3 } from '../sqlite-better'
@@ -28,23 +27,26 @@ function env(name: string): string | undefined {
 }
 
 /**
- * Lo mínimo que el shim necesita para responder: el daemon si está, y si no, lectura directa
- * del disco.
+ * Lo mínimo que el shim necesita para responder: el daemon de una Nest viva si contesta, y si
+ * no, lectura directa del disco.
  *
- * Sin socket no se sale: degrada a sólo lectura y lo dice, para que quien se lleva el plugin a
- * otro editor sin Nest abierto no se quede sin memoria.
+ * Nest se busca igual que lo busca el paquete portátil (`elegir-cliente.ts`): las variables
+ * del pane primero, el `pipe-auth.json` después, y sólo cuenta quien contesta el `ping`. Así
+ * una sesión abierta fuera de un pane de Nest —Claude desktop, VS Code, Cursor— también guarda
+ * si Nest está abierto.
+ *
+ * Sin nadie que conteste no se sale: degrada a sólo lectura y lo dice, para que quien se lleva
+ * el plugin a otro editor sin Nest abierto no se quede sin memoria.
  */
-function resolverCliente(): { cliente: ClienteDeMemoria; conDaemon: boolean } {
-  const socket = env('NEST_MEMORY_SOCKET')
-  const token = env('NEST_MEMORY_TOKEN')
-  if (socket && token) {
-    return { cliente: new MemoryDaemonClient(socket, token), conDaemon: true }
+async function resolverCliente(): Promise<ClienteDeMemoria> {
+  const elegido = await elegirClienteDeMemoria(process.env, ravenHome(), process.platform === 'win32')
+  if (!elegido.conDaemon) {
+    console.error(
+      "[nest-memory] couldn't reach Nest's memory service (Nest isn't open, or it is a version " +
+      'without Memories) — read-only mode: search, read and the graph work; saving needs Nest'
+    )
   }
-  console.error(
-    '[nest-memory] no daemon (Nest is not open) — read-only mode: ' +
-    'search, read and the graph work; saving needs the app'
-  )
-  return { cliente: new MemoryReadonlyClient(ravenHome()), conDaemon: false }
+  return elegido.cliente
 }
 
 // ── MCP stdio server mode ────────────────────────────────────────────────────
@@ -133,7 +135,7 @@ async function main(): Promise<void> {
     await runHook(hookEvent)
     process.exit(0)
   } else {
-    await runMcpServer(resolverCliente().cliente, process.cwd())
+    await runMcpServer(await resolverCliente(), process.cwd())
   }
 }
 
