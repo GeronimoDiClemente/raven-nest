@@ -56,6 +56,7 @@ import { enrolarDesdeLogin } from './enrolamiento-desde-login'
 import { mensajeDeEnrolamiento, type ResultadoDeEnrolamiento } from './enrolamiento-del-paquete'
 import { servicioDelPaquete, avisoDeServicioDistinto } from './servicio-del-paquete'
 import { comando, NOMBRE_DEL_PAQUETE } from './nombre-del-paquete'
+import { webDelPaquete, abrirNavegador, iniciarVinculacion } from './vinculacion-web-del-paquete'
 
 /**
  * El motor: `node:sqlite`, que viene adentro de Node y no compila nada.
@@ -505,34 +506,28 @@ async function comandoLogin(): Promise<void> {
     return
   }
 
-  const inicio = await fetch(`${base}/v1/link/start`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
+  const arranque = await iniciarVinculacion({
+    base,
+    baseWeb: webDelPaquete(process.env.NEST_MEMORY_WEB_URL),
+    nombre: hostname(),
+    plataforma: process.platform,
+    env: process.env,
+    fetch,
+    abrir: (url) => abrirNavegador(url, process.platform),
+    imprimir: (linea) => console.log(linea),
+    tenue: e.tenue,
   })
-  if (!inicio.ok) {
-    console.error(`The sync service refused to start a link: HTTP ${inicio.status}`)
+  if (!arranque.ok) {
+    if (arranque.motivo === 'http') console.error(`The sync service refused to start a link: HTTP ${arranque.status}`)
+    else console.error('The sync service answered something this version does not understand.')
     salir(1)
   }
-  const arranque = (await inicio.json()) as {
-    user_code?: string; device_code?: string; expires_in?: number; interval?: number
-  }
-  if (!arranque.user_code || !arranque.device_code) {
-    console.error('The sync service answered something this version does not understand.')
-    salir(1)
-  }
-
-  console.log(`  Your code:  ${e.acento(arranque.user_code)}`)
-  console.log('')
-  console.log('  Open Nest on a machine where you are signed in, go to Memories, and type it')
-  console.log('  into Memory settings → "Add a machine that has no browser".')
-  console.log('')
   process.stdout.write('  Waiting…')
 
   let estado: EstadoDeLogin = {
-    intervaloMs: Math.max(1000, (arranque.interval ?? 2) * 1000),
+    intervaloMs: Math.max(1000, (arranque.intervaloSeg ?? 2) * 1000),
     esperaAcumuladaMs: 0,
-    venceEnMs: (arranque.expires_in ?? 600) * 1000,
+    venceEnMs: (arranque.venceEnSeg ?? 600) * 1000,
   }
 
   for (;;) {
@@ -541,7 +536,7 @@ async function comandoLogin(): Promise<void> {
     const respuesta = await fetch(`${base}/v1/link/poll`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_code: arranque.device_code, name: hostname(), platform: process.platform }),
+      body: JSON.stringify({ device_code: arranque.deviceCode, name: hostname(), platform: process.platform }),
     })
       .then(async (r) => interpretarRespuestaDePoll(r.status, await r.json().catch(() => null)))
       .catch(() => ({ status: 'sin-respuesta' as const }))
