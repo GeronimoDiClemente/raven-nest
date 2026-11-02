@@ -72,7 +72,9 @@ Lo que ya sirve sin Nest y se reusa: `/v1/link/approve` acepta cualquier JWT de 
 
 - **Migración 014:** `link_requests` suma `device_name text` y `platform text` (nullables;
   clientes viejos no los mandan). `/v1/link/start` los acepta (largo máximo 100, se recortan;
-  `platform` sólo de una lista conocida o null).
+  `platform` sólo de una lista conocida o null). Su límite (20 por hora) sigue siendo por IP:
+  detrás de un proxy, la IP sale de la entrada de más a la derecha de `X-Forwarded-For` sólo con
+  `TRUST_PROXY=1` (ver `server/README.md`); sin eso, la del socket.
 - **Ruta nueva `POST /v1/link/check`** (JWT de Supabase + `{ code }`): devuelve
   `{ device_name, platform, created_at, expires_at, expires_in, eligibility, plan }` con
   `eligibility ∈ ok | not_in_beta | plan_required | device_limit_reached`. `expires_in` son los
@@ -85,7 +87,10 @@ Lo que ya sirve sin Nest y se reusa: `/v1/link/approve` acepta cualquier JWT de 
   401 no gasta el cupo).
 - `/v1/link/approve` no cambia de contrato, pero aplica la red de seguridad del plan pago de
   Supabase (la misma que `registerDevice` con el JWT) antes de atar el pedido, para que el `ok`
-  de `check` y el reclamo coincidan.
+  de `check` y el reclamo coincidan. Si dos aprobaciones concurrentes pasan la escalera, la que
+  no llega a atar el pedido recibe 409 `already_approved` (nunca un `ok` para una máquina que
+  quedó en otra cuenta). Rate limit de 20 por hora por `userId` verificado, en un balde aparte
+  del de `check`.
 - **CORS** en `/v1/link/check` y `/v1/link/approve` (preflight `OPTIONS` incluido): origen
   permitido `https://nestmux.com` y, fuera de producción, `http://localhost:4321`; lista por
   env `LINK_WEB_ORIGINS`. Sólo `POST`, headers `authorization, content-type`, sin
