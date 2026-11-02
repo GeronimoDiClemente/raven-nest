@@ -10,6 +10,8 @@ import { guardarCredencial } from '../credencial-del-paquete'
 import { saveKeyMaterial } from '../memory-key-store'
 import { generateDeviceKeyPair } from '../memory-key-wrap'
 import { MemoryDaemon } from '../memory-daemon'
+import { abrirSoloLecturaConBetterSqlite3 } from '../sqlite-better'
+import { leerDatosDeUpgrade } from '../estado-de-sync-del-paquete'
 
 const safeFalso = (disponible = true) => ({
   isEncryptionAvailable: () => disponible,
@@ -101,6 +103,21 @@ describe('depsDelDaemonDelPaquete', () => {
     expect(subidas).toEqual([])
     expect(d.getStatusDetail()).toBe('needs_encryption_setup')
     d.stop()
+  })
+
+  it('guarda plan_required y device_limit para que `status` los vea sin red', () => {
+    const { deps } = armar()
+    const leer = () => {
+      const db = abrirSoloLecturaConBetterSqlite3(dbPath)
+      try { return leerDatosDeUpgrade(db).ultimoError } finally { db.close() }
+    }
+    deps.onStatusChange!('plan_required')
+    expect(leer()).toBe('plan_required')
+    deps.onStatusChange!('error', 'device_limit')
+    expect(leer()).toBe('device_limit_reached')
+    // Otros estados no pisan lo guardado: lo borra el daemon al sincronizar bien.
+    deps.onStatusChange!('syncing')
+    expect(leer()).toBe('device_limit_reached')
   })
 
   it('con la maestra hay sobre, con su época', () => {

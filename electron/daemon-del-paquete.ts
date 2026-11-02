@@ -22,6 +22,7 @@ import { loadKeyMaterial } from './memory-key-store'
 import { leerCredencial } from './credencial-del-paquete'
 import { deriveKeys, hmacTopicKey } from './memory-crypto'
 import { tomarCandadoDeSync, lockPathParaBase, candadoDepsDelProceso } from './memory-sync-lock'
+import { errorDeCuentaDelDaemon } from './estado-de-sync-del-paquete'
 
 export interface EntradaDelDaemonDelPaquete {
   store: MemoryStore
@@ -70,6 +71,13 @@ export function depsDelDaemonDelPaquete(e: EntradaDelDaemonDelPaquete): DaemonDe
     // Spec 2026-11-02: el paquete nunca sube sin maestra, tampoco con la cuenta en época 0.
     requireEncryption: () => true,
     adquirirCandado: () => tomarCandadoDeSync(lockPathParaBase(e.dbPath), candadoDepsDelProceso()),
+    // `status` no toca la red: lo que el daemon aprendió de un 403 (plan o tope de máquinas)
+    // queda en la base para que lo cuente. El daemon mismo lo vuelve a `null` en el próximo
+    // push o pull exitoso, así que el aviso se va solo cuando el problema se va.
+    onStatusChange: (status, detalle) => {
+      const error = errorDeCuentaDelDaemon(status, detalle)
+      if (error) e.store.setSyncState('__account__', { lastError: error })
+    },
     ...(e.fetchImpl ? { fetchImpl: e.fetchImpl } : {}),
   }
   return { deps, hayCuenta: !!e.baseUrl && !!credencial }

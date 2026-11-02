@@ -40,7 +40,7 @@ import { MemoryLocalClient } from './memory-mcp/local'
 import { MemoryDaemonClient } from './memory-mcp/client'
 import { buscarNestVivo } from './nest-vivo-del-paquete'
 import { ravenHome } from './raven-home'
-import { lineaDeSync, lineaDeEquipoRetenido } from './estado-de-sync-del-paquete'
+import { lineaDeSync, lineaDeEquipoRetenido, lineaDeUpgradeDeStatus, avisadorDeUpgradeDelMcp } from './estado-de-sync-del-paquete'
 import { armarDaemonDelPaquete } from './daemon-del-paquete'
 import { TEAM_KEY_HOLD_REASONS } from './memory-daemon'
 import { SyncDelMcp } from './sync-del-mcp'
@@ -56,7 +56,7 @@ import { enrolarDesdeLogin } from './enrolamiento-desde-login'
 import { mensajeDeEnrolamiento, type ResultadoDeEnrolamiento } from './enrolamiento-del-paquete'
 import { servicioDelPaquete, avisoDeServicioDistinto } from './servicio-del-paquete'
 import { comando, NOMBRE_DEL_PAQUETE } from './nombre-del-paquete'
-import { webDelPaquete, abrirNavegador, iniciarVinculacion } from './vinculacion-web-del-paquete'
+import { webDelPaquete, urlDeUpgrade, abrirNavegador, iniciarVinculacion } from './vinculacion-web-del-paquete'
 
 /**
  * El motor: `node:sqlite`, que viene adentro de Node y no compila nada.
@@ -243,6 +243,8 @@ async function comandoStatus(): Promise<void> {
       : enCola > 0 ? marcas.pendiente(e)
       : marcas.ok(e)
     console.log(fila(marcaDeSync, 'Sync', lineaDeSync({ modo: base.modo, enCola, hayCredencial, esperandoAutorizacion, necesitaActivarCifrado })))
+    const upgrade = lineaDeUpgradeDeStatus({ modo: base.modo, hayCredencial, db, urlUpgrade: urlDeUpgradeDelPaquete() })
+    if (upgrade) console.log(fila(marcas.aviso(e), 'Upgrade', upgrade))
     if (base.modo === 'propia' && hayCredencial && epocaConocida > 0) {
       console.log(fila(tieneMaestra ? marcas.ok(e) : marcas.aviso(e), 'Encrypted',
         tieneMaestra ? 'end to end — this machine holds the key' : 'end to end — this machine is not authorized yet'))
@@ -417,11 +419,19 @@ async function comandoMcp(): Promise<void> {
       store, dbPath: base.path, home: homedir(),
       baseUrl: urlDelServicio(credencial), safe: cifradoDelSistema(),
     })
-    const sync = new SyncDelMcp(daemon, hayCuenta)
+    // Por stderr: stdout es el protocolo.
+    const sync = new SyncDelMcp(daemon, hayCuenta, avisadorDeUpgradeDelMcp({
+      daemon, store, urlUpgrade: urlDeUpgradeDelPaquete(), imprimir: (linea) => console.error(linea),
+    }))
     sync.alArrancar()
     return () => sync.trasEscribir()
   })
   await runMcpServer(cliente, process.cwd())
+}
+
+/** `nestmux.com/upgrade`, o la del `NEST_MEMORY_WEB_URL` si está seteado. */
+function urlDeUpgradeDelPaquete(): string {
+  return urlDeUpgrade(webDelPaquete(process.env.NEST_MEMORY_WEB_URL))
 }
 
 /**

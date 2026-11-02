@@ -31,7 +31,12 @@ export class SyncDelMcp {
   /** Hay un push encolado que todavía no empezó: una escritura más no necesita otro. */
   private pushPendiente = false
 
-  constructor(private readonly s: SincronizadorSoltable, private readonly hayCuenta: boolean) {}
+  constructor(
+    private readonly s: SincronizadorSoltable,
+    private readonly hayCuenta: boolean,
+    /** Corre después de cada operación (y de soltar el candado): el MCP lo usa para avisar de un límite. */
+    private readonly alTerminar?: () => void,
+  ) {}
 
   /** El pull perezoso del arranque. No se espera: un agente puede leer lo que ya hay. */
   alArrancar(): void {
@@ -67,6 +72,11 @@ export class SyncDelMcp {
         console.error(`[nest-memory] sync: ${err instanceof Error ? err.message : String(err)}`)
       } finally {
         this.s.stop()
+        try {
+          this.alTerminar?.()
+        } catch {
+          // Un aviso que falla no puede romper la fila de sincronización.
+        }
       }
     })
   }

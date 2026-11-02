@@ -89,6 +89,25 @@ describe('SyncDelMcp', () => {
     expect(s.push).toHaveBeenCalledTimes(1)
   })
 
+  it('avisa al terminar cada operación, después de soltar el candado', async () => {
+    const { s, orden } = falso()
+    const sync = new SyncDelMcp(s, true, () => { orden.push('aviso') })
+    sync.alArrancar()
+    sync.trasEscribir()
+    await sync.enCurso()
+    expect(orden).toEqual(['pull', 'stop', 'aviso', 'push', 'stop', 'aviso'])
+  })
+
+  it('un aviso que tira no rompe la fila', async () => {
+    const { s } = falso()
+    const sync = new SyncDelMcp(s, true, () => { throw new Error('boom') })
+    sync.trasEscribir()
+    await sync.enCurso()
+    sync.trasEscribir()
+    await sync.enCurso()
+    expect(s.push).toHaveBeenCalledTimes(2)
+  })
+
   it('un push que falla no rompe al siguiente ni sube como excepción', async () => {
     const push = vi.fn()
       .mockRejectedValueOnce(new Error('sin red'))
