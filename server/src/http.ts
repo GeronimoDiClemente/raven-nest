@@ -19,6 +19,7 @@ import { aplicarPlan, leerAvisoDePlan, verificarFirmaDePlan } from './plan-sync'
 import { aplicarMembresias, leerAvisoDeMembresias } from './membership-sync'
 import { UUID_RE } from './uuid'
 import { cabecerasCors, origenesDeVinculacion } from './cors'
+import { ipDelCliente } from './ip-del-cliente'
 
 // El emisor del JWKS se arma UNA vez por URL y se guarda: cada instancia tiene su propio
 // caché, así que una por request no cachearía nada y saldría a Supabase en cada login.
@@ -85,7 +86,8 @@ const MAX_BODY_BYTES = 20 * 1024 * 1024
 const pushLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
 const pullLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
 // §9.2. El registro no lleva token de device (todavía no hay uno), así que la clave del
-// límite no puede ser el device: es la IP. Mucho más bajo que el de push/pull porque un
+// límite no puede ser el device: es la IP (`ipDelCliente`, que detrás del proxy necesita
+// `TRUST_PROXY=1`). Mucho más bajo que el de push/pull porque un
 // registro por máquina y por vida es lo normal — diez por hora ya es un bug o un abuso.
 const registerLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 60_000 })
 // Arrancar una vinculación no pide credenciales —es el punto: la máquina que la pide todavía
@@ -98,6 +100,10 @@ const linkLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 60_000 })
 // aprobación no tiene por qué gastarle el balde a otra. Va después del JWT, así que un 401 no
 // lo gasta; probar códigos al azar exige una cuenta, y cada cuenta tiene sus 20 por hora.
 const linkCheckLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 60_000 })
+// `approve` contesta con la misma escalera 404/400/409 que `check`: sin su propio balde
+// serviría para enumerar códigos salteando el de `check`. Mismos números, por cuenta, después
+// del JWT. Es un balde aparte para que aprobar no le gaste a la página el de `check`.
+const linkApproveLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 60_000 })
 /**
  * Las rutas de claves no tenian limitador y `publishWraps` es la operacion mas cara del
  * servicio: toma el advisory lock de la cuenta y el `for update` sobre `users` mientras
@@ -459,7 +465,7 @@ async function handleRegisterDevice(pool: Pool, req: IncomingMessage, res: Serve
     if (!login) return
     const { identity, jwt } = login
 
-    const verdict = registerLimiter.check(req.socket.remoteAddress ?? 'sin-ip')
+    const verdict = registerLimiter.check(ipDelCliente(req))
     if (!verdict.ok) {
       return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
     }
@@ -488,7 +494,7 @@ async function handleRegisterDevice(pool: Pool, req: IncomingMessage, res: Serve
 /** `POST /v1/link/start` — sin credenciales, porque quien llama todavía no tiene ninguna. */
 async function handleLinkStart(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
-    const verdict = linkLimiter.check(req.socket.remoteAddress ?? 'sin-ip')
+    const verdict = linkLimiter.check(ipDelCliente(req))
     if (!verdict.ok) {
       return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
     }
@@ -513,6 +519,11 @@ async function handleLinkApprove(pool: Pool, req: IncomingMessage, res: ServerRe
   try {
     const login = await loginDeSupabase(req, res, '/v1/link/approve')
     if (!login) return
+
+    const verdict = linkApproveLimiter.check(login.identity.userId)
+    if (!verdict.ok) {
+      return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
+    }
 
     const body = (await readBody(req)) as Record<string, unknown>
     const codigo = typeof body.user_code === 'string' ? body.user_code : ''

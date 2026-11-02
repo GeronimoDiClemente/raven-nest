@@ -180,11 +180,14 @@ export async function aprobarVinculacion(
   if (!r.ok) return r
 
   await aplicarPlanPagoDeSupabase(pool, identidad, supabaseJwt)
-  await pool.query(
+  const { rowCount } = await pool.query(
     `update link_requests set user_id = $1, email = $2, approved_at = to_timestamp($3 / 1000.0)
       where user_code = $4 and user_id is null`,
     [identidad.userId, identidad.email, ahora, r.pedido.userCode]
   )
+  // Otra aprobación concurrente pasó `pedidoPendiente` a la par y ató el pedido primero: ésta
+  // no puede contestar ok, porque la página diría "connected" con la máquina en otra cuenta.
+  if (rowCount === 0) return { ok: false, status: 409, error: 'already_approved' }
   return { ok: true }
 }
 

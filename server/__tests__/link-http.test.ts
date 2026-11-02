@@ -46,10 +46,10 @@ afterAll(async () => {
   await pool.end()
 })
 
-const post = (path: string, body: unknown, jwt?: string) =>
+const post = (path: string, body: unknown, jwt?: string, extra: Record<string, string> = {}) =>
   fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}), ...extra },
     body: JSON.stringify(body),
   })
 
@@ -82,6 +82,23 @@ describe('POST /v1/link/start', () => {
     const r = await fetch(`${base}/v1/link/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{roto' })
     expect(r.status).toBe(400)
   })
+
+  it('con TRUST_PROXY=1 el límite va por la IP que agrega el proxy, no por el socket compartido', async () => {
+    // Detrás del proxy de Railway todos llegan por el mismo socket: sin esto el balde de 20/h
+    // sería uno solo para todo el servicio, y cualquiera lo vaciaría con 20 curl.
+    process.env.TRUST_PROXY = '1'
+    try {
+      const desde = (xff: string) => post('/v1/link/start', {}, undefined, { 'X-Forwarded-For': xff })
+      for (let i = 0; i < 20; i++) expect((await desde(`10.9.9.${i}, 203.0.113.7`)).status).toBe(201)
+      // La izquierda la controla el cliente: cambiarla no le da un balde nuevo.
+      expect((await desde('1.2.3.4, 203.0.113.7')).status).toBe(429)
+      expect((await desde('203.0.113.7')).status).toBe(429)
+      // Otra persona detrás del mismo proxy tiene su balde intacto.
+      expect((await desde('203.0.113.8')).status).toBe(201)
+    } finally {
+      delete process.env.TRUST_PROXY
+    }
+  })
 })
 
 describe('POST /v1/link/approve', () => {
@@ -107,6 +124,24 @@ describe('POST /v1/link/approve', () => {
   it('un código que no existe da 404', async () => {
     const r = await post('/v1/link/approve', { user_code: 'ZZZZ-ZZZZ' }, jwtDe(userId, 'g@x.com'))
     expect(r.status).toBe(404)
+  })
+
+  it('el límite es por cuenta, 20 por hora, y un 401 no lo gasta', async () => {
+    // Sin esto `approve` servía para enumerar códigos con la misma escalera 404/400/409 que
+    // `check`, salteando el límite de `check`.
+    const otra = randomUUID()
+    for (let i = 0; i < 25; i++) {
+      expect((await post('/v1/link/approve', { user_code: 'ZZZZ-ZZZZ' }, jwtDe(otra, 'o@x.com', 'anon'))).status).toBe(401)
+    }
+    for (let i = 0; i < 20; i++) {
+      expect((await post('/v1/link/approve', { user_code: 'ZZZZ-ZZZZ' }, jwtDe(otra, 'o@x.com'))).status).toBe(404)
+    }
+    const res = await post('/v1/link/approve', { user_code: 'ZZZZ-ZZZZ' }, jwtDe(otra, 'o@x.com'))
+    expect(res.status).toBe(429)
+    expect((await res.json()).error).toBe('rate_limited')
+    expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0)
+    // Otra cuenta, misma IP: intacta.
+    expect((await post('/v1/link/approve', { user_code: 'ZZZZ-ZZZZ' }, jwtDe(userId, 'g@x.com'))).status).toBe(404)
   })
 })
 

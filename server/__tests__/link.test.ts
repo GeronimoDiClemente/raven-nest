@@ -152,6 +152,25 @@ describe('lo que tiene que fallar', () => {
     const { rows } = await pool.query('select user_id from link_requests where user_code = $1', [r.codigoDeUsuario])
     expect(rows[0].user_id).toBe(userId)
   })
+
+  it('dos aprobaciones CONCURRENTES de cuentas distintas: una ok y la otra already_approved', async () => {
+    // Las dos pueden pasar el chequeo de "sin dueño" antes de que la otra escriba. Si el
+    // `update` no ata nada, la perdedora no puede contestar ok: vería "connected" para una
+    // máquina que quedó en otra cuenta.
+    const otro = randomUUID()
+    const ahora = Date.now()
+    const r = await iniciarVinculacion(pool, ahora)
+    const resultados = await Promise.all([
+      aprobarVinculacion(pool, identidad(), r.codigoDeUsuario, ahora + 1000),
+      aprobarVinculacion(pool, { userId: otro, email: 'otro@x.com' }, r.codigoDeUsuario, ahora + 1000),
+    ])
+    const ok = resultados.filter((x) => x.ok)
+    const perdedoras = resultados.filter((x) => !x.ok)
+    expect(ok).toHaveLength(1)
+    expect(perdedoras).toEqual([{ ok: false, status: 409, error: 'already_approved' }])
+    const { rows } = await pool.query('select user_id from link_requests where user_code = $1', [r.codigoDeUsuario])
+    expect([userId, otro]).toContain(rows[0].user_id)
+  })
 })
 
 describe('los datos del pedido (spec login sin Nest §3)', () => {
