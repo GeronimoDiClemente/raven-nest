@@ -9,8 +9,8 @@
 // los mismos que usa Nest. Lo que falta del lado del paquete es distinguir dos situaciones
 // que `adoptExistingKey` colapsa en `null` y que para el usuario son opuestas:
 //
-// - **la cuenta no cifra** → no hay nada que esperar, y mostrar una huella acá manda a
-//   alguien a buscar un botón de autorizar que no existe;
+// - **la cuenta todavía no cifra** → conectar la activa (spec 2026-11-02): se guarda la maestra
+//   y se muestra el código de recuperación. «La cuenta no cifra» ya no es un estado final;
 // - **la cuenta cifra y esta máquina todavía no está autorizada** → hay que mostrar la huella
 //   y esperar.
 //
@@ -20,12 +20,14 @@
 import type { DeviceKeyPair } from './memory-key-wrap'
 import type { RemoteKeyState } from './memory-keys-client'
 import { comando } from './nombre-del-paquete'
+import { asegurarCifrado } from './asegurar-cifrado'
 
 export type ResultadoDeEnrolamiento =
   /** No hay llavero del sistema: no hay dónde guardar una maestra, así que no se pide. */
   | { estado: 'sin-llavero' }
-  /** La cuenta no tiene el cifrado activado. No hay nada que autorizar. */
-  | { estado: 'cuenta-sin-cifrado' }
+  /** La cuenta no cifraba: esta conexión lo activó. La maestra ya quedó guardada; el código
+   *  se muestra UNA vez y el servidor no puede regenerarlo. */
+  | { estado: 'activada'; keyEpoch: number; recoveryCode: string }
   /** Publicada la pública, falta que otra máquina autorice esta. */
   | { estado: 'esperando-autorizacion'; huella: string }
   /** Esta máquina puede leer lo cifrado. */
@@ -42,14 +44,22 @@ export interface DepsDeEnrolamiento {
   estadoRemoto: () => Promise<RemoteKeyState>
   desenvolver: (privateKey: string, wrapped: string) => Buffer
   huella: (publicKey: string) => string
+  /** Activa el cifrado de una cuenta en época 0 (`activateEncryption`). */
+  activar: (device: DeviceKeyPair) => Promise<{ master: string; keyEpoch: number; recoveryCode: string }>
 }
 
 export function mensajeDeEnrolamiento(resultado: ResultadoDeEnrolamiento): string[] {
   switch (resultado.estado) {
     case 'lista':
       return ['This machine can read your encrypted memory now.']
-    case 'cuenta-sin-cifrado':
-      return ['This account does not use encryption. Nothing else to do.']
+    case 'activada':
+      return [
+        "Encryption is on. Only you hold the key — we can't read your memory.",
+        '',
+        `  Recovery code:  ${resultado.recoveryCode}`,
+        '',
+        "Save this recovery code. It's the only way back in if you lose every machine. We can't recover it for you.",
+      ]
     case 'esperando-autorizacion':
       return [
         'This machine cannot read your encrypted memory yet.',
@@ -86,33 +96,42 @@ export async function enrolarEstaMaquina(d: DepsDeEnrolamiento): Promise<Resulta
   // muerta en la cuenta y al usuario esperando una autorización que no sirve para nada.
   if (!d.hayLlavero()) return { estado: 'sin-llavero' }
 
-  const propio = d.material()
   try {
-    const remoto = await d.estadoRemoto()
-    if (remoto.keyEpoch === 0) return { estado: 'cuenta-sin-cifrado' }
-
-    // La época tiene que coincidir, no alcanza con tener UNA maestra. Rotar sube la época y
-    // borra todas las envolturas; una máquina que se quedara con la vieja descifraría basura
-    // y concluiría que la base está corrupta, que es un diagnóstico mucho peor que el real.
-    if (propio.master && propio.keyEpoch === remoto.keyEpoch) {
-      return { estado: 'lista', keyEpoch: remoto.keyEpoch }
+    const propio = d.material()
+    const r = await asegurarCifrado({
+      material: () => propio,
+      // Enrolar es idempotente del lado del servidor: republicar la misma pública no rompe
+      // nada, y es lo que hace que una máquina que estuvo apagada durante una rotación vuelva
+      // sola a la cola de autorización.
+      adoptar: async (device) => {
+        await d.enrolar(device.publicKey)
+        const conSobre = await d.estadoRemoto()
+        if (conSobre.keyEpoch === 0 || !conSobre.wrap) return null
+        return { master: d.desenvolver(device.privateKey, conSobre.wrap.wrapped).toString('base64'), keyEpoch: conSobre.keyEpoch }
+      },
+      estadoRemoto: () => d.estadoRemoto(),
+      activar: (device) => d.activar(device),
+      huella: d.huella,
+    })
+    // La maestra se guarda ANTES de que el que llama muestre el código: si falla el guardado
+    // se dice (cae al catch), no se anuncia un cifrado que esta máquina no puede abrir.
+    switch (r.estado) {
+      case 'lista':
+        // `asegurarCifrado` ya comprueba que la época coincida; `nueva` distingue la maestra
+        // recién adoptada de la que ya estaba guardada.
+        if (r.nueva) d.guardarMaestra(r.master, r.keyEpoch)
+        return { estado: 'lista', keyEpoch: r.keyEpoch }
+      case 'activada':
+        d.guardarMaestra(r.master, r.keyEpoch)
+        return { estado: 'activada', keyEpoch: r.keyEpoch, recoveryCode: r.recoveryCode }
+      case 'esperando-autorizacion':
+        return { estado: 'esperando-autorizacion', huella: r.huella }
+      case 'sin-estado':
+        // Un error acá NO se traduce a «esperando autorización»: el usuario se quedaría
+        // mirando una huella y esperando a alguien que ya autorizó. Se dice qué falló.
+        return { estado: 'error', detalle: r.detalle }
     }
-
-    // Enrolar es idempotente del lado del servidor: republicar la misma pública no rompe
-    // nada, y es lo que hace que una máquina que estuvo apagada durante una rotación vuelva
-    // sola a la cola de autorización.
-    await d.enrolar(propio.device.publicKey)
-    const conSobre = await d.estadoRemoto()
-    if (!conSobre.wrap) {
-      return { estado: 'esperando-autorizacion', huella: d.huella(propio.device.publicKey) }
-    }
-
-    const maestra = d.desenvolver(propio.device.privateKey, conSobre.wrap.wrapped).toString('base64')
-    d.guardarMaestra(maestra, conSobre.keyEpoch)
-    return { estado: 'lista', keyEpoch: conSobre.keyEpoch }
   } catch (err) {
-    // Un error acá NO se traduce a «esperando autorización»: el usuario se quedaría mirando
-    // una huella y esperando a alguien que ya autorizó. Se dice que falló y por qué.
     return { estado: 'error', detalle: err instanceof Error ? err.message : String(err) }
   }
 }

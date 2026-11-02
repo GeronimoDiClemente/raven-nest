@@ -67,6 +67,8 @@ export function depsDelDaemonDelPaquete(e: EntradaDelDaemonDelPaquete): DaemonDe
     isOnline: () => true,
     getEnvelopeContext: () => envelope,
     isEncryptionExpected: () => e.store.knownKeyEpoch() > 0,
+    // Spec 2026-11-02: el paquete nunca sube sin maestra, tampoco con la cuenta en época 0.
+    requireEncryption: () => true,
     adquirirCandado: () => tomarCandadoDeSync(lockPathParaBase(e.dbPath), candadoDepsDelProceso()),
     ...(e.fetchImpl ? { fetchImpl: e.fetchImpl } : {}),
   }

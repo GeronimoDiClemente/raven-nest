@@ -22,7 +22,7 @@ function apiFalsa() {
 const entradaBase = {
   base: { modo: 'propia' as const, path: '/x/memory.db', nueva: false },
   cuentaConectada: false,
-  enrolamiento: { estado: 'cuenta-sin-cifrado' as const },
+  enrolamiento: { estado: 'sin-clave' as const },
   memorias: 120,
   ilegibles: 0,
 }

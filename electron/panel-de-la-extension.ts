@@ -20,6 +20,7 @@
 // 3. **Lo que no puede leer, lo dice.** Bajar filas cifradas y mostrarlas vacías —o peor, no
 //    mostrarlas— es el modo de falla que más confianza destruye.
 import type { DecisionDeBase } from './base-para-el-paquete'
+import { comando } from './nombre-del-paquete'
 import type { ResultadoDeEnrolamiento } from './enrolamiento-del-paquete'
 
 export type AccionDelPanel =
@@ -31,7 +32,8 @@ export type AccionDelPanel =
 export interface EntradaDelPanel {
   base: DecisionDeBase
   cuentaConectada: boolean
-  enrolamiento: ResultadoDeEnrolamiento
+  /** `sin-clave`: conectada pero sin material de claves — `login` todavía no activó el cifrado. */
+  enrolamiento: ResultadoDeEnrolamiento | { estado: 'sin-clave' }
   memorias: number
   /** Cuántas memorias hay que esta máquina no puede abrir. */
   ilegibles: number
@@ -85,9 +87,14 @@ export function estadoDelPanel(e: EntradaDelPanel): EstadoDelPanel {
       detalle = 'Saving, searching and reading what lives on this machine works exactly the same.'
       break
 
-    case 'cuenta-sin-cifrado':
-      titular = 'Connected.'
-      detalle = 'Your account does not encrypt memory, so there is nothing to authorize.'
+    case 'sin-clave':
+      titular = 'Connected, but encryption is not on yet.'
+      detalle = `Cloud sync is paused until you run \`${comando('login')}\` to turn it on.`
+      break
+
+    case 'activada':
+      titular = 'Encryption is on.'
+      detalle = 'Nothing to do.'
       break
 
     case 'esperando-autorizacion':

@@ -1,6 +1,6 @@
 import { enrolarEstaMaquina, type ResultadoDeEnrolamiento } from './enrolamiento-del-paquete'
 import { ensureKeyMaterial, saveKeyMaterial, type KeyMaterial, type SafeStorageLike } from './memory-key-store'
-import { enrollPublicKey, fetchKeyState, type KeysClientDeps } from './memory-keys-client'
+import { activateEncryption, enrollPublicKey, fetchKeyState, type KeysClientDeps } from './memory-keys-client'
 import { unwrapWithDevice, huellaDeClave } from './memory-key-wrap'
 
 export async function enrolarDesdeLogin(
@@ -22,6 +22,7 @@ export async function enrolarDesdeLogin(
       estadoRemoto: () => fetchKeyState(cliente),
       desenvolver: unwrapWithDevice,
       huella: huellaDeClave,
+      activar: (device) => activateEncryption(cliente, device),
     })
   } catch (err) {
     // La credencial ya está guardada. También las fallas al abrir el llavero o preparar

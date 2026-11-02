@@ -28,6 +28,11 @@ describe('lineaDeSync', () => {
     expect(linea).not.toMatch(/next time an agent saves/)
   })
 
+  it('cuenta sin cifrado activado: dice que la nube está en pausa y cómo activarlo', () => {
+    const linea = lineaDeSync({ ...base, enCola: 2, necesitaActivarCifrado: true })
+    expect(linea).toBe('Cloud sync is paused until encryption is on. Run `npx @nestmux/memory login` to turn it on.')
+  })
+
   it('conectado: la cola, o que está todo arriba', () => {
     expect(lineaDeSync({ ...base, enCola: 5 })).toMatch(/^Connected — 5 changes waiting to sync/)
     expect(lineaDeSync(base)).toBe('Connected — everything is synced.')

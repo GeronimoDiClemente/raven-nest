@@ -56,11 +56,19 @@ describe('el enrolamiento cableado al login', () => {
     })
   })
 
-  it('sin cifrado no pide autorización ni guarda una maestra', async () => {
+  it('sin cifrado en la cuenta, lo activa y guarda la maestra con el código a la vista', async () => {
     const remoto = cliente(0)
-    expect(await enrolarDesdeLogin('/home/prueba', safe, remoto)).toEqual({ estado: 'cuenta-sin-cifrado' })
-    expect(remoto.fetchImpl).toHaveBeenCalledTimes(1)
-    expect(saveKeyMaterial).not.toHaveBeenCalled()
+    remoto.fetchImpl.mockImplementation(async (url) => {
+      const u = String(url)
+      if (u.endsWith('/v1/keys') ) return new Response(JSON.stringify({ keyEpoch: 0, wrap: null, devices: [] }), { status: 200 })
+      return new Response(JSON.stringify({ keyEpoch: 1 }), { status: 200 })
+    })
+    const r = await enrolarDesdeLogin('/home/prueba', safe, remoto)
+    expect(r.estado).toBe('activada')
+    if (r.estado !== 'activada') return
+    expect(r.keyEpoch).toBe(1)
+    expect(r.recoveryCode).toBeTruthy()
+    expect(saveKeyMaterial).toHaveBeenCalledWith('/home/prueba', null, safe, expect.objectContaining({ keyEpoch: 1 }))
   })
 
   it('sin llavero no prepara claves ni toca la red', async () => {
@@ -101,11 +109,6 @@ describe('mensajes de enrolamiento', () => {
   it('confirma que puede leer lo cifrado sólo cuando está lista', () => {
     expect(mensajeDeEnrolamiento({ estado: 'lista', keyEpoch: 3 }))
       .toEqual(['This machine can read your encrypted memory now.'])
-  })
-
-  it('si la cuenta no cifra, no manda a autorizar nada', () => {
-    expect(mensajeDeEnrolamiento({ estado: 'cuenta-sin-cifrado' }))
-      .toEqual(['This account does not use encryption. Nothing else to do.'])
   })
 
   it('muestra siempre la huella pendiente y ofrece autorizar antes que recuperar', () => {

@@ -9,6 +9,7 @@ import { depsDelDaemonDelPaquete } from '../daemon-del-paquete'
 import { guardarCredencial } from '../credencial-del-paquete'
 import { saveKeyMaterial } from '../memory-key-store'
 import { generateDeviceKeyPair } from '../memory-key-wrap'
+import { MemoryDaemon } from '../memory-daemon'
 
 const safeFalso = (disponible = true) => ({
   isEncryptionAvailable: () => disponible,
@@ -72,6 +73,34 @@ describe('depsDelDaemonDelPaquete', () => {
     expect(deps.isEncryptionExpected!()).toBe(false)
     store.rememberKeyEpoch(3)
     expect(deps.isEncryptionExpected!()).toBe(true)
+  })
+
+  it('exige cifrado: en época 0 y sin maestra no sube nada (needs_encryption_setup)', async () => {
+    // Spec 2026-11-02 §2: antes, una cuenta sin cifrado subía en claro desde el paquete.
+    guardarCredencial(home, safeFalso(), { token: 'nmk_x', deviceId: 'd-1' })
+    saveKeyMaterial(home, null, safeFalso(), { device: generateDeviceKeyPair(), master: null, keyEpoch: 0 })
+    store.ensureProject({ projectKey: 'proj1', displayName: 'p' })
+    store.save({ projectKey: 'proj1', scope: 'personal', type: 'decision', title: 'secreto', content: 'cuerpo', source: 'mcp' })
+    const subidas: string[] = []
+    const fetchImpl = (async (url: string) => {
+      const ok = (j: unknown) => ({ ok: true, status: 200, json: async () => j } as unknown as Response)
+      if (String(url).includes('/status')) {
+        return ok({ device_id: 'd-1', user_id: 'u', plan: 'cloud', next_poll_ms: 300_000,
+          quota: { used_bytes: 0, max_bytes: 1_000_000 }, projects: [], key_epoch: 0, plaintext_pending: 0 })
+      }
+      if (String(url).includes('/pull')) return ok({ rows: [], cursors: {} })
+      subidas.push(String(url))
+      return ok({ results: [] })
+    }) as unknown as typeof fetch
+    const { deps } = depsDelDaemonDelPaquete({
+      store, dbPath, home, baseUrl: 'https://sync.example', safe: safeFalso(), fetchImpl,
+    })
+    expect(deps.requireEncryption!()).toBe(true)
+    const d = new MemoryDaemon(deps)
+    await d.push()
+    expect(subidas).toEqual([])
+    expect(d.getStatusDetail()).toBe('needs_encryption_setup')
+    d.stop()
   })
 
   it('con la maestra hay sobre, con su época', () => {

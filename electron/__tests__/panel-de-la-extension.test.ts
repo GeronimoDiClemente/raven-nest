@@ -4,7 +4,7 @@ import { estadoDelPanel, type EntradaDelPanel } from '../panel-de-la-extension'
 const base: EntradaDelPanel = {
   base: { modo: 'propia', path: '/home/x/.nest-memory/memory.db', nueva: false },
   cuentaConectada: false,
-  enrolamiento: { estado: 'cuenta-sin-cifrado' },
+  enrolamiento: { estado: 'sin-clave' },
   memorias: 120,
   ilegibles: 0,
 }
@@ -67,6 +67,14 @@ describe('estadoDelPanel', () => {
     expect(p.titular).toMatch(/keyring|keychain/i)
     expect(p.detalle).toMatch(/this machine/i)
     expect(p.detalle).toMatch(/same|works/i)
+    expect(p.acciones).not.toContain('copiar-huella')
+  })
+
+  it('conectada pero sin clave: dice que la nube está en pausa y no ofrece huella', () => {
+    const p = con({ cuentaConectada: true, enrolamiento: { estado: 'sin-clave' } })
+    expect(p.titular).toMatch(/encryption is not on/i)
+    expect(p.detalle).toMatch(/login/)
+    expect(p.huella).toBeNull()
     expect(p.acciones).not.toContain('copiar-huella')
   })
 

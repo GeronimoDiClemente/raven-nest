@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { enrolarEstaMaquina, type DepsDeEnrolamiento } from '../enrolamiento-del-paquete'
+import { enrolarEstaMaquina, mensajeDeEnrolamiento, type DepsDeEnrolamiento } from '../enrolamiento-del-paquete'
 
 const DEVICE = { publicKey: 'pub-de-esta', privateKey: 'priv-de-esta' }
 
@@ -12,6 +12,7 @@ function deps(over: Partial<DepsDeEnrolamiento> = {}): DepsDeEnrolamiento {
     estadoRemoto: vi.fn(async () => ({ keyEpoch: 0, wrap: null, devices: [] })),
     desenvolver: () => Buffer.from('la-maestra'),
     huella: (pub: string) => `HUELLA(${pub})`,
+    activar: vi.fn(async () => ({ master: 'M', keyEpoch: 1, recoveryCode: 'CODE-1' })),
     ...over,
   }
 }
@@ -28,11 +29,28 @@ describe('enrolarEstaMaquina', () => {
     expect(d.estadoRemoto).not.toHaveBeenCalled()
   })
 
-  it('si la cuenta no cifra, lo dice y NO muestra una huella', async () => {
-    // Mostrar "autorizá esta máquina" cuando no hay nada que autorizar manda al usuario a
-    // buscar un botón que no existe.
-    const r = await enrolarEstaMaquina(deps())
-    expect(r).toEqual({ estado: 'cuenta-sin-cifrado' })
+  it('cuenta en época 0: activa, guarda la maestra y devuelve el código', async () => {
+    // Spec 2026-11-02: conectar activa el cifrado. La maestra se guarda ANTES de que el
+    // usuario confirme `saved`: si corta con Ctrl+C la clave ya está en el llavero.
+    const guardarMaestra = vi.fn()
+    const r = await enrolarEstaMaquina(deps({
+      guardarMaestra,
+      estadoRemoto: vi.fn(async () => ({ keyEpoch: 0, wrap: null, devices: [] })),
+      activar: vi.fn(async () => ({ master: 'M', keyEpoch: 1, recoveryCode: 'CODE-1' })),
+    }))
+    expect(r).toEqual({ estado: 'activada', keyEpoch: 1, recoveryCode: 'CODE-1' })
+    expect(guardarMaestra).toHaveBeenCalledWith('M', 1)
+  })
+
+  it('si no puede guardar la maestra recién activada, lo informa como error', async () => {
+    const r = await enrolarEstaMaquina(deps({ guardarMaestra: () => { throw new Error('Disk full') } }))
+    expect(r).toEqual({ estado: 'error', detalle: 'Disk full' })
+  })
+
+  it('el mensaje de activada muestra el código y el aviso de pérdida', () => {
+    const lineas = mensajeDeEnrolamiento({ estado: 'activada', keyEpoch: 1, recoveryCode: 'CODE-1' }).join('\n')
+    expect(lineas).toContain('CODE-1')
+    expect(lineas).toContain("We can't recover it for you.")
   })
 
   it('si la cuenta cifra y todavía no hay envoltura, espera y muestra la huella', async () => {

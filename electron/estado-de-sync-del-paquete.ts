@@ -13,6 +13,9 @@ export function lineaDeSync(e: {
   /** La cuenta cifra y esta máquina todavía no tiene la maestra: el push está frenado (el
    *  gate fail-closed del daemon) hasta que la autoricen. */
   esperandoAutorizacion?: boolean
+  /** La cuenta todavía no cifra y esta máquina no tiene maestra: el push está frenado
+   *  (`needs_encryption_setup`) hasta que `login` active el cifrado. */
+  necesitaActivarCifrado?: boolean
 }): string {
   const cambios = `${e.enCola} ${e.enCola === 1 ? 'change' : 'changes'}`
   // La base de Nest la sincroniza Nest: el paquete no la sube con su credencial porque
@@ -29,6 +32,9 @@ export function lineaDeSync(e: {
   // así que "sin servicio configurado" no es un estado alcanzable acá.
   // Va ANTES de la cola normal: con la cuenta cifrada y sin la maestra no sube nada, así que
   // prometer que sube «la próxima vez» deja al usuario esperando algo que no va a pasar.
+  if (e.necesitaActivarCifrado) {
+    return `Cloud sync is paused until encryption is on. Run \`${comando('login')}\` to turn it on.`
+  }
   if (e.esperandoAutorizacion) {
     return `Connected — ${cambios} held until this machine is authorized to encrypt. ` +
       `Run \`${comando('login')}\` to see its fingerprint.`

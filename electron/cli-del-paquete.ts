@@ -53,7 +53,7 @@ import { ensureKeyMaterial, saveKeyMaterial, loadKeyMaterial } from './memory-ke
 import { recoverWithCode } from './memory-keys-client'
 import { normalizeRecoveryCode } from './memory-key-wrap'
 import { enrolarDesdeLogin } from './enrolamiento-desde-login'
-import { mensajeDeEnrolamiento } from './enrolamiento-del-paquete'
+import { mensajeDeEnrolamiento, type ResultadoDeEnrolamiento } from './enrolamiento-del-paquete'
 import { servicioDelPaquete, avisoDeServicioDistinto } from './servicio-del-paquete'
 import { comando, NOMBRE_DEL_PAQUETE } from './nombre-del-paquete'
 
@@ -235,11 +235,13 @@ async function comandoStatus(): Promise<void> {
     } catch { /* una base sin `meta` todavía no vio ningún status */ }
     const tieneMaestra = Boolean(loadKeyMaterial(homedir(), null, safe)?.master)
     const esperandoAutorizacion = hayCredencial && epocaConocida > 0 && !tieneMaestra
+    // Época 0 y sin maestra: el daemon no sube (`needs_encryption_setup`) hasta que `login` active.
+    const necesitaActivarCifrado = hayCredencial && epocaConocida === 0 && !tieneMaestra
     const marcaDeSync = !hayCredencial && base.modo === 'propia' ? marcas.nada(e)
-      : esperandoAutorizacion ? marcas.aviso(e)
+      : esperandoAutorizacion || necesitaActivarCifrado ? marcas.aviso(e)
       : enCola > 0 ? marcas.pendiente(e)
       : marcas.ok(e)
-    console.log(fila(marcaDeSync, 'Sync', lineaDeSync({ modo: base.modo, enCola, hayCredencial, esperandoAutorizacion })))
+    console.log(fila(marcaDeSync, 'Sync', lineaDeSync({ modo: base.modo, enCola, hayCredencial, esperandoAutorizacion, necesitaActivarCifrado })))
     if (base.modo === 'propia' && hayCredencial && epocaConocida > 0) {
       console.log(fila(tieneMaestra ? marcas.ok(e) : marcas.aviso(e), 'Encrypted',
         tieneMaestra ? 'end to end — this machine holds the key' : 'end to end — this machine is not authorized yet'))
@@ -457,6 +459,23 @@ function exigirLlavero(): ReturnType<typeof cifradoDelSistema> {
   return safe
 }
 
+/** Spec 2026-11-02 §5: con el código en pantalla, no se termina hasta que el usuario escriba
+ * `saved`. Ctrl+C sale igual: la maestra ya quedó en el llavero y el código se puede regenerar
+ * desde Nest (Memory settings → Encryption → New recovery code). El código sólo va a la
+ * terminal: nunca a un archivo ni a un log. */
+async function mostrarEnrolamiento(resultado: ResultadoDeEnrolamiento): Promise<void> {
+  for (const linea of mensajeDeEnrolamiento(resultado)) console.log(linea)
+  if (resultado.estado !== 'activada') return
+  for (;;) {
+    console.log('')
+    console.log('  Type "saved" once you have stored it, then press enter.')
+    if ((await leerUnaLinea()).trim().toLowerCase() === 'saved') return
+    // Sin terminal (stdin cerrado) no hay quien escriba `saved`: repetir el aviso sería un
+    // bucle infinito. La maestra ya está en el llavero; se sale.
+    if (process.stdin.readableEnded) return
+  }
+}
+
 /** `login`: conectar esta máquina a tu cuenta, sin abrir un navegador acá. */
 async function comandoLogin(): Promise<void> {
   const safe = exigirLlavero()
@@ -477,9 +496,9 @@ async function comandoLogin(): Promise<void> {
     // token. Se persiste ACÁ,
     // una sola vez, el valor que se está por usar — no hace falta que el usuario lo pida.
     if (!existente.baseUrl) guardarCredencial(homedir(), safe, { ...existente, baseUrl: base })
-    for (const linea of mensajeDeEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
+    await mostrarEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
       ...existente, baseUrl: base,
-    }))) console.log(linea)
+    }))
     return
   }
 
@@ -529,9 +548,9 @@ async function comandoLogin(): Promise<void> {
     if (paso.accion === 'listo') {
       guardarCredencial(homedir(), safe, { token: paso.token, deviceId: paso.deviceId, baseUrl: base })
       console.log(`\n\n${fila(marcas.ok(e), 'Connected', 'your credential is saved in the system keyring')}`)
-      for (const linea of mensajeDeEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
+      await mostrarEnrolamiento(await enrolarDesdeLogin(homedir(), safe, {
         baseUrl: base, token: paso.token, deviceId: paso.deviceId,
-      }))) console.log(linea)
+      }))
       return
     }
     if (paso.accion === 'cortar') {
@@ -594,13 +613,23 @@ async function comandoRecover(): Promise<void> {
 function leerUnaLinea(): Promise<string> {
   return new Promise((resolve) => {
     let datos = ''
-    process.stdin.setEncoding('utf8')
-    process.stdin.on('data', (chunk) => {
+    const terminar = (linea: string) => {
+      process.stdin.off('data', alLeer)
+      process.stdin.off('end', alCerrar)
+      process.stdin.pause()
+      resolve(linea)
+    }
+    const alLeer = (chunk: string) => {
       datos += chunk
       const corte = datos.indexOf('\n')
-      if (corte !== -1) { process.stdin.pause(); resolve(datos.slice(0, corte)) }
-    })
-    process.stdin.on('end', () => resolve(datos))
+      if (corte !== -1) terminar(datos.slice(0, corte))
+    }
+    const alCerrar = () => terminar(datos)
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', alLeer)
+    process.stdin.on('end', alCerrar)
+    // Una segunda lectura (el bucle de `saved`) llega con el stream pausado por la primera.
+    process.stdin.resume()
   })
 }
 

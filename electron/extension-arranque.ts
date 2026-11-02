@@ -83,10 +83,10 @@ async function leerEstado(): Promise<EntradaDelPanel> {
  * Lo que se puede saber del cifrado SIN preguntarle al servicio.
  *
  * Hay un caso que offline no se distingue: una máquina conectada, con llavero y sin clave
- * maestra puede ser una que espera autorización, o una cuya cuenta simplemente no cifra. Se
- * elige `esperando-autorizacion` porque es lo correcto cuando la cuenta SÍ cifra —que es el
- * caso que importa, el que necesita una acción— y cuando no cifra, lo peor que pasa es que se
- * muestre una huella que no hacía falta. La alternativa era bloquear el arranque del editor
+ * maestra puede ser una que espera autorización, o una cuya cuenta todavía no cifra y que
+ * `login` va a activar. Se elige `esperando-autorizacion` porque es lo correcto cuando la
+ * cuenta SÍ cifra —que es el caso que importa, el que necesita una acción— y cuando no, lo
+ * peor que pasa es que se muestre una huella que no hacía falta. La alternativa era bloquear el arranque del editor
  * contra la red, y eso es peor que mostrar de más.
  */
 function enrolamientoOffline(
@@ -96,8 +96,9 @@ function enrolamientoOffline(
   if (!hayLlavero) return { estado: 'sin-llavero' }
   if (material?.master) return { estado: 'lista', keyEpoch: material.keyEpoch }
   if (material?.device) return { estado: 'esperando-autorizacion', huella: huellaDeClave(material.device.publicKey) }
-  // Sin material de claves todavía no hay nada que autorizar: se genera cuando se necesita.
-  return { estado: 'cuenta-sin-cifrado' }
+  // Sin material de claves, `login` todavía no activó el cifrado (spec 2026-11-02): la nube
+  // está en pausa hasta entonces.
+  return { estado: 'sin-clave' }
 }
 
 /** Lo que el `.vsix` le pasa a `activar`. `editorId` distingue VS Code de Cursor. */
