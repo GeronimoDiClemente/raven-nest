@@ -90,7 +90,9 @@ describe('status — plaintext_pending', () => {
     ['content_hash', { content_hash: 'plainhash' }],
     ['origin_account', { origin_account: 'plain@x.com' }],
     ['git_branch', { git_branch: 'main' }],
-    ['tags con 2 elementos (uno sellado)', { tags: ['nmc1:CCCC', 'nmc1:HHHH'] }],
+    // Los tags viajan en UN solo sobre: un array de 2 no es el formato sellado, aunque cada elemento lleve el prefijo (push.ts `viajaSellado`).
+    ['tags en 2 sobres (no es el formato de un único sobre)', { tags: ['nmc1:CCCC', 'nmc1:HHHH'] }],
+    ['tags con un sobre y un elemento en claro', { tags: ['nmc1:CCCC', 'plain'] }],
     ['tags con 1 elemento en claro', { tags: ['plain'] }],
   ]
   it.each(CASOS)('un solo campo en claro cuenta 1: %s', async (nombre, campo) => {
