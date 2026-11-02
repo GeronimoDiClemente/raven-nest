@@ -1,6 +1,7 @@
 import { createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, verify, type JsonWebKey } from 'node:crypto'
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 import { hashToken } from './auth'
+import { veredictoDeElegibilidad, type Elegibilidad } from './elegibilidad'
 import { PLANES_PAGOS } from './plan-sync'
 import { UUID_RE } from './uuid'
 
@@ -227,25 +228,10 @@ export async function registerDevice(
   try {
     await client.query('begin')
 
-    // El email se refresca en cada registro (el usuario pudo cambiarlo en Supabase); el
-    // plan no se toca, porque acá no lo sabemos y pisarlo con 'free' degradaría a un pago.
-    await client.query(
-      `insert into users (id, email) values ($1, $2)
-       on conflict (id) do update set email = coalesce(excluded.email, users.email)`,
-      [identity.userId, identity.email]
-    )
-
-    if (planPago) {
-      // Sólo sube (D4): se escribe si el plan actual NO es pago. Un `enterprise` o `team`
-      // puesto a mano no lo pisa un `cloud` leído de Supabase.
-      await client.query(
-        `update users set plan = $2 where id = $1 and plan <> all($3::text[])`,
-        [identity.userId, planPago, [...PLANES_PAGOS]]
-      )
-      // Pagar te mete en la beta (decisión 5) ANTES del chequeo: alguien que pagó y perdió el
-      // aviso del webhook no recibe `not_in_beta`.
-      await client.query('insert into allowlist (user_id) values ($1) on conflict do nothing', [identity.userId])
-    }
+    await asegurarUsuario(client, identity)
+    // Pagar te mete en la beta (decisión 5) ANTES del chequeo: alguien que pagó y perdió el
+    // aviso del webhook no recibe `not_in_beta`.
+    if (planPago) await escribirPlanPago(client, identity.userId, planPago)
 
     const { rows: permitido } = await client.query(
       'select 1 from allowlist where user_id = $1',
@@ -386,7 +372,7 @@ export async function fetchPlanDeSupabase(
  * `null` y el registro sigue exactamente como antes. Sólo devuelve planes PAGOS: un `free`
  * leído no se usa nunca (la red de seguridad sólo sube; bajar es trabajo del webhook).
  */
-async function planPagoDeSupabase(userId: string, supabaseJwt: string | undefined): Promise<string | null> {
+export async function planPagoDeSupabase(userId: string, supabaseJwt: string | undefined): Promise<string | null> {
   const supabaseUrl = process.env.SUPABASE_URL
   const anonKey = process.env.SUPABASE_ANON_KEY
   if (!supabaseUrl || !anonKey || !supabaseJwt) return null
@@ -397,6 +383,105 @@ async function planPagoDeSupabase(userId: string, supabaseJwt: string | undefine
     console.warn('[devices] no se pudo leer el plan de Supabase', err)
     return null
   }
+}
+
+/**
+ * El email se refresca en cada registro (el usuario pudo cambiarlo en Supabase); el plan no se
+ * toca, porque acá no lo sabemos y pisarlo con 'free' degradaría a un pago.
+ */
+async function asegurarUsuario(client: PoolClient, identity: JwtIdentity): Promise<void> {
+  await client.query(
+    `insert into users (id, email) values ($1, $2)
+     on conflict (id) do update set email = coalesce(excluded.email, users.email)`,
+    [identity.userId, identity.email]
+  )
+}
+
+/**
+ * La red de seguridad del plan pago, escrita: sube el plan y mete en la allowlist. El usuario
+ * ya tiene que existir (`asegurarUsuario`).
+ *
+ * Sólo sube (D4): se escribe si el plan actual NO es pago. Un `enterprise` o `team` puesto a
+ * mano no lo pisa un `cloud` leído de Supabase.
+ */
+async function escribirPlanPago(client: PoolClient, userId: string, planPago: string): Promise<void> {
+  await client.query(
+    `update users set plan = $2 where id = $1 and plan <> all($3::text[])`,
+    [userId, planPago, [...PLANES_PAGOS]]
+  )
+  await client.query('insert into allowlist (user_id) values ($1) on conflict do nothing', [userId])
+}
+
+/**
+ * La red de seguridad del plan pago de `registerDevice`, sola: si Supabase dice que la cuenta
+ * paga, se escribe el plan y la allowlist exactamente como lo haría un registro con JWT. Si no
+ * paga (o no hay JWT, o Supabase no contesta) no escribe nada.
+ *
+ * La usa `/v1/link/approve`, que es el último paso con el JWT del usuario: el claim que emite
+ * el token corre en la otra máquina y llama a `registerDevice` SIN JWT. Sin esto, `check`
+ * decía `ok` gracias a Supabase y el claim devolvía `not_in_beta` (Ruling P1).
+ */
+export async function aplicarPlanPagoDeSupabase(
+  pool: Pool,
+  identity: JwtIdentity,
+  supabaseJwt: string | undefined
+): Promise<void> {
+  const planPago = await planPagoDeSupabase(identity.userId, supabaseJwt)
+  if (!planPago) return
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    await asegurarUsuario(client, identity)
+    await escribirPlanPago(client, identity.userId, planPago)
+    await client.query('commit')
+  } catch (err) {
+    await client.query('rollback').catch(() => { /* la conexión ya puede estar rota */ })
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/** Lo que `/v1/link/check` le dice a la página de una máquina nueva. */
+export interface EstadoDeMaquinaNueva {
+  eligibility: Elegibilidad
+  /** El plan efectivo de la cuenta, con la red de Supabase aplicada: la página adapta el copy. */
+  plan: string
+}
+
+/**
+ * Spec login-y-compra-sin-nest §3: lo que `registerDevice` + `authenticate` le harían a una
+ * máquina NUEVA de esta cuenta, sin crear nada — ni `users`, ni allowlist, ni token.
+ *
+ * La red de seguridad del plan pago se aplica igual que en `registerDevice`, pero en memoria:
+ * un plan pago leído de Supabase sube a uno que no lo es y cuenta como beta (pagar te mete en
+ * la allowlist, decisión 5). El test de acuerdo de `link-check.test.ts` compara esto contra
+ * registrar y autenticar de verdad.
+ */
+export async function elegibilidadDeMaquinaNueva(
+  pool: Pool,
+  identity: JwtIdentity,
+  supabaseJwt?: string
+): Promise<EstadoDeMaquinaNueva> {
+  const planPago = await planPagoDeSupabase(identity.userId, supabaseJwt)
+  const { rows } = await pool.query(
+    `select u.plan,
+            exists (select 1 from allowlist a where a.user_id = $1) as allowed,
+            (select count(*)::int from devices d where d.user_id = $1 and d.revoked_at is null) as vivas
+       from (select 1) as uno
+       left join users u on u.id = $1`,
+    [identity.userId]
+  )
+  const fila = rows[0] as { plan: string | null; allowed: boolean; vivas: number }
+  // Una cuenta que el servicio no conoce entraría como `free` (el default de `users.plan`).
+  const planGuardado = fila.plan ?? 'free'
+  const plan = planPago && !PLANES_PAGOS.has(planGuardado) ? planPago : planGuardado
+  const eligibility = veredictoDeElegibilidad({
+    enAllowlist: fila.allowed || planPago !== null,
+    plan,
+    maquinasPrevias: fila.vivas,
+  })
+  return { eligibility, plan }
 }
 
 /**

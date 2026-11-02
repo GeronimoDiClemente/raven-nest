@@ -15,7 +15,8 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import type { Pool } from 'pg'
 import { hashToken } from './auth'
-import { registerDevice, type JwtIdentity } from './devices'
+import { registerDevice, elegibilidadDeMaquinaNueva, aplicarPlanPagoDeSupabase, type JwtIdentity } from './devices'
+import type { Elegibilidad } from './elegibilidad'
 
 /**
  * El alfabeto del código que ve el usuario.
@@ -106,39 +107,129 @@ export async function iniciarVinculacion(
   return { codigoDeUsuario, codigoDeDispositivo, venceEn: VIGENCIA_MS, intervalo: INTERVALO_MS }
 }
 
-export type ResultadoDeAprobar =
-  | { ok: true }
-  | { ok: false; status: 400 | 404 | 409; error: 'unknown_code' | 'expired' | 'already_approved' }
+/** Cómo se busca un código que alguien tipeó: sin espacios alrededor y en mayúsculas. */
+export function limpiarCodigoDeUsuario(codigo: string): string {
+  return codigo.trim().toUpperCase()
+}
+
+/** Los tres "no" de un código tipeado, compartidos por `approve` y `check`. */
+type CodigoNoUsable = { ok: false; status: 400 | 404 | 409; error: 'unknown_code' | 'expired' | 'already_approved' }
+
+interface PedidoPendiente {
+  userCode: string
+  deviceName: string | null
+  platform: string | null
+  createdAt: Date
+  expiresAt: Date
+}
+
+/**
+ * Busca el pedido de un código tipeado y lo deja pasar sólo si sigue vivo y sin dueño. Una
+ * sola escalera (404, 400, 409, en ese orden) para `approve` y `check`: así una página que
+ * consulta y después aprueba nunca ve dos respuestas distintas para el mismo código.
+ */
+async function pedidoPendiente(
+  pool: Pool,
+  codigoDeUsuario: string,
+  ahora: number
+): Promise<{ ok: true; pedido: PedidoPendiente } | CodigoNoUsable> {
+  const userCode = limpiarCodigoDeUsuario(codigoDeUsuario)
+  const { rows } = await pool.query(
+    `select user_id, device_name, platform, created_at, expires_at from link_requests where user_code = $1`,
+    [userCode]
+  )
+  const fila = rows[0]
+  if (!fila) return { ok: false, status: 404, error: 'unknown_code' }
+  const expiresAt = new Date(fila.expires_at)
+  if (expiresAt.getTime() <= ahora) return { ok: false, status: 400, error: 'expired' }
+  // Aprobar dos veces con cuentas distintas no cambia de dueño. Sin esto, alguien que vea el
+  // código en pantalla podría re-aprobarlo a su nombre y quedarse con la máquina del otro.
+  if (fila.user_id) return { ok: false, status: 409, error: 'already_approved' }
+  return {
+    ok: true,
+    pedido: {
+      userCode,
+      deviceName: fila.device_name ?? null,
+      platform: fila.platform ?? null,
+      createdAt: new Date(fila.created_at),
+      expiresAt,
+    },
+  }
+}
+
+export type ResultadoDeAprobar = { ok: true } | CodigoNoUsable
 
 /**
  * El usuario, desde una máquina donde SÍ tiene sesión, dice «ese código es mío».
  *
  * No emite nada: sólo ata el pedido a una cuenta. El token se emite recién cuando la otra
  * máquina lo reclama, y con los mismos controles que cualquier otro registro.
+ *
+ * Con `supabaseJwt`, antes de atar el pedido aplica la red de seguridad del plan pago tal
+ * como `registerDevice` (Ruling P1): el claim corre sin JWT y no podría leer Supabase, así que
+ * lo que `check` dio por bueno gracias a esa red tiene que quedar escrito acá.
  */
 export async function aprobarVinculacion(
   pool: Pool,
   identidad: JwtIdentity,
   codigoDeUsuario: string,
-  ahora: number
+  ahora: number,
+  supabaseJwt?: string
 ): Promise<ResultadoDeAprobar> {
-  const { rows } = await pool.query(
-    `select user_id, expires_at from link_requests where user_code = $1`,
-    [codigoDeUsuario.trim().toUpperCase()]
-  )
-  const fila = rows[0]
-  if (!fila) return { ok: false, status: 404, error: 'unknown_code' }
-  if (new Date(fila.expires_at).getTime() <= ahora) return { ok: false, status: 400, error: 'expired' }
-  // Aprobar dos veces con cuentas distintas no cambia de dueño. Sin esto, alguien que vea el
-  // código en pantalla podría re-aprobarlo a su nombre y quedarse con la máquina del otro.
-  if (fila.user_id) return { ok: false, status: 409, error: 'already_approved' }
+  const r = await pedidoPendiente(pool, codigoDeUsuario, ahora)
+  if (!r.ok) return r
 
+  await aplicarPlanPagoDeSupabase(pool, identidad, supabaseJwt)
   await pool.query(
     `update link_requests set user_id = $1, email = $2, approved_at = to_timestamp($3 / 1000.0)
       where user_code = $4 and user_id is null`,
-    [identidad.userId, identidad.email, ahora, codigoDeUsuario.trim().toUpperCase()]
+    [identidad.userId, identidad.email, ahora, r.pedido.userCode]
   )
   return { ok: true }
+}
+
+export interface PedidoConsultado {
+  deviceName: string | null
+  platform: string | null
+  createdAt: string
+  expiresAt: string
+  /** Segundos que le quedan, medidos con el reloj del SERVIDOR: el del navegador puede estar corrido. */
+  expiresIn: number
+  eligibility: Elegibilidad
+  /** El plan efectivo de la cuenta (Ruling P3): la página adapta el copy del tope de máquinas. */
+  plan: string
+}
+
+export type ResultadoDeConsultar = { ok: true; pedido: PedidoConsultado } | CodigoNoUsable
+
+/**
+ * `POST /v1/link/check`: lo que la página muestra ANTES de aprobar (spec §3 y §4.2). No toca
+ * la fila ni crea nada; los errores salen de la misma escalera que en `aprobarVinculacion`.
+ */
+export async function consultarVinculacion(
+  pool: Pool,
+  identidad: JwtIdentity,
+  codigoDeUsuario: string,
+  ahora: number,
+  supabaseJwt?: string
+): Promise<ResultadoDeConsultar> {
+  const r = await pedidoPendiente(pool, codigoDeUsuario, ahora)
+  if (!r.ok) return r
+
+  const { eligibility, plan } = await elegibilidadDeMaquinaNueva(pool, identidad, supabaseJwt)
+  const { pedido } = r
+  return {
+    ok: true,
+    pedido: {
+      deviceName: pedido.deviceName,
+      platform: pedido.platform,
+      createdAt: pedido.createdAt.toISOString(),
+      expiresAt: pedido.expiresAt.toISOString(),
+      expiresIn: Math.max(0, Math.floor((pedido.expiresAt.getTime() - ahora) / 1000)),
+      eligibility,
+      plan,
+    },
+  }
 }
 
 export type ResultadoDeReclamar =

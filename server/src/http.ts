@@ -6,9 +6,9 @@ import { handlePull } from './pull'
 import { handleStatus } from './status'
 import { handleDeleteData } from './delete-data'
 import { createRateLimiter } from './rate-limit'
-import { registerDevice, revokeDevices, listDevices, verificarJwtDeSupabase, type ClavesDeFirma, type EmisorDeLogin } from './devices'
+import { registerDevice, revokeDevices, listDevices, verificarJwtDeSupabase, type ClavesDeFirma, type EmisorDeLogin, type JwtIdentity } from './devices'
 import { clavesDeSupabase } from './jwks'
-import { iniciarVinculacion, leerDatosDelPedido, aprobarVinculacion, reclamarVinculacion } from './link'
+import { iniciarVinculacion, leerDatosDelPedido, aprobarVinculacion, consultarVinculacion, reclamarVinculacion } from './link'
 import { handleShareProject } from './share'
 import { handleKeepProject } from './keep'
 import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
@@ -46,6 +46,35 @@ function emisorDelEntorno(): EmisorDeLogin | null {
   }
 }
 
+/**
+ * El prólogo de las rutas que autentican con el JWT del login de Supabase (`/v1/devices`,
+ * `/v1/link/approve`, `/v1/link/check`). Si no hay login válido contesta ella misma —503 si
+ * falta configuración, 401 si la credencial no sirve— y devuelve `null`: el llamador sólo
+ * tiene que cortar. El JWT crudo vuelve junto a la identidad porque `registerDevice` y la red
+ * del plan pago lo reusan contra Supabase REST.
+ */
+async function loginDeSupabase(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ruta: string
+): Promise<{ identity: JwtIdentity; jwt: string } | null> {
+  const emisor = emisorDelEntorno()
+  if (!emisor) {
+    // Configuración faltante, no culpa del cliente. Con un 401 acá el usuario vería
+    // "tus credenciales no sirven" cuando lo que falta es una variable del servicio.
+    console.error(`[http] ${ruta} sin SUPABASE_URL ni SUPABASE_JWT_SECRET: no se puede verificar ningún login`)
+    send(res, 503, { error: 'issuer_unavailable' })
+    return null
+  }
+  const jwt = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim()
+  const identity = await verificarJwtDeSupabase(jwt, Date.now(), emisor)
+  if (!identity) {
+    send(res, 401, { error: 'unauthorized' })
+    return null
+  }
+  return { identity, jwt }
+}
+
 const MAX_BATCH = 500
 const MAX_BODY_BYTES = 20 * 1024 * 1024
 
@@ -63,6 +92,11 @@ const registerLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 60_000 })
 // fila: `last_polled_at`, para que un cliente con un bucle apretado no queme una conexión de
 // base por vuelta.
 const linkLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 60_000 })
+// `check` tiene el mismo techo que `start` pero por CUENTA, no por IP (Ruling P2): detrás del
+// proxy de Railway muchas personas salen por la misma IP, y una que recarga la página de
+// aprobación no tiene por qué gastarle el balde a otra. Va después del JWT, así que un 401 no
+// lo gasta; probar códigos al azar exige una cuenta, y cada cuenta tiene sus 20 por hora.
+const linkCheckLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 60_000 })
 /**
  * Las rutas de claves no tenian limitador y `publishWraps` es la operacion mas cara del
  * servicio: toma el advisory lock de la cuenta y el `for update` sobre `users` mientras
@@ -218,6 +252,10 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   if (path === '/v1/link/approve') {
     if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
     return handleLinkApprove(pool, req, res)
+  }
+  if (path === '/v1/link/check') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleLinkCheck(pool, req, res)
   }
   if (path === '/v1/link/poll') {
     if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
@@ -408,17 +446,9 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
  */
 async function handleRegisterDevice(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
-    const emisor = emisorDelEntorno()
-    if (!emisor) {
-      // Configuración faltante, no culpa del cliente. Con un 401 acá el usuario vería
-      // "tus credenciales no sirven" cuando lo que falta es una variable del servicio.
-      console.error('[http] /v1/devices sin SUPABASE_URL ni SUPABASE_JWT_SECRET: no se puede emitir ningún token')
-      return send(res, 503, { error: 'issuer_unavailable' })
-    }
-
-    const jwt = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim()
-    const identity = await verificarJwtDeSupabase(jwt, Date.now(), emisor)
-    if (!identity) return send(res, 401, { error: 'unauthorized' })
+    const login = await loginDeSupabase(req, res, '/v1/devices')
+    if (!login) return
+    const { identity, jwt } = login
 
     const verdict = registerLimiter.check(req.socket.remoteAddress ?? 'sin-ip')
     if (!verdict.ok) {
@@ -472,25 +502,55 @@ async function handleLinkStart(pool: Pool, req: IncomingMessage, res: ServerResp
 /** `POST /v1/link/approve` — con el JWT de Supabase, desde la máquina que SÍ tiene sesión. */
 async function handleLinkApprove(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
-    const emisor = emisorDelEntorno()
-    if (!emisor) {
-      console.error('[http] /v1/link/approve sin SUPABASE_URL ni SUPABASE_JWT_SECRET')
-      return send(res, 503, { error: 'issuer_unavailable' })
-    }
-    const jwt = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim()
-    const identity = await verificarJwtDeSupabase(jwt, Date.now(), emisor)
-    if (!identity) return send(res, 401, { error: 'unauthorized' })
+    const login = await loginDeSupabase(req, res, '/v1/link/approve')
+    if (!login) return
 
     const body = (await readBody(req)) as Record<string, unknown>
     const codigo = typeof body.user_code === 'string' ? body.user_code : ''
     if (!codigo) return send(res, 400, { error: 'missing_user_code' })
 
-    const r = await aprobarVinculacion(pool, identity, codigo, Date.now())
+    // El JWT viaja para la red de seguridad del plan pago (Ruling P1): el claim no lo tiene.
+    const r = await aprobarVinculacion(pool, login.identity, codigo, Date.now(), login.jwt)
     if (!r.ok) return send(res, r.status, { error: r.error })
     return send(res, 200, { ok: true })
   } catch (err) {
     const status = (err as { status?: number }).status ?? 500
     if (status === 500) console.error('[http] /v1/link/approve', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /v1/link/check` — con el JWT de Supabase; lo que la página muestra antes de aprobar. */
+async function handleLinkCheck(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const login = await loginDeSupabase(req, res, '/v1/link/check')
+    if (!login) return
+
+    const verdict = linkCheckLimiter.check(login.identity.userId)
+    if (!verdict.ok) {
+      return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
+    }
+
+    const body = (await readBody(req)) as Record<string, unknown>
+    // `user_code` como `approve`; `code` es el nombre del spec, aceptado igual.
+    const codigo = typeof body.user_code === 'string' ? body.user_code
+      : typeof body.code === 'string' ? body.code : ''
+    if (!codigo) return send(res, 400, { error: 'missing_user_code' })
+
+    const r = await consultarVinculacion(pool, login.identity, codigo, Date.now(), login.jwt)
+    if (!r.ok) return send(res, r.status, { error: r.error })
+    return send(res, 200, {
+      device_name: r.pedido.deviceName,
+      platform: r.pedido.platform,
+      created_at: r.pedido.createdAt,
+      expires_at: r.pedido.expiresAt,
+      expires_in: r.pedido.expiresIn,
+      eligibility: r.pedido.eligibility,
+      plan: r.pedido.plan,
+    })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/link/check', err)
     return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
   }
 }
