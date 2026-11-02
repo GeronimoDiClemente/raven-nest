@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import type { CifradoAlConectar } from '../types'
 
 // Nest Memory Connect card state machine — docs/nest-memory-architecture.md §8.1.
 // `migrating` covers both the connect-time import and the brief window before the first
@@ -42,6 +43,10 @@ interface MemoryHookState {
   keptProjectKey: string | null
   /** Más proyectos en la nube que los que el plan sincroniza. */
   overLimit: boolean
+  /** Spec 2026-11-02: el resultado de asegurar el cifrado al conectar (o de «Turn on»). */
+  cifrado: CifradoAlConectar | null
+  /** Filas propias que siguen en claro en la nube, según el servidor. */
+  plaintextPending: number | null
 }
 
 /** Lo que MemoryAdoptionDialog necesita para preguntar. */
@@ -76,6 +81,8 @@ export function useMemory() {
     localOnlyProjects: [],
     keptProjectKey: null,
     overLimit: false,
+    cifrado: null,
+    plaintextPending: null,
   })
   // Guards refresh() from clobbering an in-flight connect()'s 'migrating' state with a
   // stale 'disconnected' read that a background status poll could otherwise race in.
@@ -142,6 +149,7 @@ export function useMemory() {
       // Como el roster: no se conservan, el daemon los vacía al cambiar de cuenta.
       keptProjectKey: status.keptProjectKey ?? null,
       overLimit: status.overLimit === true,
+      plaintextPending: status.plaintextPending ?? null,
     }))
   }, [])
 
@@ -213,6 +221,11 @@ export function useMemory() {
       return
     }
     refresh()
+    // Un código generado por el main que nadie confirmó (cambió de pestaña, o se cerró la
+    // tarjeta): se vuelve a mostrar hasta que se confirme.
+    void api.encryptionPendingRecoveryCode?.().then((code) => {
+      if (code) setState((s) => ({ ...s, cifrado: { estado: 'activada', recoveryCode: code, aviso: null } }))
+    })
     // Cada instancia saca sólo su oyente: removeStatusListener sordearía a las demás
     // (Settings y Memories montan useMemory a la vez). Queda para un preload viejo.
     const baja = api.onStatus(() => { void refresh() })
@@ -237,6 +250,8 @@ export function useMemory() {
       setState((s) => ({ ...s, state: 'migrating' }))
       const result = await api.connect(token.trim(), deviceId)
       if (!result.ok) throw new Error(result.error ?? 'Connect failed')
+      const cifrado = result.cifrado ?? null
+      setState((s) => ({ ...s, cifrado }))
       connectingRef.current = false
       connectGenRef.current++
       await refresh()
@@ -275,6 +290,8 @@ export function useMemory() {
 
       const result = await api.connect(emitido.token, emitido.deviceId)
       if (!result.ok) throw new Error(result.error ?? 'Connect failed')
+      const cifrado = result.cifrado ?? null
+      setState((s) => ({ ...s, cifrado }))
       connectingRef.current = false
       connectGenRef.current++
       await refresh()
@@ -284,6 +301,18 @@ export function useMemory() {
       setState((s) => ({ ...s, state: 'error', error: err instanceof Error ? err.message : String(err) }))
     }
   }, [refresh])
+
+  /** «Turn on encryption»: activa o adopta, y deja el resultado para que la tarjeta lo muestre. */
+  const secureEncryption = useCallback(async () => {
+    const r = await memoryApi()?.encryptionSecure?.()
+    if (r) setState((s) => ({ ...s, cifrado: r }))
+    await refresh()
+  }, [refresh])
+
+  const confirmRecoveryCode = useCallback(async () => {
+    await memoryApi()?.encryptionConfirmRecoveryCode?.()
+    setState((s) => ({ ...s, cifrado: null }))
+  }, [])
 
   const disconnect = useCallback(async (deleteCloud = false) => {
     try {
@@ -334,5 +363,5 @@ export function useMemory() {
     return r
   }, [refresh])
 
-  return { ...state, connectWithToken, connectWithLogin, disconnect, refresh, pendingAdoption, resolveAdoption, keepProject }
+  return { ...state, connectWithToken, connectWithLogin, disconnect, refresh, pendingAdoption, resolveAdoption, keepProject, secureEncryption, confirmRecoveryCode }
 }

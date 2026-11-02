@@ -7,6 +7,7 @@ import { planIncluyeNube, tieneSuscripcionPropia } from '../lib/stripe'
 import { nubeDeMemoriaDisponible, textoDeErrorDeMemoria } from '../lib/beta-de-memoria'
 import UpgradeModal from './UpgradeModal'
 import LinkDeviceCard from './LinkDeviceCard'
+import RecoveryCodeBlock from './memories/RecoveryCodeBlock'
 import SettingRow from './memories/settings/SettingRow'
 import CloudProjectsRow from './memories/settings/CloudProjectsRow'
 import { Button } from '@/components/ui/button'
@@ -62,9 +63,13 @@ export default function CloudMemoryCard({ onPlanYFacturacion }: { onPlanYFactura
   const cambios = `${n} change${n === 1 ? '' : 's'}`
   const turnOff = <Button variant="destructive" size="sm" onClick={abrirTurnOff}>Turn off</Button>
 
+  const necesitaCifrado = memory.state === 'error' && memory.statusDetail === 'needs_encryption_setup'
+  const cifrado = memory.cifrado
+
   const control: ReactNode =
     memory.state === 'unavailable' ? <Button size="sm" disabled>Unavailable</Button>
     : conectada ? turnOff
+    : necesitaCifrado ? <><Button size="sm" onClick={() => void memory.secureEncryption()}>Turn on encryption</Button>{turnOff}</>
     // `error` y `plan_required` son conexiones que EXISTEN (token válido, device
     // registrado): Turn off tiene sentido y el borrado de la nube autentica.
     : memory.state === 'error' ? <><Button size="sm" onClick={() => void memory.connectWithLogin()}>Retry</Button>{turnOff}</>
@@ -80,7 +85,9 @@ export default function CloudMemoryCard({ onPlanYFacturacion }: { onPlanYFactura
   // La línea de estado. `paused` tiene dos motivos: sin red, u otra instancia de Nest tiene
   // tomado el candado de sincronización.
   const estado: ReactNode =
-    memory.state === 'connected' && n > 0 ? (
+    necesitaCifrado ? linea("Cloud sync is paused until encryption is on. Only you hold the key — we can't read your memory.", 'warn')
+    : memory.state === 'connected' && (memory.plaintextPending ?? 0) > 0 ? linea(`Encrypting your cloud memory… ${memory.plaintextPending} left`, 'warn')
+    :    memory.state === 'connected' && n > 0 ? (
       <p className="m-0 flex items-center gap-1.5 text-fs-sm text-warn">
         {/* El mismo punto ámbar que la fila de estado de la sidebar (`.memories-dot`). */}
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warn" />
@@ -111,6 +118,19 @@ export default function CloudMemoryCard({ onPlanYFacturacion }: { onPlanYFactura
         control={<>{planYFacturacion}{control}</>}
       >
         {estado}
+        {cifrado?.estado === 'activada' && (
+          <>
+            <p className="m-0 text-fs-sm font-medium text-foreground">Save this code</p>
+            <RecoveryCodeBlock code={cifrado.recoveryCode} aviso={cifrado.aviso} onDone={() => void memory.confirmRecoveryCode()} />
+          </>
+        )}
+        {cifrado?.estado === 'esperando-autorizacion' && (
+          <div className="flex flex-col gap-1">
+            {linea('Approve this machine from one that already has the key (Memory settings → Encryption), comparing this fingerprint:', 'warn')}
+            <p className="m-0 select-all font-mono text-fs-sm text-foreground">{cifrado.huella}</p>
+          </div>
+        )}
+        {cifrado?.estado === 'sin-estado' && linea(`Couldn't check encryption — ${cifrado.detalle}. Nothing was uploaded.`, 'destructive')}
         {memory.state === 'disconnected' && userRepos.length === 0 && (
           <p className="m-0 rounded-md border border-warn/40 px-3 py-2 text-fs-sm text-warn">
             Link your repos before connecting — memory imported without them goes to Global and stays there.

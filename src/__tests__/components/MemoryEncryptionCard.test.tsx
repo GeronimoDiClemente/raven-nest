@@ -95,6 +95,13 @@ describe('MemoryEncryptionCard', () => {
     expect(await screen.findByText(/866/)).toBeInTheDocument()
   })
 
+  it('New recovery code muestra el código nuevo', async () => {
+    montarCon({ active: true, keyEpoch: 1 }, { encryptionRegenerateRecoveryCode: vi.fn(async () => ({ ok: true, recoveryCode: 'NEW1-NEW2' })) })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: 'New recovery code' }))
+    expect(await screen.findByText('NEW1-NEW2')).toBeInTheDocument()
+  })
+
   it('cada máquina que espera es una fila con su huella y su botón', async () => {
     montarCon({
       active: true, keyEpoch: 1,

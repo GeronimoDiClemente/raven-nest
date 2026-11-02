@@ -525,3 +525,47 @@ describe('useMemory — memory:status con varios oyentes (Task 10b)', () => {
     expect(memoryMock.removeStatusListener).toHaveBeenCalledTimes(1)
   })
 })
+
+// Spec 2026-11-02: el cifrado es obligatorio al conectar; el hook guarda lo que devuelve
+// `connect` para que la tarjeta muestre el código o la espera.
+describe('useMemory — cifrado obligatorio', () => {
+  const mem = {
+    ...memoryMock,
+    encryptionSecure: vi.fn(),
+    encryptionConfirmRecoveryCode: vi.fn(),
+    encryptionPendingRecoveryCode: vi.fn(),
+  }
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(globalThis as unknown as { window: Window }).window.memory = mem as never
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    mem.status.mockResolvedValue({ connected: true, deviceId: 'd', itemCount: 0, pendingCount: 0, daemonStatus: 'idle', plaintextPending: 4 })
+    mem.ensureDeviceId.mockResolvedValue('d')
+    mem.encryptionPendingRecoveryCode.mockResolvedValue(null)
+    mem.encryptionConfirmRecoveryCode.mockResolvedValue({ ok: true })
+  })
+
+  it('connectWithToken guarda el cifrado que devuelve connect y confirmRecoveryCode lo limpia', async () => {
+    mem.connect.mockResolvedValue({ ok: true, cifrado: { estado: 'activada', recoveryCode: 'AAAA', aviso: null } })
+    const { result } = renderHook(() => useMemory())
+    await act(async () => { await result.current.connectWithToken('tok') })
+    expect(result.current.cifrado).toEqual({ estado: 'activada', recoveryCode: 'AAAA', aviso: null })
+    await act(async () => { await result.current.confirmRecoveryCode() })
+    expect(mem.encryptionConfirmRecoveryCode).toHaveBeenCalled()
+    expect(result.current.cifrado).toBeNull()
+  })
+
+  it('refresh trae plaintextPending y secureEncryption guarda el resultado', async () => {
+    mem.encryptionSecure.mockResolvedValue({ estado: 'esperando-autorizacion', huella: 'x' })
+    const { result } = renderHook(() => useMemory())
+    await waitFor(() => expect(result.current.plaintextPending).toBe(4))
+    await act(async () => { await result.current.secureEncryption() })
+    expect(result.current.cifrado).toEqual({ estado: 'esperando-autorizacion', huella: 'x' })
+  })
+
+  it('al montar recupera el código pendiente del main', async () => {
+    mem.encryptionPendingRecoveryCode.mockResolvedValue('ZZZZ')
+    const { result } = renderHook(() => useMemory())
+    await waitFor(() => expect(result.current.cifrado).toEqual({ estado: 'activada', recoveryCode: 'ZZZZ', aviso: null }))
+  })
+})

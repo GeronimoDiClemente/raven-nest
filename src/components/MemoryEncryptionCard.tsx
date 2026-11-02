@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import SettingRow from './memories/settings/SettingRow'
+import RecoveryCodeBlock from './memories/RecoveryCodeBlock'
 
 interface EstadoCifrado {
   available: boolean
@@ -35,7 +36,6 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
   const [estado, setEstado] = useState<EstadoCifrado | null>(null)
   const [codigo, setCodigo] = useState<string | null>(null)
   const [avisoDeCodigo, setAvisoDeCodigo] = useState<string | null>(null)
-  const [confirmado, setConfirmado] = useState(false)
   const [recuperando, setRecuperando] = useState(false)
   const [codigoTipeado, setCodigoTipeado] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -94,7 +94,7 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
   const activar = () => conBloqueo(async () => {
     const res = await api?.encryptionActivate?.()
     if (!res) return
-    if (res.ok) { setCodigo(res.recoveryCode); setAvisoDeCodigo(res.aviso ?? null); setConfirmado(false) }
+    if (res.ok) { setCodigo(res.recoveryCode); setAvisoDeCodigo(res.aviso ?? null) }
     else setError(res.error)
     await refrescar()
   })
@@ -105,6 +105,14 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
     const res = await api?.encryptionAuthorize?.(deviceId, estado?.huellasPorDevice?.[deviceId] ?? '')
     if (res && !res.ok) setError(res.error ?? 'Could not authorise.')
     await refrescar()
+  })
+
+  // El código nuevo reemplaza al anterior: se muestra con el mismo bloque que la activación.
+  const regenerar = () => conBloqueo(async () => {
+    const res = await api?.encryptionRegenerateRecoveryCode?.()
+    if (!res) return
+    if (res.ok) { setCodigo(res.recoveryCode); setAvisoDeCodigo(null) }
+    else setError(res.error)
   })
 
   const recuperar = () => conBloqueo(async () => {
@@ -134,17 +142,11 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
   if (codigo) {
     return (
       <SettingRow nombre="Save this code" descripcion="It is the only thing that recovers your memories if you lose every machine. You will not see it again.">
-        {/* Spec §5: el aviso del código va en ESTE paso, no antes de activar. */}
-        <p className="m-0 rounded-md border border-warn/40 px-2 py-1 text-fs-sm text-warn">
-          Keep it somewhere safe: if you lose every machine and the code, the cloud copy can never be opened again.
-        </p>
-        {avisoDeCodigo && <p className="m-0 rounded-md border border-warn/40 px-2 py-1 text-fs-sm text-warn">{avisoDeCodigo}</p>}
-        <p className="m-0 select-all rounded-md border border-border bg-muted/30 px-3 py-2 text-center font-mono text-fs tracking-[0.08em] text-foreground">{codigo}</p>
-        <label className="flex items-center gap-2 text-fs-sm text-foreground">
-          <input type="checkbox" checked={confirmado} onChange={(e) => setConfirmado(e.target.checked)} />
-          I have saved it somewhere safe
-        </label>
-        <div><Button size="sm" disabled={!confirmado} onClick={() => setCodigo(null)}>Done</Button></div>
+        <RecoveryCodeBlock
+          code={codigo}
+          aviso={avisoDeCodigo}
+          onDone={() => { setCodigo(null); void api?.encryptionConfirmRecoveryCode?.() }}
+        />
       </SettingRow>
     )
   }
@@ -254,7 +256,10 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
         <SettingRow
           nombre="Re-upload old memories"
           descripcion="Encrypts and uploads again what reached the cloud before encryption was on."
-          control={<Button size="sm" variant="outline" disabled={ocupado} onClick={() => void reencriptar()}>Re-upload</Button>}
+          control={<>
+            <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void regenerar()}>New recovery code</Button>
+            <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void reencriptar()}>Re-upload</Button>
+          </>}
         >
           {reencriptadas !== null && (
             <p className="m-0 text-fs-sm text-muted-foreground">
