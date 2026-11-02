@@ -105,6 +105,10 @@ contextBridge.exposeInMainWorld('memory', {
   encryptionAuthorize: (deviceId: string, fingerprint: string) => ipcRenderer.invoke('memory:encryption:authorize', deviceId, fingerprint),
   encryptionRecover: (code: string) => ipcRenderer.invoke('memory:encryption:recover', code),
   encryptionReencrypt: () => ipcRenderer.invoke('memory:encryption:reencrypt'),
+  encryptionSecure: () => ipcRenderer.invoke('memory:encryption:secure'),
+  encryptionPendingRecoveryCode: () => ipcRenderer.invoke('memory:encryption:pendingRecoveryCode'),
+  encryptionConfirmRecoveryCode: () => ipcRenderer.invoke('memory:encryption:confirmRecoveryCode'),
+  encryptionRegenerateRecoveryCode: () => ipcRenderer.invoke('memory:encryption:regenerateRecoveryCode'),
   // Cifrado de equipo (spec 2026-10-14-cifrado-de-equipo) — mismo patrón que `encryption*`
   // de arriba, pero por `teamId`: cada equipo tiene su propia maestra.
   teamEncryptionStatus: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:status', teamId),

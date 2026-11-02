@@ -901,6 +901,13 @@ export function equalSizes(count: number): number[] {
   return sizes
 }
 
+/** Spec 2026-11-02: lo que devuelve conectar / «Turn on encryption». */
+export type CifradoAlConectar =
+  | { estado: 'lista' }
+  | { estado: 'activada'; recoveryCode: string; aviso: string | null }
+  | { estado: 'esperando-autorizacion'; huella: string }
+  | { estado: 'sin-estado'; detalle: string }
+
 // Augment Window with our IPC API
 declare global {
   interface Window {
@@ -957,7 +964,9 @@ declare global {
     }
     memory: {
       ensureDeviceId: () => Promise<string>
-      connect: (token: string, deviceId: string) => Promise<{ ok: boolean; error?: string; itemCount?: number }>
+      /** `cifrado` (spec 2026-11-02): conectar asegura la cuenta en el mismo paso. Opcional:
+       *  un main viejo no lo manda. */
+      connect: (token: string, deviceId: string) => Promise<{ ok: boolean; error?: string; itemCount?: number; cifrado?: CifradoAlConectar }>
       /**
        * Declara qué cuenta de Nest está usando el store. Sella el autor de cada escritura y
        * acota el push a esa cuenta. Opcional: un preload viejo no lo expone.
@@ -1045,7 +1054,8 @@ declare global {
         daemonStatus: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
         /**
          * El CÓDIGO del último cambio de estado del daemon: 'offline', 'needs_key',
-         * 'not_in_beta', 'device_limit', 'auth', 'lock_held'. No es texto para mostrar —
+         * 'not_in_beta', 'device_limit', 'auth', 'lock_held', 'needs_encryption_setup'
+         * (spec 2026-11-02: sin maestra no sube nada). No es texto para mostrar —
          * la copia la decide el renderer.
          *
          * Existe porque un mismo `daemonStatus` puede tener motivos distintos que la UI
@@ -1053,6 +1063,9 @@ declare global {
          * de sincronización", y decirle "estás offline" al segundo caso es mentirle.
          */
         daemonStatusDetail?: string
+        /** Spec 2026-11-02 §4: filas propias que siguen en claro en la nube. Ausente hasta
+         *  el primer status del servidor. */
+        plaintextPending?: number
         /** Pista de UI: si esta cuenta puede compartir memoria con otras personas. El que
          *  autoriza de verdad es el servidor. `undefined` = todavía no se sabe. */
         puedeCompartirMemoria?: boolean
@@ -1118,6 +1131,13 @@ declare global {
       encryptionAuthorize?: (deviceId: string, fingerprint: string) => Promise<{ ok: boolean; error?: string }>
       encryptionRecover?: (code: string) => Promise<{ ok: boolean; error?: string }>
       encryptionReencrypt?: () => Promise<{ total: number; queued: number }>
+      /** Spec 2026-11-02 §4: «Turn on encryption» — adopta, activa o espera autorización. */
+      encryptionSecure?: () => Promise<CifradoAlConectar>
+      /** El código de la última activación hasta que el usuario confirme que lo guardó
+       *  (sólo en memoria del main). */
+      encryptionPendingRecoveryCode?: () => Promise<string | null>
+      encryptionConfirmRecoveryCode?: () => Promise<{ ok: true }>
+      encryptionRegenerateRecoveryCode?: () => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
       /**
        * Puente de datos del grafo navegable de memorias (estilo Obsidian) — ver
        * electron/memory-graph.ts. Optional: un preload viejo no lo expone.

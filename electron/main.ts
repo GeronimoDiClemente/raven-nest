@@ -269,8 +269,9 @@ import { deriveKeys } from './memory-crypto'
 import { localTopicHmac, type EnvelopeContext } from './memory-envelope'
 import {
   fetchKeyState, activateEncryption, adoptExistingKey, authorizeDevice, recoverWithCode,
-  type RemoteKeyState,
+  regenerateRecoveryCode, type RemoteKeyState,
 } from './memory-keys-client'
+import { asegurarCifrado } from './asegurar-cifrado'
 import { huellaDeClave } from './memory-key-wrap'
 import { huellaDeMaestra } from './memory-crypto'
 import { buildEncryptionStatus } from './memory-encryption-status'
@@ -283,6 +284,15 @@ import {
 import { migrateTeam, pendientesSiEsLeader, type TeamMigrationResult } from './memory-team-reencrypt'
 
 let memoryKeys: KeyMaterial | null = null
+
+/**
+ * Spec 2026-11-02 §3: el código de recuperación de la última activación, hasta que el usuario
+ * confirme que lo guardó. Sólo en memoria del proceso: nunca a disco ni a logs. Se pierde al
+ * cerrar la app; para eso existe `memory:encryption:regenerateRecoveryCode`.
+ */
+let codigoDeRecuperacionPendiente: string | null = null
+/** Spec 2026-11-02 §4: el re-upload automático corre UNA vez por sesión de la app. */
+let reuploadAutomaticoHecho = false
 
 /** teamId -> maestra de ESE equipo, sólo en memoria — igual de propósito que `memoryKeys.master`
  * pero SIN persistencia a disco (nunca se guarda en el keyring/safeStorage): se re-adopta
@@ -528,6 +538,15 @@ try {
      * ciphertext: sin el 1, ahí el gate no se arma y el push sube en claro.
      */
     isEncryptionExpected: () => (memory ? memory.store.knownKeyEpoch() > 0 : false),
+    // Spec 2026-11-02: conectar la nube exige cifrar. Sin maestra no sale nada.
+    requireEncryption: () => true,
+    // Spec 2026-11-02 §4: una cuenta con memoria en claro en la nube, ya con la maestra en
+    // esta máquina, re-sube todo sellado — una vez por sesión (ver `reuploadAutomaticoHecho`).
+    onPlaintextPending: () => {
+      if (reuploadAutomaticoHecho || !memoryKeys?.master || !memory) return
+      reuploadAutomaticoHecho = true
+      void runReencrypt(memory.store, memory.daemon).catch((err) => console.warn('[memory] re-upload automático', err))
+    },
     // Spec §9.4: readopta en el status de arranque las claves de equipo que esta
     // máquina ya tiene envueltas, antes del pull y del push del mismo drain.
     onEncryptedTeams: (teams) => readoptarClavesDeEquipo(teams),
@@ -3266,6 +3285,49 @@ ipcMain.handle('memory:syncService:set', async (_event, url: string | null) => {
   return { ok: true, url: getMemorySyncBaseUrl(), hayQueReconectar }
 })
 
+type CifradoAlConectar =
+  | { estado: 'lista' }
+  | { estado: 'activada'; recoveryCode: string; aviso: string | null }
+  | { estado: 'esperando-autorizacion'; huella: string }
+  | { estado: 'sin-estado'; detalle: string }
+
+/** Spec 2026-11-02 §3: asegura la cuenta y deja la maestra guardada como los handlers de
+ * adoptar/activar de abajo (misma secuencia: guardar, hasher, backfill, cursores, época). */
+async function asegurarEnElMain(): Promise<CifradoAlConectar> {
+  const deps = keysDeps()
+  if (!deps || !memory) return { estado: 'sin-estado', detalle: 'Cloud memory is not connected.' }
+  if (!memoryKeys) return { estado: 'sin-estado', detalle: 'This system cannot store keys securely.' }
+  const r = await asegurarCifrado({
+    material: () => ({ device: memoryKeys!.device, master: memoryKeys!.master ?? null, keyEpoch: memoryKeys!.keyEpoch ?? 0 }),
+    adoptar: (device) => adoptExistingKey(deps, device),
+    estadoRemoto: () => fetchKeyState(deps),
+    activar: (device) => activateEncryption(deps, device),
+    huella: huellaDeClave,
+  })
+  if (r.estado === 'esperando-autorizacion' || r.estado === 'sin-estado') return r
+  if (r.estado === 'lista' && !r.nueva) return { estado: 'lista' }
+
+  memoryKeys = { ...memoryKeys, master: r.master, keyEpoch: r.keyEpoch }
+  let aviso: string | null = null
+  try {
+    saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
+  } catch (err) {
+    aviso = 'Encryption is on, but the key could not be saved on this machine: ' +
+      `${err instanceof Error ? err.message : String(err)}. Save the recovery code now — ` +
+      'it is the only thing that will be able to recover your memories.'
+  }
+  applyTopicHasher()
+  memory.store.backfillTopicHmacs()
+  memory.store.rememberKeyEpoch(r.keyEpoch)
+  if (r.estado === 'lista') {
+    memory.store.resetPullCursors()
+    memory.store.clearUndecryptable()
+    return { estado: 'lista' }
+  }
+  codigoDeRecuperacionPendiente = r.recoveryCode
+  return { estado: 'activada', recoveryCode: r.recoveryCode, aviso }
+}
+
 ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string) => {
   if (!memory) return MEMORY_UNAVAILABLE
   if (!safeStorage.isEncryptionAvailable()) {
@@ -3306,8 +3368,11 @@ ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string)
     claudeAccountDirs: accountStore.list('claude').map((name) => accountStore.getDir('claude', name)),
   })
 
+  // Spec 2026-11-02: conectar asegura la cuenta en el mismo paso. Lo que protege es el gate
+  // del daemon (`requireEncryption`): con o sin maestra, nada sale en claro.
+  const cifrado = await asegurarEnElMain()
   memory.daemon.onNetworkRegain() // drains everything just seeded
-  return { ok: true, itemCount: memory.store.count() }
+  return { ok: true, itemCount: memory.store.count(), cifrado }
 })
 
 ipcMain.handle('memory:disconnect', async (_event, opts?: { deleteCloud?: boolean }) => {
@@ -3577,6 +3642,32 @@ ipcMain.handle('memory:encryption:reencrypt', async () => {
   return runReencrypt(memory.store, memory.daemon)
 })
 
+// Spec 2026-11-02 §4: «Turn on encryption» de la tarjeta de Sync (cuentas viejas y reintento).
+ipcMain.handle('memory:encryption:secure', async () => {
+  const r = await asegurarEnElMain()
+  if (r.estado === 'lista' || r.estado === 'activada') memory?.daemon.onNetworkRegain()
+  return r
+})
+
+ipcMain.handle('memory:encryption:pendingRecoveryCode', () => codigoDeRecuperacionPendiente)
+
+ipcMain.handle('memory:encryption:confirmRecoveryCode', () => {
+  codigoDeRecuperacionPendiente = null
+  return { ok: true }
+})
+
+ipcMain.handle('memory:encryption:regenerateRecoveryCode', async () => {
+  const deps = keysDeps()
+  if (!deps || !memoryKeys?.master) return { ok: false, error: 'This machine does not have the key.' }
+  try {
+    const recoveryCode = await regenerateRecoveryCode(deps, memoryKeys.master, memoryKeys.keyEpoch)
+    codigoDeRecuperacionPendiente = recoveryCode
+    return { ok: true, recoveryCode }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
 ipcMain.handle('memory:teamEncryption:status', async (_e, teamId: string) => {
   const deps = teamKeysDeps()
   const hasMaster = teamMasterKeys.has(teamId)
@@ -3759,6 +3850,8 @@ ipcMain.handle('memory:status', () => {
      * red" o "otra instancia tiene el candado" (§6.3), y la copia cambia con el motivo.
      */
     daemonStatusDetail: memory.daemon.getStatusDetail(),
+    /** Spec 2026-11-02 §4: filas propias que siguen en claro en la nube (del status del servidor). */
+    plaintextPending: memory.daemon.getPlaintextPending() ?? undefined,
     quota: memory.daemon.getQuota() ?? undefined,
     /** Spec 2b-1 §4.2: el tope de proyectos del plan, tal como lo informó el servidor. */
     limits: memory.daemon.getLimits() ?? undefined,
