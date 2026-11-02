@@ -1341,12 +1341,18 @@ export class MemoryStore {
    * contador no llegaba nunca a 0: la tarjeta quedaba en "Encrypting…" para siempre y el
    * re-upload completo se repetía en cada sesión. Viajan con su `superseded_by`, y el servidor
    * les conserva la marca sin pasar por la colisión de temas (`conservaSupersede` en push.ts).
+   *
+   * `conSuperseded: false` es para un servidor de ANTES de ese arreglo: ahí la colisión de
+   * temas resucita la superseded (si la ganadora todavía tiene el tema en claro, o si está
+   * borrada). El que llama lo decide con una señal de capacidad: ver `reuploadAutomaticoUnaVez`
+   * en main.ts.
    */
-  requeueAllForPush(): number {
+  requeueAllForPush(opts: { conSuperseded?: boolean } = {}): number {
+    const conSuperseded = opts.conSuperseded ?? true
     const rows = this.db
       .prepare(
         `SELECT * FROM observations
-          WHERE deleted = 0
+          WHERE deleted = 0 ${conSuperseded ? '' : 'AND superseded_by IS NULL'}
             AND (author_user_id IS NULL OR author_user_id = ?)
           ORDER BY updated_at`
       )

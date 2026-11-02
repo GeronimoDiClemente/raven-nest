@@ -64,6 +64,24 @@ describe('re-encriptar lo ya subido', () => {
     expect(payloads.find((p) => p.sync_id === local.syncId)?.superseded_by).toBe('obs_remota')
   })
 
+  // Un servidor de antes del cifrado obligatorio no conserva la marca: la colisión de temas la
+  // resucita. Quien llama decide por una señal de capacidad (main.ts: el status trae
+  // `plaintext_pending`), y sin ella no se re-suben.
+  it('con conSuperseded: false deja afuera las superseded, y runReencrypt lo pasa', async () => {
+    store.save({ projectKey: 'proj1', scope: 'personal', type: 'decision', topicKey: 'deploy', title: 'local', content: 'x', source: 'mcp' })
+    const local = store.context('proj1', 10)[0]
+    store.applyIncomingObservation({
+      syncId: 'obs_remota', projectKey: 'proj1', scope: 'personal', topicKey: 'deploy', type: 'decision',
+      title: 'remote', content: 'y', updatedAt: Date.now() + 60_000, lamport: 99, deleted: false,
+      supersedeLocal: local.syncId,
+    })
+    store.markPushed(store.pendingMutations(100).map((m) => m.seq))
+    expect(store.requeueAllForPush({ conSuperseded: false })).toBe(1)
+    store.markPushed(store.pendingMutations(100).map((m) => m.seq))
+    const res = await runReencrypt(store, { push: async () => {} }, undefined, { conSuperseded: false })
+    expect(res.total).toBe(1)
+  })
+
   // F4 (review final): builds anteriores marcaban como terminal (pushed + last_error) lo que el
   // servidor rechazaba con `encryption_required`. Los upserts los cubre `requeueAllForPush` con
   // la fila ACTUAL; un borrado no, porque los tombstones no se re-encolan, y sin esto la fila

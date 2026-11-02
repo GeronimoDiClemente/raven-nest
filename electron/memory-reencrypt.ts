@@ -28,9 +28,10 @@ export function planReencrypt(store: MemoryStore): ReencryptProgress {
 export async function runReencrypt(
   store: MemoryStore,
   daemon: { push(): Promise<void> },
-  onProgress?: (p: ReencryptProgress) => void
+  onProgress?: (p: ReencryptProgress) => void,
+  opts: { conSuperseded?: boolean } = {}
 ): Promise<ReencryptProgress> {
-  const total = store.requeueAllForPush()
+  const total = store.requeueAllForPush(opts)
   let queued = store.pendingMutationCount()
   onProgress?.({ total, queued })
 

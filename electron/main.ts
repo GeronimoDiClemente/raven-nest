@@ -311,7 +311,19 @@ let cuentaDeLasClaves: string | null = null
 function reuploadAutomaticoUnaVez(): void {
   if (reuploadAutomaticoHecho || !memoryKeys?.master || !memory) return
   reuploadAutomaticoHecho = true
-  void runReencrypt(memory.store, memory.daemon).catch((err) => console.warn('[memory] automatic re-upload failed', err))
+  void runReencrypt(memory.store, memory.daemon, undefined, opcionesDeReupload())
+    .catch((err) => console.warn('[memory] automatic re-upload failed', err))
+}
+
+/**
+ * Las filas superseded se re-suben sólo si el servidor sabe conservarles la marca (F2 de la
+ * review final, `conservaSupersede` en server/src/push.ts); uno de antes las resucita. La señal
+ * es que su status traiga `plaintext_pending`: llegaron en la misma versión del servidor. Sin
+ * status todavía (null) no se arriesga; el re-upload de la sesión siguiente, ya con el status
+ * a la vista, las sube.
+ */
+function opcionesDeReupload(): { conSuperseded: boolean } {
+  return { conSuperseded: memory?.daemon.getPlaintextPending() != null }
 }
 
 /** teamId -> maestra de ESE equipo, sólo en memoria — igual de propósito que `memoryKeys.master`
@@ -3660,7 +3672,7 @@ ipcMain.handle('memory:encryption:recover', async (_e, code: string) => {
 
 ipcMain.handle('memory:encryption:reencrypt', async () => {
   if (!memory) return { total: 0, queued: 0 }
-  return runReencrypt(memory.store, memory.daemon)
+  return runReencrypt(memory.store, memory.daemon, undefined, opcionesDeReupload())
 })
 
 // Spec 2026-11-02 §4: «Turn on encryption» de la tarjeta de Sync (cuentas viejas y reintento).
