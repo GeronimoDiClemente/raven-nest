@@ -51,7 +51,9 @@ Lo que ya sirve sin Nest y se reusa: `/v1/link/approve` acepta cualquier JWT de 
     https://nestmux.com/link?code=WXYZ-1234
   and sign in with your Nest account. Code: WXYZ-1234 (expires in 10 minutes)
   ```
-  e intenta abrir el navegador (`start` / `open` / `xdg-open`, sin shell, ignorando errores).
+  e intenta abrir el navegador (`rundll32 url.dll,FileProtocolHandler` en Windows —`start` es un
+  builtin de `cmd.exe` y exigiría shell—, `open` en Mac, `xdg-open` en Linux; sin shell, ignorando
+  errores). La CLI imprime `?code=`; la página acepta también `?link_code=` (ver §4).
   Si no hay navegador (SSH, contenedor) la persona abre el link en cualquier dispositivo.
 - La base de la URL sale de una constante de build (`NEST_WEB_BASE`, default
   `https://nestmux.com`), con override por env `NEST_MEMORY_WEB_URL` para desarrollo, igual
@@ -72,13 +74,18 @@ Lo que ya sirve sin Nest y se reusa: `/v1/link/approve` acepta cualquier JWT de 
   clientes viejos no los mandan). `/v1/link/start` los acepta (largo máximo 100, se recortan;
   `platform` sólo de una lista conocida o null).
 - **Ruta nueva `POST /v1/link/check`** (JWT de Supabase + `{ code }`): devuelve
-  `{ device_name, platform, created_at, expires_at, eligibility }` con
-  `eligibility ∈ ok | not_in_beta | plan_required | device_limit_reached`. Corre **el mismo
+  `{ device_name, platform, created_at, expires_at, expires_in, eligibility, plan }` con
+  `eligibility ∈ ok | not_in_beta | plan_required | device_limit_reached`. `expires_in` son los
+  segundos que le quedan medidos con el reloj del servidor; `plan` es el plan efectivo de la
+  cuenta (la página adapta el copy del tope de máquinas: en Cloud no ofrece "Upgrade"). Corre **el mismo
   control** que `registerDevice` (extraído a una función compartida, para que no haya dos
   verdades) pero sin crear `users` ni emitir token. Código desconocido → 404 `unknown_code`;
-  vencido → 400 `expired`; ya aprobado → 409 `already_approved`. Mismo rate limit que el
-  resto de `/v1/link/*`.
-- `/v1/link/approve` no cambia de contrato.
+  vencido → 400 `expired`; ya aprobado → 409 `already_approved`. Rate limit de 20 por hora
+  **por `userId` verificado** (no por IP: detrás del proxy de Railway todos comparten IP, y un
+  401 no gasta el cupo).
+- `/v1/link/approve` no cambia de contrato, pero aplica la red de seguridad del plan pago de
+  Supabase (la misma que `registerDevice` con el JWT) antes de atar el pedido, para que el `ok`
+  de `check` y el reclamo coincidan.
 - **CORS** en `/v1/link/check` y `/v1/link/approve` (preflight `OPTIONS` incluido): origen
   permitido `https://nestmux.com` y, fuera de producción, `http://localhost:4321`; lista por
   env `LINK_WEB_ORIGINS`. Sólo `POST`, headers `authorization, content-type`, sin
@@ -90,7 +97,8 @@ Una isla React (`src/components/link/LinkFlow.tsx`) en `src/pages/link.astro`, e
 `noindex`, fuera del sitemap. Estados:
 
 1. **Sign in** — si no hay sesión: email + contraseña y los mismos OAuth que Nest, con
-   `redirectTo` a `https://nestmux.com/link?code=…` (el código sobrevive al viaje). Sin
+   `redirectTo` a `https://nestmux.com/link?link_code=…` (el código sobrevive al viaje; se usa
+   `link_code` y no `code` porque `code` es el parámetro del intercambio PKCE de Supabase). Sin
    registro aparte: "Create account" usa el mismo `signUp` que Nest.
 2. **Confirm** — llama `/v1/link/check`. Muestra: código, nombre de la máquina, sistema,
    "requested N minutes ago", y el aviso *"Approve only if you just ran `login` yourself.
@@ -124,8 +132,9 @@ imprime el plugin y el que puede usar cualquiera desde la landing.
 
 ### 6. Configuración externa (cada paso con OK de Gero)
 
-- Supabase prod: sumar `https://nestmux.com/link` y `https://nestmux.com/upgrade` a las
-  Redirect URLs de Auth.
+- Supabase prod: sumar `https://nestmux.com/link**` y `https://nestmux.com/upgrade**` a las
+  Redirect URLs de Auth. Con comodín: la vuelta lleva query (`?link_code=…`) y sin él Supabase
+  cae al Site URL.
 - Railway: env `LINK_WEB_ORIGINS=https://nestmux.com` en el servicio de sync; migración 014.
 - Vercel (`pagina-nest`): `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY` (ya están para la
   encuesta) y `PUBLIC_SYNC_BASE_URL=https://sync.nestmux.com`.
