@@ -60,6 +60,11 @@ export interface StatusResponse {
    * Sin época: v1 no rota la clave de equipo (spec §2, §8).
    */
   encrypted_teams: Array<{ team_id: string; has_wrap: boolean }>
+  /**
+   * Spec 2026-11-02 §4: cuántas observaciones propias, personales y vivas siguen con algún
+   * campo de texto en claro en la nube. El cliente no dice "Encrypted" hasta que esto es 0.
+   */
+  plaintext_pending: number
 }
 
 // §5.3: this is the device's health check — today the client has no way to tell a dead
@@ -110,6 +115,22 @@ export async function handleStatus(
     [auth.userId, auth.deviceId]
   )
 
+  // `p.user_id = $1` es lo que impide contar filas ajenas. Las de equipo las cubre la
+  // migración de equipo (`recrypt-pending`), no esto.
+  const { rows: claroRows } = await pool.query(
+    `select count(*)::int as n
+       from observations o join projects p on p.id = o.project_id
+      where p.user_id = $1 and o.scope <> 'team' and not o.deleted and (
+            (coalesce(o.title, '') <> '' and o.title not like 'nmc1:%')
+         or (coalesce(o.content, '') <> '' and o.content not like 'nmc1:%')
+         or (coalesce(o.content_hash, '') <> '' and o.content_hash not like 'nmc1:%')
+         or (coalesce(o.origin_account, '') <> '' and o.origin_account not like 'nmc1:%')
+         or (coalesce(o.git_branch, '') <> '' and o.git_branch not like 'nmc1:%')
+         or (jsonb_typeof(o.tags) = 'array' and jsonb_array_length(o.tags) > 0
+             and not (jsonb_array_length(o.tags) = 1 and o.tags->>0 like 'nmc1:%')))`,
+    [auth.userId]
+  )
+
   const limits = limitsFor(auth.plan)
   const propios = projectRows.map((r) => r.project_key as string).filter((k) => k !== GLOBAL_PROJECT_KEY)
   const guardado = (epochRows[0]?.kept_project_key as string | null | undefined) ?? null
@@ -134,5 +155,6 @@ export async function handleStatus(
     })),
     key_epoch: Number(epochRows[0]?.key_epoch ?? 0),
     encrypted_teams: equiposRows.map((r) => ({ team_id: String(r.team_id), has_wrap: Boolean(r.has_wrap) })),
+    plaintext_pending: Number(claroRows[0]?.n ?? 0),
   }
 }
