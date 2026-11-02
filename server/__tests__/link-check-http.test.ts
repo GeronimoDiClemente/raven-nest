@@ -49,13 +49,13 @@ afterAll(async () => {
   await pool.end()
 })
 
-const post = (path: string, body: unknown, jwt?: string) =>
+const post = (path: string, body: unknown, jwt?: string, extra: Record<string, string> = {}) =>
   FETCH_ANTES(`${base}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}), ...extra },
     body: JSON.stringify(body),
   })
-const check = (body: unknown, jwt?: string) => post('/v1/link/check', body, jwt)
+const check = (body: unknown, jwt?: string, extra?: Record<string, string>) => post('/v1/link/check', body, jwt, extra)
 
 describe('POST /v1/link/check', () => {
   it('sin JWT es 401 y no dice nada del pedido', async () => {
@@ -152,5 +152,115 @@ describe('approve aplica la red del plan pago antes de atar el pedido (Ruling P1
     const resPoll = await post('/v1/link/poll', { device_code: r.codigoDeDispositivo })
     expect(resPoll.status).toBe(200)
     expect((await resPoll.json()).status).toBe('linked')
+  })
+})
+
+describe('CORS de las rutas de vinculación (Review Focus 5)', () => {
+  const NESTMUX = { Origin: 'https://nestmux.com' }
+  const preflight = (path: string, origin: string) =>
+    FETCH_ANTES(`${base}${path}`, {
+      method: 'OPTIONS',
+      headers: { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization, content-type' },
+    })
+
+  it('el preflight desde nestmux.com abre check y approve', async () => {
+    for (const path of ['/v1/link/check', '/v1/link/approve']) {
+      const r = await preflight(path, 'https://nestmux.com')
+      expect(r.status).toBe(204)
+      expect(r.headers.get('access-control-allow-origin')).toBe('https://nestmux.com')
+      expect(r.headers.get('access-control-allow-methods')).toBe('POST')
+      expect(r.headers.get('access-control-allow-headers')).toBe('authorization, content-type')
+      expect(r.headers.get('access-control-max-age')).toBe('600')
+      expect(r.headers.get('vary')).toBe('Origin')
+      expect(r.headers.get('access-control-allow-credentials')).toBeNull()
+    }
+  })
+
+  it('el preflight desde otro origen no lleva Allow-Origin', async () => {
+    for (const path of ['/v1/link/check', '/v1/link/approve']) {
+      const r = await preflight(path, 'https://evil.example')
+      expect(r.status).toBe(204)
+      expect(r.headers.get('access-control-allow-origin')).toBeNull()
+    }
+  })
+
+  it('el POST desde nestmux.com lleva Allow-Origin, también cuando es un error (4xx)', async () => {
+    const ok = await iniciarVinculacion(pool, Date.now())
+    const r200 = await check({ user_code: ok.codigoDeUsuario }, jwtDe(userId), NESTMUX)
+    expect(r200.status).toBe(200)
+    expect(r200.headers.get('access-control-allow-origin')).toBe('https://nestmux.com')
+    const r401 = await check({ user_code: ok.codigoDeUsuario }, undefined, NESTMUX)
+    expect(r401.status).toBe(401)
+    expect(r401.headers.get('access-control-allow-origin')).toBe('https://nestmux.com')
+    const r400 = await check({}, jwtDe(userId), NESTMUX)
+    expect(r400.status).toBe(400)
+    expect(r400.headers.get('access-control-allow-origin')).toBe('https://nestmux.com')
+    const r405 = await FETCH_ANTES(`${base}/v1/link/check`, { headers: NESTMUX })
+    expect(r405.status).toBe(405)
+    expect(r405.headers.get('access-control-allow-origin')).toBe('https://nestmux.com')
+  })
+
+  it('un 5xx (servicio sin config para verificar logins) también lleva Allow-Origin', async () => {
+    const antes = process.env.SUPABASE_JWT_SECRET
+    delete process.env.SUPABASE_JWT_SECRET
+    const errores = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      for (const path of ['/v1/link/check', '/v1/link/approve']) {
+        const res = await post(path, { user_code: 'ZZZZ-ZZZZ' }, jwtDe(userId), NESTMUX)
+        expect(res.status).toBe(503)
+        expect(res.headers.get('access-control-allow-origin')).toBe('https://nestmux.com')
+      }
+    } finally {
+      errores.mockRestore()
+      process.env.SUPABASE_JWT_SECRET = antes
+    }
+  })
+
+  it('el 429 lleva Allow-Origin y conserva Retry-After', async () => {
+    const otra = randomUUID()
+    for (let i = 0; i < 20; i++) await check({ user_code: 'ZZZZ-ZZZZ' }, jwtDe(otra))
+    const res = await check({ user_code: 'ZZZZ-ZZZZ' }, jwtDe(otra), NESTMUX)
+    expect(res.status).toBe(429)
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://nestmux.com')
+    expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0)
+  })
+
+  it('el POST desde otro origen no lleva Allow-Origin', async () => {
+    const r = await iniciarVinculacion(pool, Date.now())
+    const res = await check({ user_code: r.codigoDeUsuario }, jwtDe(userId), { Origin: 'https://evil.example' })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    const sin = await check({ user_code: r.codigoDeUsuario }, undefined, { Origin: 'https://evil.example' })
+    expect(sin.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  it('approve desde nestmux.com lleva Allow-Origin', async () => {
+    const r = await iniciarVinculacion(pool, Date.now())
+    const res = await post('/v1/link/approve', { user_code: r.codigoDeUsuario }, jwtDe(userId), NESTMUX)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://nestmux.com')
+  })
+
+  it('LINK_WEB_ORIGINS se lee en cada request y reemplaza los de por defecto', async () => {
+    const antes = process.env.LINK_WEB_ORIGINS
+    process.env.LINK_WEB_ORIGINS = 'https://staging.nestmux.com'
+    try {
+      expect((await preflight('/v1/link/check', 'https://nestmux.com')).headers.get('access-control-allow-origin')).toBeNull()
+      expect((await preflight('/v1/link/check', 'https://staging.nestmux.com')).headers.get('access-control-allow-origin'))
+        .toBe('https://staging.nestmux.com')
+    } finally {
+      if (antes === undefined) delete process.env.LINK_WEB_ORIGINS
+      else process.env.LINK_WEB_ORIGINS = antes
+    }
+  })
+
+  it('las demás rutas no aprenden CORS', async () => {
+    const start = await post('/v1/link/start', {}, undefined, NESTMUX)
+    expect(start.headers.get('access-control-allow-origin')).toBeNull()
+    const opt = await preflight('/v1/link/start', 'https://nestmux.com')
+    expect(opt.status).toBe(405)
+    expect(opt.headers.get('access-control-allow-origin')).toBeNull()
+    const status = await FETCH_ANTES(`${base}/v1/sync/status`, { headers: NESTMUX })
+    expect(status.headers.get('access-control-allow-origin')).toBeNull()
   })
 })

@@ -18,6 +18,7 @@ import { handleBeta } from './betas'
 import { aplicarPlan, leerAvisoDePlan, verificarFirmaDePlan } from './plan-sync'
 import { aplicarMembresias, leerAvisoDeMembresias } from './membership-sync'
 import { UUID_RE } from './uuid'
+import { cabecerasCors, origenesDeVinculacion } from './cors'
 
 // El emisor del JWKS se arma UNA vez por URL y se guarda: cada instancia tiene su propio
 // caché, así que una por request no cachearía nada y saldría a Supabase en cada login.
@@ -249,13 +250,21 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
     return handleLinkStart(pool, req, res)
   }
-  if (path === '/v1/link/approve') {
+  // `approve` y `check` son las dos que llama la página `nestmux.com/link`: llevan CORS
+  // (preflight incluido) y ninguna otra ruta lo tiene. Las cabeceras se fijan UNA vez con
+  // `setHeader` antes de despachar: `writeHead` las mezcla con las de cada respuesta, así que
+  // todo status (200, 4xx, 5xx, 429) las lleva sin que cada `send` tenga que acordarse.
+  if (path === '/v1/link/approve' || path === '/v1/link/check') {
+    const origen = typeof req.headers.origin === 'string' ? req.headers.origin : undefined
+    const cors = cabecerasCors(origen, origenesDeVinculacion(process.env.LINK_WEB_ORIGINS))
+    for (const [nombre, valor] of Object.entries(cors)) res.setHeader(nombre, valor)
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
     if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
-    return handleLinkApprove(pool, req, res)
-  }
-  if (path === '/v1/link/check') {
-    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
-    return handleLinkCheck(pool, req, res)
+    return path === '/v1/link/check' ? handleLinkCheck(pool, req, res) : handleLinkApprove(pool, req, res)
   }
   if (path === '/v1/link/poll') {
     if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
