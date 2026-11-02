@@ -41,6 +41,15 @@ function leerIntervalo(body: unknown): Intervalo | null {
   return i === 'monthly' || i === 'annual' ? i : null
 }
 
+/** De dónde vino el pago, para que la página de vuelta ofrezca volver a la terminal (spec login sin Nest §4). */
+export type OrigenDelPago = 'link' | 'upgrade'
+
+function leerOrigen(body: unknown): OrigenDelPago | null {
+  if (!body || typeof body !== 'object') return null
+  const f = (body as { from?: unknown }).from
+  return f === 'link' || f === 'upgrade' ? f : null
+}
+
 export function decidirCheckout(e: {
   body: unknown
   precios: { monthly?: string; annual?: string }
@@ -62,14 +71,18 @@ export function decidirCheckout(e: {
     return { ok: false, status: 409, error: 'already_subscribed' }
   }
 
+  // Lista cerrada de dos valores: el cliente marca de dónde vino, nunca elige la URL.
+  const origen = leerOrigen(e.body)
+  const sufijo = origen ? `?from=${origen}` : ''
+
   const sesion: ParametrosDeSesion = {
     mode: 'subscription',
     line_items: [{ price: precio, quantity: 1 }],
     // Sin `trial_period_days` (decisión 1 de Gero): Free con un proyecto ya es la prueba.
     metadata: { user_id: e.userId },
     subscription_data: { metadata: { user_id: e.userId } },
-    success_url: URL_EXITO,
-    cancel_url: URL_CANCELADO,
+    success_url: `${URL_EXITO}${sufijo}`,
+    cancel_url: `${URL_CANCELADO}${sufijo}`,
   }
   // Reusar el customer evita un segundo cliente en Stripe para quien canceló y vuelve.
   if (p?.stripe_customer_id) sesion.customer = p.stripe_customer_id

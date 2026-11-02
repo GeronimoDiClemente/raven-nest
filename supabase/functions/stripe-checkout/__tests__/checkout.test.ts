@@ -71,6 +71,24 @@ describe('decidirCheckout', () => {
     expect(URL_EXITO).toBe('https://nestmux.com/checkout/success')
     expect(URL_CANCELADO).toBe('https://nestmux.com/checkout/cancelled')
   })
+
+  it('from=link|upgrade viaja como ?from= en las dos URLs de vuelta', () => {
+    for (const from of ['link', 'upgrade'] as const) {
+      const d = base({ body: { interval: 'monthly', from } })
+      expect(d.ok).toBe(true)
+      if (!d.ok) return
+      expect(d.sesion.success_url).toBe(`${URL_EXITO}?from=${from}`)
+      expect(d.sesion.cancel_url).toBe(`${URL_CANCELADO}?from=${from}`)
+    }
+  })
+
+  it('cualquier otro from se ignora: el cliente no arma la URL de vuelta', () => {
+    for (const from of ['https://evil.example', 'link&x=1', 1, null]) {
+      const d = base({ body: { interval: 'annual', from } })
+      expect(d.ok && d.sesion.success_url).toBe(URL_EXITO)
+      expect(d.ok && d.sesion.cancel_url).toBe(URL_CANCELADO)
+    }
+  })
 })
 
 describe('esClienteInexistente', () => {
