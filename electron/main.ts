@@ -563,7 +563,7 @@ try {
     onPlaintextPending: () => {
       if (reuploadAutomaticoHecho || !memoryKeys?.master || !memory) return
       reuploadAutomaticoHecho = true
-      void runReencrypt(memory.store, memory.daemon).catch((err) => console.warn('[memory] re-upload automático', err))
+      void runReencrypt(memory.store, memory.daemon).catch((err) => console.warn('[memory] automatic re-upload failed', err))
     },
     // Spec §9.4: readopta en el status de arranque las claves de equipo que esta
     // máquina ya tiene envueltas, antes del pull y del push del mismo drain.
