@@ -272,6 +272,7 @@ import {
   regenerateRecoveryCode, type RemoteKeyState,
 } from './memory-keys-client'
 import { asegurarCifrado } from './asegurar-cifrado'
+import { asegurarEnElMain as asegurarEnElMainCon, type CifradoAlConectar } from './asegurar-en-el-main'
 import { huellaDeClave } from './memory-key-wrap'
 import { huellaDeMaestra } from './memory-crypto'
 import { buildEncryptionStatus } from './memory-encryption-status'
@@ -300,6 +301,18 @@ let reuploadAutomaticoHecho = false
  * del token contaría como cambio cada vez.
  */
 let cuentaDeLasClaves: string | null = null
+
+/**
+ * Spec 2026-11-02 §4: el re-upload automático, una vez por sesión de la app (y por cuenta: el
+ * cambio de cuenta rearma `reuploadAutomaticoHecho`). Lo disparan dos caminos —el status con
+ * `plaintext_pending > 0` y conseguir la maestra (F4 de la review final, ver
+ * `asegurar-en-el-main.ts`)— y comparten la marca para no re-subir la base dos veces.
+ */
+function reuploadAutomaticoUnaVez(): void {
+  if (reuploadAutomaticoHecho || !memoryKeys?.master || !memory) return
+  reuploadAutomaticoHecho = true
+  void runReencrypt(memory.store, memory.daemon).catch((err) => console.warn('[memory] automatic re-upload failed', err))
+}
 
 /** teamId -> maestra de ESE equipo, sólo en memoria — igual de propósito que `memoryKeys.master`
  * pero SIN persistencia a disco (nunca se guarda en el keyring/safeStorage): se re-adopta
@@ -560,11 +573,7 @@ try {
     requireEncryption: () => true,
     // Spec 2026-11-02 §4: una cuenta con memoria en claro en la nube, ya con la maestra en
     // esta máquina, re-sube todo sellado — una vez por sesión (ver `reuploadAutomaticoHecho`).
-    onPlaintextPending: () => {
-      if (reuploadAutomaticoHecho || !memoryKeys?.master || !memory) return
-      reuploadAutomaticoHecho = true
-      void runReencrypt(memory.store, memory.daemon).catch((err) => console.warn('[memory] automatic re-upload failed', err))
-    },
+    onPlaintextPending: reuploadAutomaticoUnaVez,
     // Spec §9.4: readopta en el status de arranque las claves de equipo que esta
     // máquina ya tiene envueltas, antes del pull y del push del mismo drain.
     onEncryptedTeams: (teams) => readoptarClavesDeEquipo(teams),
@@ -3303,49 +3312,41 @@ ipcMain.handle('memory:syncService:set', async (_event, url: string | null) => {
   return { ok: true, url: getMemorySyncBaseUrl(), hayQueReconectar }
 })
 
-type CifradoAlConectar =
-  | { estado: 'lista' }
-  | { estado: 'activada'; recoveryCode: string; aviso: string | null }
-  | { estado: 'esperando-autorizacion'; huella: string }
-  | { estado: 'sin-estado'; detalle: string }
-
 /** Spec 2026-11-02 §3: asegura la cuenta y deja la maestra guardada como los handlers de
- * adoptar/activar de abajo (misma secuencia: guardar, hasher, backfill, cursores, época). */
+ * adoptar/activar de abajo (misma secuencia: guardar, hasher, backfill, cursores, época).
+ * La lógica vive en `asegurar-en-el-main.ts` (probada ahí); acá sólo se le pasan las
+ * variables del proceso. */
 async function asegurarEnElMain(): Promise<CifradoAlConectar> {
   const deps = keysDeps()
   if (!deps || !memory) return { estado: 'sin-estado', detalle: 'Cloud memory is not connected.' }
   if (!memoryKeys) return { estado: 'sin-estado', detalle: 'This system cannot store keys securely.' }
-  const r = await asegurarCifrado({
-    material: () => ({ device: memoryKeys!.device, master: memoryKeys!.master ?? null, keyEpoch: memoryKeys!.keyEpoch ?? 0 }),
-    adoptar: (device) => adoptExistingKey(deps, device),
-    estadoRemoto: () => fetchKeyState(deps),
-    activar: (device) => activateEncryption(deps, device),
-    huella: huellaDeClave,
+  // Las claves y el store se leen al USARLOS, no acá: si la cuenta cambia durante el await,
+  // `asegurarEnElMainCon` lo ve por `cuentaActual` y descarta el resultado (F9).
+  return asegurarEnElMainCon({
+    cuentaActual: () => cuentaDeLasClaves,
+    asegurar: () => {
+      const claves = memoryKeys!
+      return asegurarCifrado({
+        material: () => ({ device: claves.device, master: claves.master ?? null, keyEpoch: claves.keyEpoch ?? 0 }),
+        adoptar: (device) => adoptExistingKey(deps, device),
+        estadoRemoto: () => fetchKeyState(deps),
+        activar: (device) => activateEncryption(deps, device),
+        huella: huellaDeClave,
+      })
+    },
+    tomarMaestra: (master, keyEpoch) => { memoryKeys = { ...memoryKeys!, master, keyEpoch } },
+    guardarClaves: () => saveKeyMaterial(ravenHome(), memory!.store.getOwnerUserId(), safeStorage, memoryKeys!),
+    guardarCodigoPendiente: (code) => { codigoDeRecuperacionPendiente = code },
+    aplicarHasher: applyTopicHasher,
+    store: {
+      backfillTopicHmacs: () => memory!.store.backfillTopicHmacs(),
+      rememberKeyEpoch: (epoch) => memory!.store.rememberKeyEpoch(epoch),
+      resetPullCursors: () => memory!.store.resetPullCursors(),
+      clearUndecryptable: () => memory!.store.clearUndecryptable(),
+      reencolarRechazadosPorCifrado: () => memory!.store.reencolarRechazadosPorCifrado(),
+    },
+    reuploadUnaVez: reuploadAutomaticoUnaVez,
   })
-  if (r.estado === 'esperando-autorizacion' || r.estado === 'sin-estado') return r
-  if (r.estado === 'lista' && !r.nueva) return { estado: 'lista' }
-
-  memoryKeys = { ...memoryKeys, master: r.master, keyEpoch: r.keyEpoch }
-  // Antes de cualquier paso que pueda lanzar: si algo de abajo falla y `memory:connect`
-  // rechaza, el código sigue disponible por `memory:encryption:pendingRecoveryCode`.
-  if (r.estado === 'activada') codigoDeRecuperacionPendiente = r.recoveryCode
-  let aviso: string | null = null
-  try {
-    saveKeyMaterial(ravenHome(), memory.store.getOwnerUserId(), safeStorage, memoryKeys)
-  } catch (err) {
-    aviso = 'Encryption is on, but the key could not be saved on this machine: ' +
-      `${err instanceof Error ? err.message : String(err)}. Save the recovery code now — ` +
-      'it is the only thing that will be able to recover your memories.'
-  }
-  applyTopicHasher()
-  memory.store.backfillTopicHmacs()
-  memory.store.rememberKeyEpoch(r.keyEpoch)
-  if (r.estado === 'lista') {
-    memory.store.resetPullCursors()
-    memory.store.clearUndecryptable()
-    return { estado: 'lista' }
-  }
-  return { estado: 'activada', recoveryCode: r.recoveryCode, aviso }
 }
 
 ipcMain.handle('memory:connect', async (_event, token: string, deviceId: string) => {

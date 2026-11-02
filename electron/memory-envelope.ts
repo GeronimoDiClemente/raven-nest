@@ -116,6 +116,12 @@ export function sealMutationPayload(
   const topicKey = payload.topic_key
   if (typeof topicKey === 'string' && topicKey !== '') {
     sealed.topic_key = hmacTopicKey(keys, String(payload.project_key ?? ''), String(payload.scope ?? 'personal'), topicKey)
+  } else if (typeof payload.topic_key_hmac === 'string' && looksLikeTopicHmac(payload.topic_key_hmac)) {
+    // Una fila que bajó sellada no tiene el tema en claro, sólo el HMAC que mandó el servidor
+    // (`applyIncomingObservation`). Sin esto, re-subirla —el re-upload de la migración— mandaba
+    // `topic_key: null` y el servidor le borraba el tema: perdía su lugar y el próximo supersede
+    // de ese tema no la encontraba. Es el MISMO valor que el servidor ya tiene.
+    sealed.topic_key = payload.topic_key_hmac
   }
 
   return sealed

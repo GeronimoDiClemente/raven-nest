@@ -87,6 +87,21 @@ describe('sealMutationPayload', () => {
     expect(sealMutationPayload(ctx, { ...payloadBase(), topic_key: null }).topic_key).toBeNull()
   })
 
+  // Una fila que bajó sellada guarda el tema SÓLO como HMAC (`topic_key = null`,
+  // `topic_key_hmac` lleno). Re-subirla —el re-upload, que desde la review final del cifrado
+  // obligatorio corre solo al conseguir la maestra— mandaba `topic_key: null` y el servidor le
+  // borraba el tema: la fila perdía su lugar y el próximo supersede de ese tema no la veía.
+  it('sin tema en claro pero con topic_key_hmac, sube el HMAC que ya tenía', () => {
+    const hmac = hmacTopicKey(ctx.keys, 'proj1', 'personal', 'deploy')
+    const s = sealMutationPayload(ctx, { ...payloadBase(), topic_key: null, topic_key_hmac: hmac })
+    expect(s.topic_key).toBe(hmac)
+  })
+
+  it('un topic_key_hmac que no tiene forma de HMAC no se sube como tema', () => {
+    const s = sealMutationPayload(ctx, { ...payloadBase(), topic_key: null, topic_key_hmac: 'deploy en claro' })
+    expect(s.topic_key).toBeNull()
+  })
+
   it('tags vacíos siguen siendo un array vacío (el servidor hace COALESCE sobre jsonb)', () => {
     expect(sealMutationPayload(ctx, { ...payloadBase(), tags: [] }).tags).toEqual([])
   })

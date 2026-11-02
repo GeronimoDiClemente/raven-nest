@@ -1333,14 +1333,20 @@ export class MemoryStore {
    * viaja, y esa es justamente la razon para re-loguear. Se llama una vez, a mano, desde la
    * activacion — nunca en un bucle automatico.
    *
-   * Sin tombstones ni superseded: una fila borrada ya no tiene contenido que proteger, y
-   * una superseded no la devuelve ninguna lectura.
+   * Sin tombstones: el servidor les vacía el texto al borrar (push.ts, F3 de la review final
+   * del cifrado obligatorio), así que no queda nada que proteger.
+   *
+   * CON las superseded (F2 de esa misma review): ninguna lectura local las devuelve, pero en el
+   * servidor siguen guardando su texto, y `plaintext_pending` las cuenta. Sin re-subirlas el
+   * contador no llegaba nunca a 0: la tarjeta quedaba en "Encrypting…" para siempre y el
+   * re-upload completo se repetía en cada sesión. Viajan con su `superseded_by`, y el servidor
+   * les conserva la marca sin pasar por la colisión de temas (`conservaSupersede` en push.ts).
    */
   requeueAllForPush(): number {
     const rows = this.db
       .prepare(
         `SELECT * FROM observations
-          WHERE deleted = 0 AND superseded_by IS NULL
+          WHERE deleted = 0
             AND (author_user_id IS NULL OR author_user_id = ?)
           ORDER BY updated_at`
       )
@@ -1349,6 +1355,30 @@ export class MemoryStore {
       for (const row of rows) this.appendMutation('upsert', row)
     }).immediate()
     return rows.length
+  }
+
+  /**
+   * F4 (review final del cifrado obligatorio): los builds de antes marcaban como TERMINALES
+   * (`pushed_at` + `last_error`) las mutaciones que el servidor rechazaba con
+   * `encryption_required`; las de ahora las dejan en la cola. Esto devuelve a la cola las que
+   * quedaron así, y se llama junto con el re-upload, al conseguir la maestra.
+   *
+   * Sólo los BORRADOS, y sólo si la fila sigue borrada. Un upsert rechazado lo cubre
+   * `requeueAllForPush` con la fila ACTUAL; re-mandar ese snapshot viejo pisaría en el servidor
+   * (cuyo upsert no mira lamport) una edición posterior. Un borrado, en cambio, no lo cubre
+   * nadie —los tombstones no se re-encolan— y sin esto la fila seguiría viva y en claro en el
+   * servidor para siempre. Si la fila volvió a estar viva (la resucitó otra máquina), revivir
+   * el borrado la mataría de nuevo.
+   */
+  reencolarRechazadosPorCifrado(): number {
+    return this.db
+      .prepare(
+        `UPDATE mutation_log SET pushed_at = NULL, last_error = NULL
+          WHERE pushed_at IS NOT NULL AND last_error = 'encryption_required' AND op = 'delete'
+            AND author_user_id IS ?
+            AND EXISTS (SELECT 1 FROM observations o WHERE o.sync_id = mutation_log.sync_id AND o.deleted = 1)`
+      )
+      .run(this.currentUserId).changes
   }
 
   resetPullCursors(): void {
