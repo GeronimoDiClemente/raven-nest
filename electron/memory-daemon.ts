@@ -1425,7 +1425,12 @@ export class MemoryDaemon {
       this.primerStatusOk = true
       if (typeof body.plaintext_pending === 'number') {
         this.lastPlaintextPending = body.plaintext_pending
-        if (body.plaintext_pending > 0) this.deps.onPlaintextPending?.(body.plaintext_pending)
+        if (body.plaintext_pending > 0) {
+          // Aviso, no parte del status: ni un throw síncrono del hook ni un rechazo de uno async
+          // (el re-subido) pueden llevarse puesto el resto de `doStatus` (intervalo, tope, roster,
+          // equipos cifrados).
+          try { void Promise.resolve(this.deps.onPlaintextPending?.(body.plaintext_pending)).catch(() => {}) } catch { /* el hook falló: el status sigue */ }
+        }
       }
 
       this.applyPollInterval(body.next_poll_ms)

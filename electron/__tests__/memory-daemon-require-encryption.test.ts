@@ -111,4 +111,24 @@ describe('plaintext_pending', () => {
     expect(d.getPlaintextPending()).toBe(0)
     expect(avisos).toEqual([])
   })
+
+  it('un onPlaintextPending que lanza no corta el resto del status', async () => {
+    const d = daemon(servidor(1, 3).fetchImpl, () => null, { onPlaintextPending: () => { throw new Error('boom') } })
+    await d.status()
+    expect(d.getPlaintextPending()).toBe(3)
+    expect(d.getQuota()).toEqual({ used_bytes: 0, max_bytes: 1_000_000 })
+  })
+
+  it('un onPlaintextPending async que rechaza no produce unhandled rejection', async () => {
+    const sin: unknown[] = []
+    const on = (e: unknown) => sin.push(e)
+    process.on('unhandledRejection', on)
+    try {
+      const d = daemon(servidor(1, 3).fetchImpl, () => null, { onPlaintextPending: async () => { throw new Error('boom') } })
+      await d.status()
+      await new Promise((r) => setTimeout(r, 20))
+      expect(d.getQuota()).toEqual({ used_bytes: 0, max_bytes: 1_000_000 })
+      expect(sin).toEqual([])
+    } finally { process.off('unhandledRejection', on) }
+  })
 })
