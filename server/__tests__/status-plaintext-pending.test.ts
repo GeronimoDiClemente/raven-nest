@@ -105,4 +105,10 @@ describe('status — plaintext_pending', () => {
     await handlePush(pool, a, { mutations: [mutation(1, `${RUN}-ok`, 'personal', SELLADA)] })
     expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
   })
+
+  it('tags vacíos con todo lo demás sellado no cuenta', async () => {
+    const a = await nuevaCuenta()
+    await handlePush(pool, a, { mutations: [mutation(1, `${RUN}-vacio`, 'personal', { ...SELLADA, tags: [] })] })
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
+  })
 })
