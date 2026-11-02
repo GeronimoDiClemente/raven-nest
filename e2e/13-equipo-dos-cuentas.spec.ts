@@ -399,7 +399,10 @@ test('con el cifrado activo en el autor, la de equipo viaja en claro y la person
     await conectar(h.page, cA)
     const act = await h.page.evaluate(() =>
       (window as unknown as { memory: { encryptionActivate(): Promise<{ ok: boolean; error?: string }> } }).memory.encryptionActivate())
-    expect(act.ok, `encryptionActivate: ${act.error}`).toBe(true)
+    // Desde el cifrado obligatorio (spec 2026-11-02) `conectar` ya activó: lo esperable es
+    // "already has encryption on". Se acepta igual que en e2e/16 (`activarCifradoPersonal`);
+    // lo que importa es que la maestra personal quede en esta máquina, y pasa en los dos casos.
+    expect(act.ok || /already has encryption on/.test(act.error ?? ''), `encryptionActivate: ${act.error}`).toBeTruthy()
 
     const a = await autorComparteYPromueve(h, teamId, marca)
     expect(filaEnElServicio(a.syncIdPersonal)!.title).toMatch(/^nmc1:/)
