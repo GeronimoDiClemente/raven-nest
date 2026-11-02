@@ -618,7 +618,33 @@ export async function handlePush(
         const topicKey = (p.topic_key as string | null) ?? null
         const incomingDeleted = m.op === 'delete' || Boolean(p.deleted)
 
-        if (topicKey && !incomingDeleted) {
+        // F2 (review final, cifrado obligatorio): el re-upload de la migración re-sube también
+        // las filas propias superseded, porque si no su texto quedaba legible en el servidor y
+        // `plaintext_pending` no llegaba nunca a 0. Una fila que el cliente manda YA superseded
+        // y que acá también lo está conserva su marca y no pasa por la colisión de abajo:
+        // re-cifrar no es editar. Sin esto la colisión la resucitaba de dos maneras: si la
+        // ganadora todavía tenía el tema en claro (el re-upload va por updated_at, así que la
+        // perdedora suele subir antes) el HMAC no la encontraba; y si la ganadora estaba
+        // borrada no había dueño vivo contra quién perder.
+        //
+        // Sólo cuando las DOS puntas dicen superseded: un payload con `superseded_by` sobre una
+        // fila viva acá no marca nada (el cliente no decide supersedes, ver §8.1), y una fila
+        // superseded acá que el cliente manda viva sigue el camino normal de la colisión.
+        let conservaSupersede = false
+        const supersededDelCliente = typeof p.superseded_by === 'string' && p.superseded_by !== ''
+        if (supersededDelCliente && !incomingDeleted) {
+          const actual = await client.query(
+            `select superseded_by from observations where sync_id = $1 and author_id = $2`,
+            [syncId, auth.userId]
+          )
+          const marca = (actual.rows[0]?.superseded_by as string | null | undefined) ?? null
+          if (marca !== null) {
+            supersededBy = marca
+            conservaSupersede = true
+          }
+        }
+
+        if (topicKey && !incomingDeleted && !conservaSupersede) {
           // DEFENSE IN DEPTH, and redundant TODAY — kept deliberately, so read this before
           // deleting it as dead weight or copying it as a pattern:
           //
@@ -697,6 +723,11 @@ export async function handlePush(
              scope = excluded.scope, type = excluded.type, topic_key = excluded.topic_key,
              title = excluded.title, content = excluded.content, tags = excluded.tags,
              content_hash = excluded.content_hash, lamport = excluded.lamport,
+             -- F1 (review final): sin estas cuatro, re-subir una fila sellada con el mismo
+             -- sync_id dejaba el mail (origin_account) y la rama en claro para siempre, y
+             -- plaintext_pending no bajaba nunca. La fila es la que manda el cliente, entera.
+             origin_account = excluded.origin_account, git_branch = excluded.git_branch,
+             origin_ai = excluded.origin_ai, author_display = excluded.author_display,
              client_updated_at = excluded.client_updated_at, deleted = excluded.deleted,
              superseded_by = excluded.superseded_by,
              -- Stamped on the TRANSITION into deleted, not on every write: coalesce()
@@ -714,19 +745,26 @@ export async function handlePush(
             seq,
             scope,
             String(p.type ?? 'discovery'),
-            topicKey,
-            String(p.title ?? ''),
+            // F3 (review final): un tombstone no guarda NINGÚN texto. Antes se anulaba sólo
+            // el content y quedaban título, tags, hash, cuenta de origen, rama y tema — en una
+            // fila de antes del cifrado obligatorio, texto legible que `plaintext_pending`
+            // (`not deleted`) ni miraba. Nada los necesita: la colisión de temas y el índice
+            // `obs_topic_uniq` ignoran las borradas, y el pull aplica el tombstone por sync_id.
+            // `title` es NOT NULL (001_init.sql), por eso '' y no null. La migración 013 hace
+            // lo mismo con los tombstones que ya estaban en la base.
+            incomingDeleted ? null : topicKey,
+            incomingDeleted ? '' : String(p.title ?? ''),
             // §8.2: the old server never read `op` at all, so a delete on one machine
             // never reached the other. `incomingDeleted` already reads `op` for the
             // topic-collision guard above; reuse it here so a tombstone that only sets
             // `op: 'delete'` (without redundantly setting `payload.deleted`) still nulls
             // its content and marks the row deleted below.
             incomingDeleted ? null : ((p.content as string | null) ?? null),
-            JSON.stringify(normalizeTags(p.tags)),
-            (p.content_hash as string | null) ?? null,
+            JSON.stringify(incomingDeleted ? [] : normalizeTags(p.tags)),
+            incomingDeleted ? null : ((p.content_hash as string | null) ?? null),
             (p.origin_ai as string | null) ?? null,
-            (p.origin_account as string | null) ?? null,
-            (p.git_branch as string | null) ?? null,
+            incomingDeleted ? null : ((p.origin_account as string | null) ?? null),
+            incomingDeleted ? null : ((p.git_branch as string | null) ?? null),
             auth.userId,
             (p.author_display as string | null) ?? null,
             Number(p.lamport ?? 0),

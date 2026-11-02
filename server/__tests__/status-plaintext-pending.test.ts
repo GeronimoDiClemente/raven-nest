@@ -108,6 +108,91 @@ describe('status — plaintext_pending', () => {
     expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
   })
 
+  // F1 (review final): el `on conflict` no actualizaba origin_account ni git_branch, así que
+  // re-subir sellado dejaba el mail y la rama en claro para siempre y el contador nunca bajaba.
+  it('re-subir sellado pisa origin_account y git_branch en claro (y actualiza origin_ai y author_display)', async () => {
+    const a = await nuevaCuenta()
+    const id = `${RUN}-f1`
+    await handlePush(pool, a, { mutations: [mutation(1, id, 'personal', {
+      origin_account: 'someone@example.com', git_branch: 'feature/secret-plan', origin_ai: 'claude', author_display: 'Old Name',
+    })] })
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(1)
+
+    await handlePush(pool, a, { mutations: [mutation(2, id, 'personal', { ...SELLADA, origin_ai: 'codex', author_display: 'New Name' })] })
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
+    const { rows } = await pool.query(
+      'select origin_account, git_branch, origin_ai, author_display from observations where sync_id = $1', [id]
+    )
+    expect(rows[0].origin_account).toBe('nmc1:FFFF')
+    expect(rows[0].git_branch).toBe('nmc1:GGGG')
+    expect(rows[0].origin_ai).toBe('codex')
+    expect(rows[0].author_display).toBe('New Name')
+  })
+
+  // F2 (review final): el contador cuenta las filas superseded, así que el re-upload también las
+  // re-sube. El servidor tiene que aceptarlas SIN deshacer el supersede: el orden del re-upload
+  // (por updated_at) sube a la perdedora antes que a la ganadora, cuando la ganadora todavía
+  // tiene el tema en claro y la colisión por HMAC no la encuentra.
+  describe('re-subir una fila superseded', () => {
+    const HMAC = 'a'.repeat(32)
+    function conTema(seq: number, syncId: string, extra: Record<string, unknown> = {}) {
+      return mutation(seq, syncId, 'personal', { topic_key: 'auth-flow', ...extra })
+    }
+    async function supersededBy(syncId: string): Promise<string | null> {
+      const { rows } = await pool.query('select superseded_by from observations where sync_id = $1', [syncId])
+      return rows[0].superseded_by
+    }
+
+    it('la perdedora re-subida sellada sigue superseded por la ganadora y el contador llega a 0', async () => {
+      const a = await nuevaCuenta()
+      const perdedora = `${RUN}-f2-x`
+      const ganadora = `${RUN}-f2-y`
+      await handlePush(pool, a, { mutations: [conTema(1, perdedora, { lamport: 1, updated_at: 1000 })] })
+      await handlePush(pool, a, { mutations: [conTema(2, ganadora, { lamport: 2, updated_at: 2000 })] })
+      expect(await supersededBy(perdedora)).toBe(ganadora)
+      expect((await handleStatus(pool, a)).plaintext_pending).toBe(2)
+
+      // Lo que manda el cliente: la fila local tal cual (con su superseded_by) y sellada.
+      const r1 = await handlePush(pool, a, { mutations: [conTema(3, perdedora, {
+        ...SELLADA, topic_key: HMAC, lamport: 1, updated_at: 1000, superseded_by: ganadora,
+      })] })
+      expect(r1.results[0].outcome).toBe('superseded')
+      expect(await supersededBy(perdedora)).toBe(ganadora)
+      expect((await handleStatus(pool, a)).plaintext_pending).toBe(1)
+
+      const r2 = await handlePush(pool, a, { mutations: [conTema(4, ganadora, {
+        ...SELLADA, topic_key: HMAC, lamport: 2, updated_at: 2000,
+      })] })
+      expect(r2.results[0].outcome).toBe('applied')
+      expect(await supersededBy(ganadora)).toBeNull()
+      expect(await supersededBy(perdedora)).toBe(ganadora)
+      expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
+    })
+
+    it('con la ganadora borrada, la perdedora re-subida no resucita', async () => {
+      const a = await nuevaCuenta()
+      const perdedora = `${RUN}-f2-dx`
+      const ganadora = `${RUN}-f2-dy`
+      await handlePush(pool, a, { mutations: [conTema(1, perdedora, { lamport: 1, updated_at: 1000 })] })
+      await handlePush(pool, a, { mutations: [conTema(2, ganadora, { lamport: 2, updated_at: 2000 })] })
+      await handlePush(pool, a, { mutations: [{ ...conTema(3, ganadora, { ...SELLADA, lamport: 3, updated_at: 3000, content: null }), op: 'delete' as const }] })
+
+      await handlePush(pool, a, { mutations: [conTema(4, perdedora, {
+        ...SELLADA, topic_key: HMAC, lamport: 1, updated_at: 1000, superseded_by: ganadora,
+      })] })
+      expect(await supersededBy(perdedora)).toBe(ganadora)
+      expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
+    })
+
+    it('un payload con superseded_by sobre una fila VIVA en el servidor no la marca: decide la colisión', async () => {
+      const a = await nuevaCuenta()
+      const id = `${RUN}-f2-viva`
+      await handlePush(pool, a, { mutations: [conTema(1, id)] })
+      await handlePush(pool, a, { mutations: [conTema(2, id, { ...SELLADA, topic_key: HMAC, superseded_by: `${RUN}-nadie` })] })
+      expect(await supersededBy(id)).toBeNull()
+    })
+  })
+
   it('tags vacíos con todo lo demás sellado no cuenta', async () => {
     const a = await nuevaCuenta()
     await handlePush(pool, a, { mutations: [mutation(1, `${RUN}-vacio`, 'personal', { ...SELLADA, tags: [] })] })

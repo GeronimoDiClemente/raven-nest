@@ -562,3 +562,21 @@ describe('recrypt toma los locks en el mismo orden que push', () => {
     }
   })
 })
+
+describe('listRecryptPending — tombstones sin texto (F3)', () => {
+  // Desde el F3 de la review final un tombstone llega con `title = ''` (push.ts y la migración
+  // 013 le vacían todo el texto). '' no es texto en claro: sin esto cada borrado de equipo
+  // reaparecía como pendiente y la tarjeta no llegaba nunca a "todo cifrado".
+  it('un tombstone con el título vacío no cuenta como pendiente', async () => {
+    const syncId = randomUUID()
+    await obs(syncId, projectLeader, 'team', leaderId)
+    await pool.query(
+      `update observations set deleted = true, title = '', content = null, tags = '[]'::jsonb where sync_id = $1`,
+      [syncId]
+    )
+    const res = await listRecryptPending(pool, { deviceId: leaderDevice, userId: leaderId }, teamId, { limit: 200 })
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.items.map((i) => i.sync_id)).not.toContain(syncId)
+  })
+})

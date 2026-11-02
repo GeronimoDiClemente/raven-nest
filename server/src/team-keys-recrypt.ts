@@ -66,7 +66,10 @@ const HMAC_DE_TEMA = /^[0-9a-f]{32}$/
  * pendiente para siempre y recrypt la rechazaba siempre.
  *
  * Mira todo lo que `sealMutationPayload` sella: title, content, content_hash, origin_account y
- * tags (que se sellan como UN sobre: `["nmc1:…"]`). Un null o un `[]` no cuenta como en claro.
+ * tags (que se sellan como UN sobre: `["nmc1:…"]`). Un null o un `[]` no cuenta como en claro,
+ * y un título '' tampoco: es lo que deja un tombstone desde el F3 de la review final del cifrado
+ * obligatorio (push.ts y la migración 013 le vacían el texto), y sin esa excepción cada borrado
+ * de equipo volvía a aparecer como pendiente.
  *
  * `topic_key` NO entra, a propósito: sellado es un HMAC de 32 hex, que no se distingue de un
  * tema en claro que justo sea 32 hex — meterlo daría falsos "en claro" o falsos "sellado". Y no
@@ -79,7 +82,7 @@ const HMAC_DE_TEMA = /^[0-9a-f]{32}$/
  */
 function enClaro(o: string): string {
   const campo = (c: string) => `(${o}.${c} is not null and ${o}.${c} not like 'nmc1:%')`
-  return `(${o}.title not like 'nmc1:%'
+  return `((${o}.title <> '' and ${o}.title not like 'nmc1:%')
     or ${campo('content')} or ${campo('content_hash')} or ${campo('origin_account')}
     or case when jsonb_typeof(${o}.tags) = 'array' and jsonb_array_length(${o}.tags) > 0
             then not (jsonb_array_length(${o}.tags) = 1 and coalesce(${o}.tags->>0, '') like 'nmc1:%')

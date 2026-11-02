@@ -2,6 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { getPool, migrate } from '../src/db'
 import { handlePush } from '../src/push'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const MIGRATIONS = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations')
 
 const pool = getPool()
 let auth: { deviceId: string; userId: string; plan: string }
@@ -50,6 +55,59 @@ describe('tombstones (§8.2)', () => {
     )
     expect(rows[0].deleted).toBe(true)
     expect(rows[0].content).toBeNull()
+  })
+
+  // F3 (review final): el delete anulaba sólo el content y dejaba título, tags, hash, cuenta de
+  // origen, rama y tema. Un tombstone no necesita nada de eso, y en una fila de antes del cifrado
+  // obligatorio era texto legible que el contador (`not deleted`) ni siquiera miraba.
+  it('a delete clears every text column, not just content', async () => {
+    const p = `tomb-${randomUUID().slice(0, 8)}`
+    const id = SYNC('obs-del-all')
+    const conTodo = (seq: number, op: 'upsert' | 'delete') => {
+      const m = base(seq, id, p, op, op === 'delete' ? null : 'alive')
+      return { ...m, payload: { ...m.payload, title: 'plain title', tags: ['plain-tag'], topic_key: 'plain-topic',
+        content_hash: 'plainhash', origin_account: 'someone@example.com', git_branch: 'feature/x' } }
+    }
+    await handlePush(pool, auth, { mutations: [conTodo(450, 'upsert')] })
+    const res = await handlePush(pool, auth, { mutations: [conTodo(451, 'delete')] })
+    expect(res.results[0].outcome).toBe('applied')
+    const { rows } = await pool.query(
+      `select deleted, title, content, tags, topic_key, content_hash, origin_account, git_branch
+         from observations where sync_id = $1`, [id]
+    )
+    expect(rows[0]).toEqual({
+      deleted: true, title: '', content: null, tags: [], topic_key: null,
+      content_hash: null, origin_account: null, git_branch: null,
+    })
+  })
+
+  // La migración 013 hace lo mismo con los tombstones que ya estaban en la base. Se corre el
+  // archivo a mano porque `migrate()` lo aplicó una sola vez al crear la base de tests, antes
+  // de que existiera esta fila.
+  it('migration 013 clears the text of tombstones already stored', async () => {
+    const p = `tomb-${randomUUID().slice(0, 8)}`
+    const id = SYNC('old-tomb')
+    const vivo = SYNC('old-alive')
+    const conTodo = (seq: number, syncId: string) => {
+      const m = base(seq, syncId, p, 'upsert', 'alive')
+      return { ...m, payload: { ...m.payload, title: 'plain title', tags: ['plain-tag'], topic_key: `t-${syncId}`,
+        content_hash: 'plainhash', origin_account: 'someone@example.com', git_branch: 'feature/x' } }
+    }
+    await handlePush(pool, auth, { mutations: [conTodo(460, id), conTodo(461, vivo)] })
+    // Como lo dejaba el servidor viejo: deleted con todo menos el content.
+    await pool.query(`update observations set deleted = true, content = null where sync_id = $1`, [id])
+
+    await pool.query(readFileSync(join(MIGRATIONS, '013_tombstones_sin_texto.sql'), 'utf8'))
+
+    const { rows } = await pool.query(
+      `select sync_id, title, tags, topic_key, content_hash, origin_account, git_branch
+         from observations where sync_id = any($1) order by sync_id`, [[id, vivo]]
+    )
+    const muerto = rows.find((r) => r.sync_id === id)
+    const vivoRow = rows.find((r) => r.sync_id === vivo)
+    expect(muerto).toMatchObject({ title: '', tags: [], topic_key: null, content_hash: null, origin_account: null, git_branch: null })
+    // Una fila viva no se toca.
+    expect(vivoRow).toMatchObject({ title: 'plain title', tags: ['plain-tag'], origin_account: 'someone@example.com', git_branch: 'feature/x' })
   })
 
   it('a delete frees the topic slot for a later live row', async () => {
