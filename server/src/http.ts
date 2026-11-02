@@ -16,6 +16,7 @@ import { getTeamKeyState, activateTeamKey, authorizeTeamDevice } from './team-ke
 import { recryptTeamObservations, listRecryptPending } from './team-keys-recrypt'
 import { handleBeta } from './betas'
 import { aplicarPlan, leerAvisoDePlan, verificarFirmaDePlan } from './plan-sync'
+import { aplicarMembresias, leerAvisoDeMembresias } from './membership-sync'
 import { UUID_RE } from './uuid'
 
 // El emisor del JWKS se arma UNA vez por URL y se guarda: cada instancia tiene su propio
@@ -193,6 +194,8 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   // Spec 2b-2 §4.5: el aviso de plan del webhook de Stripe. Fuera de `authenticate`: la
   // credencial es la firma HMAC, no un token de device.
   if (path === '/internal/plan') return handleInternalPlan(pool, req, res)
+  // Lo mismo para la membresía de equipos (hueco del 30-oct): mismo secreto y misma firma.
+  if (path === '/internal/memberships') return handleInternalMemberships(pool, req, res)
 
   // §9.2 — la emisión del token. Va ANTES de `authenticate` y fuera de su try/catch porque
   // es el único camino que NO lleva un token `nmk_`: la credencial es el JWT del login que
@@ -574,6 +577,32 @@ async function handleInternalPlan(pool: Pool, req: IncomingMessage, res: ServerR
   } catch (err) {
     const status = (err as { status?: number }).status ?? 500
     if (status === 500) console.error('[http] /internal/plan', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /internal/memberships`: el aviso de Supabase con el set completo de equipos activos. */
+async function handleInternalMemberships(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const secreto = process.env.PLAN_SYNC_SECRET ?? ''
+  if (!secreto) return send(res, 404, { error: 'not_found' })
+  if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+  try {
+    const cuerpo = await readRawBody(req, MAX_PLAN_BODY_BYTES)
+    const firma = req.headers['x-nest-signature']
+    const cabecera = Array.isArray(firma) ? firma[0] : firma
+    if (!verificarFirmaDePlan(cabecera, cuerpo, secreto, Math.floor(Date.now() / 1000))) {
+      return send(res, 401, { error: 'unauthorized' })
+    }
+    const leido = leerAvisoDeMembresias(cuerpo)
+    if (!leido.ok) return send(res, 400, { error: leido.error })
+    const aplicado = await aplicarMembresias(pool, leido.aviso)
+    console.log('[membership-sync]', aplicado ? 'aplicado' : 'viejo, ignorado', {
+      user_id: leido.aviso.userId, equipos: leido.aviso.memberships.length,
+    })
+    return send(res, 200, aplicado ? { ok: true } : { ok: true, ignored: 'stale' })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /internal/memberships', err)
     return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
   }
 }

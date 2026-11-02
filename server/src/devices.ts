@@ -420,6 +420,13 @@ async function replaceTeamMemberships(
         [userId, m.teamId, m.teamName, m.role]
       )
     }
+    // Esto también es la verdad de Supabase en este momento: un aviso de `/internal/memberships`
+    // calculado ANTES y llegado después no lo puede pisar (`aplicarMembresias` compara contra
+    // esta marca). Sólo sube.
+    await client.query(
+      'update users set memberships_as_of = greatest(coalesce(memberships_as_of, 0), $2) where id = $1',
+      [userId, Date.now()]
+    )
     await client.query('commit')
   } catch (err) {
     await client.query('rollback').catch(() => { /* la conexión ya puede estar rota */ })
