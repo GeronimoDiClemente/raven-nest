@@ -10,6 +10,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import SettingRow from './memories/settings/SettingRow'
 import RecoveryCodeBlock from './memories/RecoveryCodeBlock'
 
@@ -42,9 +46,17 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
   const [reencriptadas, setReencriptadas] = useState<number | null>(null)
   const [ocupado, setOcupado] = useState(false)
   const [buscandoAutorizacion, setBuscandoAutorizacion] = useState(false)
+  const [confirmandoCodigoNuevo, setConfirmandoCodigoNuevo] = useState(false)
+  /**
+   * Spec 2026-11-02 §4: filas propias que siguen en claro en la nube (`plaintext_pending` del
+   * status del servidor, vía `memory.status()`). `null` = todavía no llegó el primer status:
+   * no se sabe, y no se inventa un "falta" que nadie midió.
+   */
+  const [enClaroEnLaNube, setEnClaroEnLaNube] = useState<number | null>(null)
 
   const api = window.memory
   const leerEstado = api?.encryptionStatus
+  const leerStatus = api?.status
 
   const refrescar = useCallback(async () => {
     if (!leerEstado) return
@@ -53,7 +65,11 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
     } catch {
       // Sin red la tarjeta se queda con lo último que supo, que es mejor que un error.
     }
-  }, [leerEstado])
+    try {
+      const s = await leerStatus?.()
+      setEnClaroEnLaNube(typeof s?.plaintextPending === 'number' ? s.plaintextPending : null)
+    } catch { /* idem: se queda con lo último */ }
+  }, [leerEstado, leerStatus])
 
   useEffect(() => { void refrescar() }, [refrescar])
 
@@ -108,6 +124,7 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
   })
 
   // El código nuevo reemplaza al anterior: se muestra con el mismo bloque que la activación.
+  // Se llega sólo desde la confirmación (F8 de la review final): el guardado deja de servir.
   const regenerar = () => conBloqueo(async () => {
     const res = await api?.encryptionRegenerateRecoveryCode?.()
     if (!res) return
@@ -133,6 +150,12 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
   })
 
   const epoca = <span className="font-mono text-fs-sm tabular-nums text-muted-foreground">On · key #{estado.keyEpoch}</span>
+  // F6 (spec §4): activo no es "cifrado" mientras quede algo legible en el servidor. Mismo texto
+  // que la fila Cloud sync de CloudMemoryCard.
+  const faltaCifrar = enClaroEnLaNube !== null && enClaroEnLaNube > 0
+  const estadoActivo = faltaCifrar
+    ? <span className="text-fs-sm tabular-nums text-warn">Encrypting your cloud memory… {enClaroEnLaNube} left</span>
+    : epoca
   const huellaGrande = (h: string) => (
     <p className="m-0 select-all text-center font-mono text-fs tracking-[0.08em] text-foreground">{h}</p>
   )
@@ -141,7 +164,7 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
   // ── El código de recuperación, una sola vez ────────────────────────────────
   if (codigo) {
     return (
-      <SettingRow nombre="Save this code" descripcion="It is the only thing that recovers your memories if you lose every machine. You will not see it again.">
+      <SettingRow nombre="Save this code" descripcion="It is the only thing that recovers your memories if you lose every machine. Save it now. You can generate a new one later from this machine.">
         <RecoveryCodeBlock
           code={codigo}
           aviso={avisoDeCodigo}
@@ -221,7 +244,7 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
   if (estado.active) {
     return (
       <>
-        <SettingRow nombre={NOMBRE} descripcion={QUE_HACE} control={epoca}>
+        <SettingRow nombre={NOMBRE} descripcion={QUE_HACE} control={estadoActivo}>
           {/* Lo que viaja en claro, UNA vez y donde ya está activo (spec §5). */}
           <p className="m-0 text-fs-sm text-muted-foreground">{LO_QUE_QUEDA_EN_CLARO}</p>
           {/* La marca de la clave: dos máquinas de la misma cuenta muestran la misma. */}
@@ -257,7 +280,7 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
           nombre="Re-upload old memories"
           descripcion="Encrypts and uploads again what reached the cloud before encryption was on."
           control={<>
-            <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void regenerar()}>New recovery code</Button>
+            <Button size="sm" variant="outline" disabled={ocupado} onClick={() => setConfirmandoCodigoNuevo(true)}>New recovery code</Button>
             <Button size="sm" variant="outline" disabled={ocupado} onClick={() => void reencriptar()}>Re-upload</Button>
           </>}
         >
@@ -267,6 +290,21 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
             </p>
           )}
         </SettingRow>
+
+        {/* F8: el código nuevo invalida el guardado en el servidor. Un clic suelto no alcanza
+            (mismo patrón que «Turn off» en CloudMemoryCard). */}
+        <AlertDialog open={confirmandoCodigoNuevo} onOpenChange={setConfirmandoCodigoNuevo}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Generate a new recovery code?</AlertDialogTitle>
+              <AlertDialogDescription>Your current code will stop working.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void regenerar()}>Generate new code</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </>
     )
   }

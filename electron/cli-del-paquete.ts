@@ -460,9 +460,11 @@ function exigirLlavero(): ReturnType<typeof cifradoDelSistema> {
 }
 
 /** Spec 2026-11-02 §5: con el código en pantalla, no se termina hasta que el usuario escriba
- * `saved`. Ctrl+C sale igual: la maestra ya quedó en el llavero y el código se puede regenerar
- * desde Nest (Memory settings → Encryption → New recovery code). El código sólo va a la
- * terminal: nunca a un archivo ni a un log. */
+ * `saved`. Ctrl+C sale igual: con `activada` la maestra ya quedó en el llavero y el código se
+ * puede regenerar desde Nest (Memory settings → Encryption → New recovery code). Con
+ * `activada-sin-guardar` NO: la maestra no se pudo guardar en esta máquina y el código de la
+ * pantalla es lo único que la recupera (`mensajeDeEnrolamiento` ya lo avisa). El código sólo va
+ * a la terminal: nunca a un archivo ni a un log. */
 async function mostrarEnrolamiento(resultado: ResultadoDeEnrolamiento): Promise<void> {
   for (const linea of mensajeDeEnrolamiento(resultado)) console.log(linea)
   if (resultado.estado !== 'activada' && resultado.estado !== 'activada-sin-guardar') return
@@ -471,7 +473,8 @@ async function mostrarEnrolamiento(resultado: ResultadoDeEnrolamiento): Promise<
     console.log('  Type "saved" once you have stored it, then press enter.')
     if ((await leerUnaLinea()).trim().toLowerCase() === 'saved') return
     // Sin terminal (stdin cerrado) no hay quien escriba `saved`: repetir el aviso sería un
-    // bucle infinito. La maestra ya está en el llavero; se sale.
+    // bucle infinito. Se sale (con `activada-sin-guardar` el código ya se imprimió, y es lo
+    // único que queda: ver el comentario de arriba).
     if (process.stdin.readableEnded) return
   }
 }

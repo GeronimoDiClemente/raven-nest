@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import MemoryEncryptionCard from '../../components/MemoryEncryptionCard'
 
 // Tipado a mano: con el literal pelado, `pendingDevices: []` se infiere `never[]` y el
@@ -20,9 +20,11 @@ const estadoBase: EstadoCifrado = {
   available: true, active: false, keyEpoch: 0, pendingDevices: [], undecryptable: 0,
 }
 
-function montarCon(estado: Partial<EstadoCifrado>, extra: Record<string, unknown> = {}) {
+function montarCon(estado: Partial<EstadoCifrado>, extra: Record<string, unknown> = {}, plaintextPending?: number) {
   const api = {
     encryptionStatus: vi.fn(async () => ({ ...estadoBase, ...estado })),
+    // `memory.status()` es de donde la tarjeta lee `plaintextPending` (spec 2026-11-02 §4).
+    status: vi.fn(async () => ({ connected: true, state: 'connected', plaintextPending })),
     encryptionActivate: vi.fn(async () => ({ ok: true, recoveryCode: 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF' })),
     encryptionAuthorize: vi.fn(async () => ({ ok: true })),
     encryptionRecover: vi.fn(async () => ({ ok: true })),
@@ -78,7 +80,9 @@ describe('MemoryEncryptionCard', () => {
     fireEvent.click(await screen.findByRole('button', { name: /turn on encryption/i }))
     await waitFor(() => expect(api.encryptionActivate).toHaveBeenCalled())
     expect(await screen.findByText('AAAA-BBBB-CCCC-DDDD-EEEE-FFFF')).toBeInTheDocument()
-    expect(screen.getByText(/will not see it again/i)).toBeInTheDocument()
+    // F10: "You will not see it again" dejó de ser cierto con «New recovery code».
+    expect(screen.getByText(/save it now\. you can generate a new one later from this machine/i)).toBeInTheDocument()
+    expect(screen.queryByText(/will not see it again/i)).toBeNull()
     const seguir = screen.getByRole('button', { name: /done/i })
     expect(seguir).toBeDisabled()
     fireEvent.click(screen.getByRole('checkbox'))
@@ -95,11 +99,47 @@ describe('MemoryEncryptionCard', () => {
     expect(await screen.findByText(/866/)).toBeInTheDocument()
   })
 
-  it('New recovery code muestra el código nuevo', async () => {
-    montarCon({ active: true, keyEpoch: 1 }, { encryptionRegenerateRecoveryCode: vi.fn(async () => ({ ok: true, recoveryCode: 'NEW1-NEW2' })) })
+  // F8: generar un código nuevo invalida el guardado. Un clic suelto no puede hacerlo.
+  it('New recovery code pide confirmación antes de invalidar el código guardado', async () => {
+    const regenerar = vi.fn(async () => ({ ok: true, recoveryCode: 'NEW1-NEW2' }))
+    montarCon({ active: true, keyEpoch: 1 }, { encryptionRegenerateRecoveryCode: regenerar })
     render(<MemoryEncryptionCard />)
     fireEvent.click(await screen.findByRole('button', { name: 'New recovery code' }))
+    const dialogo = within(await screen.findByRole('alertdialog'))
+    expect(dialogo.getByText('Generate a new recovery code?')).toBeInTheDocument()
+    expect(dialogo.getByText('Your current code will stop working.')).toBeInTheDocument()
+    expect(regenerar).not.toHaveBeenCalled()
+
+    fireEvent.click(dialogo.getByRole('button', { name: 'Generate new code' }))
+    await waitFor(() => expect(regenerar).toHaveBeenCalledTimes(1))
     expect(await screen.findByText('NEW1-NEW2')).toBeInTheDocument()
+  })
+
+  it('cancelar la confirmación no genera nada', async () => {
+    const regenerar = vi.fn(async () => ({ ok: true, recoveryCode: 'NEW1-NEW2' }))
+    montarCon({ active: true, keyEpoch: 1 }, { encryptionRegenerateRecoveryCode: regenerar })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: 'New recovery code' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(regenerar).not.toHaveBeenCalled()
+  })
+
+  // F6 (spec §4): «On · key #N» se lee como "tu nube está cifrada". Con filas todavía en claro
+  // en el servidor eso es falso: la tarjeta dice cuánto falta, como la de Sync.
+  it('activo con memoria todavía en claro en la nube, dice cuánto falta en vez de «On · key #N»', async () => {
+    montarCon({ active: true, keyEpoch: 1 }, {}, 7)
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('Encrypting your cloud memory… 7 left')).toBeInTheDocument()
+    expect(screen.queryByText('On · key #1')).toBeNull()
+    expect(screen.getByRole('button', { name: /re-upload/i })).toBeInTheDocument()
+  })
+
+  it('activo con plaintextPending 0, «On · key #N»', async () => {
+    montarCon({ active: true, keyEpoch: 2 }, {}, 0)
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('On · key #2')).toBeInTheDocument()
+    expect(screen.queryByText(/encrypting your cloud memory/i)).toBeNull()
   })
 
   it('cada máquina que espera es una fila con su huella y su botón', async () => {
