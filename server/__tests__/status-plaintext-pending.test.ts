@@ -26,13 +26,17 @@ function mutation(seq: number, syncId: string, scope: string, extra: Record<stri
   }
 }
 
-beforeAll(async () => {
-  await migrate(pool)
+async function nuevaCuenta() {
   const userId = randomUUID()
   const deviceId = randomUUID()
   await pool.query(`insert into users (id, plan) values ($1, 'cloud')`, [userId])
   await pool.query(`insert into devices (id, user_id, name, token_hash) values ($1, $2, 'd', $3)`, [deviceId, userId, `hash-${deviceId}`])
-  auth = { deviceId, userId, plan: 'cloud' }
+  return { deviceId, userId, plan: 'cloud' }
+}
+
+beforeAll(async () => {
+  await migrate(pool)
+  auth = await nuevaCuenta()
 })
 afterAll(async () => { await pool.end() })
 
@@ -46,10 +50,59 @@ describe('status — plaintext_pending', () => {
     expect((await handleStatus(pool, auth)).plaintext_pending).toBe(1)
   })
 
-  it('no cuenta filas de equipo ni borradas', async () => {
-    const antes = (await handleStatus(pool, auth)).plaintext_pending
-    await handlePush(pool, auth, { mutations: [mutation(4, `${RUN}-borrada`, 'personal')] })
-    await handlePush(pool, auth, { mutations: [mutation(5, `${RUN}-borrada`, 'personal', { title: '', content: null }, 'delete')] })
-    expect((await handleStatus(pool, auth)).plaintext_pending).toBe(antes)
+  it('no cuenta filas de equipo: scope <> team', async () => {
+    const a = await nuevaCuenta()
+    await handlePush(pool, a, { mutations: [mutation(1, `${RUN}-eq`, 'personal')] })
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(1)
+    await pool.query(`update observations set scope = 'team' where sync_id = $1`, [`${RUN}-eq`])
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
+  })
+
+  it('no cuenta filas borradas aunque conserven el texto en claro: not deleted', async () => {
+    const a = await nuevaCuenta()
+    await handlePush(pool, a, { mutations: [mutation(1, `${RUN}-del`, 'personal')] })
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(1)
+    // Por SQL y no por un `delete` de push: éste vacía título y contenido y no probaría nada.
+    await pool.query(`update observations set deleted = true where sync_id = $1`, [`${RUN}-del`])
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
+  })
+
+  it('un tombstone real subido por push tampoco cuenta', async () => {
+    const a = await nuevaCuenta()
+    await handlePush(pool, a, { mutations: [mutation(1, `${RUN}-tomb`, 'personal')] })
+    await handlePush(pool, a, { mutations: [mutation(2, `${RUN}-tomb`, 'personal', { title: '', content: null }, 'delete')] })
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
+  })
+
+  it('no cuenta filas de otra cuenta: p.user_id', async () => {
+    const a = await nuevaCuenta()
+    const b = await nuevaCuenta()
+    await handlePush(pool, b, { mutations: [mutation(1, `${RUN}-ajena`, 'personal')] })
+    expect((await handleStatus(pool, b)).plaintext_pending).toBe(1)
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
+  })
+
+  // Una fila con UN solo campo en claro y todo lo demás sellado cuenta 1: cada rama del OR
+  // tiene que poder disparar sola.
+  const CASOS: Array<[string, Record<string, unknown>]> = [
+    ['title', { title: 'plain' }],
+    ['content', { content: 'plain' }],
+    ['content_hash', { content_hash: 'plainhash' }],
+    ['origin_account', { origin_account: 'plain@x.com' }],
+    ['git_branch', { git_branch: 'main' }],
+    ['tags con 2 elementos (uno sellado)', { tags: ['nmc1:CCCC', 'nmc1:HHHH'] }],
+    ['tags con 1 elemento en claro', { tags: ['plain'] }],
+  ]
+  it.each(CASOS)('un solo campo en claro cuenta 1: %s', async (nombre, campo) => {
+    const a = await nuevaCuenta()
+    const id = `${RUN}-c-${nombre.replace(/\W/g, '')}`
+    await handlePush(pool, a, { mutations: [mutation(1, id, 'personal', { ...SELLADA, ...campo })] })
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(1)
+  })
+
+  it('una fila toda sellada no cuenta', async () => {
+    const a = await nuevaCuenta()
+    await handlePush(pool, a, { mutations: [mutation(1, `${RUN}-ok`, 'personal', SELLADA)] })
+    expect((await handleStatus(pool, a)).plaintext_pending).toBe(0)
   })
 })
