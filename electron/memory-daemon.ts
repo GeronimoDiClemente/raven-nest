@@ -132,6 +132,8 @@ export interface StatusResponseBody {
   /** Equipos con cifrado activo donde soy miembro, y si ESTE device tiene envoltura.
    * Ausente en un servicio viejo: "no sé", no "ninguno" — no borra lo que el store ya sabe. */
   encrypted_teams?: Array<{ team_id: string; has_wrap: boolean }>
+  /** Spec 2026-11-02: filas propias que siguen en claro en la nube. Ausente = servicio viejo. */
+  plaintext_pending?: number
 }
 
 export interface PulledRow extends LWWRow {
@@ -190,6 +192,14 @@ export interface MemoryDaemonDeps {
    * contenido y tags en texto plano a una nube que el usuario cree cifrada.
    */
   isEncryptionExpected?: () => boolean
+  /**
+   * Spec 2026-11-02: la cuenta TIENE que cifrar, aunque todavía no lo haga (época 0). Con
+   * esto, sin maestra no sale nada: `needs_encryption_setup` en época 0, `needs_key` si la
+   * cuenta ya cifra. La app y el paquete lo pasan siempre en `true`; sin la dep, nada cambia.
+   */
+  requireEncryption?: () => boolean
+  /** Spec 2026-11-02 §4: el status dijo que hay filas propias en claro en la nube. */
+  onPlaintextPending?: (n: number) => void
   /**
    * §6.3 del spec `2026-09-13-nest-memory-portable-design.md`: toma el candado de
    * sincronización de esta base. Si otro lo tiene, este daemon NO sincroniza — las
@@ -365,6 +375,7 @@ export class MemoryDaemon {
   // Spec 2b-1 §4.2: el tope de proyectos que informó el servidor y las keys del roster (sin
   // __global__). Los dos son de la cuenta del store actual: `setStore` los vacía (D10).
   private lastLimits: { max_projects: number } | null = null
+  private lastPlaintextPending: number | null = null
   private lastCloudProjectKeys: string[] | null = null
   // Spec 2b-2 §4.7: qué proyecto eligió seguir sincronizando quien bajó de plan, y si la cuenta
   // está por encima del tope. De la cuenta del store actual: `setStore` los vacía.
@@ -506,6 +517,7 @@ export class MemoryDaemon {
     // El tope y el roster son de la cuenta anterior: mostrarlos con la nueva sería mostrarle
     // repos ajenos hasta el próximo status.
     this.lastLimits = null
+    this.lastPlaintextPending = null
     this.lastCloudProjectKeys = null
     this.lastKeptProjectKey = null
     this.lastOverLimit = false
@@ -591,6 +603,11 @@ export class MemoryDaemon {
   /** La ultima cuota reportada por el servidor, o null si todavia no reporto ninguna. */
   getQuota(): { used_bytes: number; max_bytes: number } | null {
     return this.lastQuota
+  }
+
+  /** Spec 2026-11-02: lo último que informó el servidor; `null` hasta el primer status. */
+  getPlaintextPending(): number | null {
+    return this.lastPlaintextPending
   }
 
   /** El último tope de proyectos que informó el servidor, o null si todavía no informó ninguno. */
@@ -855,7 +872,7 @@ export class MemoryDaemon {
     const hayDeEquipo = pending.some((m) => {
       try { return (JSON.parse(m.payload) as { scope?: unknown }).scope === 'team' } catch { return false }
     })
-    if (!this.primerStatusOk && (this.deps.isEncryptionExpected || hayDeEquipo)) {
+    if (!this.primerStatusOk && (this.deps.isEncryptionExpected || this.deps.requireEncryption || hayDeEquipo)) {
       await this.status()
       // Cubre también el swap de cuenta durante la espera: `setStore` lo vuelve a false y un
       // status que vuelve con otra generación no lo levanta. Sin esto el gate leería
@@ -880,6 +897,13 @@ export class MemoryDaemon {
     const contexto = this.deps.getEnvelopeContext?.() ?? null
     if (seEsperaCifrado && (!contexto || contexto.keyEpoch < store.knownKeyEpoch())) {
       this.setStatus('error', 'needs_key')
+      return
+    }
+    // Spec 2026-11-02: la cuenta todavía no cifra, pero conectar exige cifrar. Sin maestra no
+    // sale nada; la UI ofrece "Turn on encryption".
+    const seExigeCifrado = this.deps.requireEncryption?.() ?? false
+    if (seExigeCifrado && !contexto) {
+      this.setStatus('error', 'needs_encryption_setup')
       return
     }
 
@@ -1399,6 +1423,10 @@ export class MemoryDaemon {
         this.deps.store.rememberKeyEpoch(body.key_epoch)
       }
       this.primerStatusOk = true
+      if (typeof body.plaintext_pending === 'number') {
+        this.lastPlaintextPending = body.plaintext_pending
+        if (body.plaintext_pending > 0) this.deps.onPlaintextPending?.(body.plaintext_pending)
+      }
 
       this.applyPollInterval(body.next_poll_ms)
 
