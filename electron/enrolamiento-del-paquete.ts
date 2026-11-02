@@ -28,6 +28,9 @@ export type ResultadoDeEnrolamiento =
   /** La cuenta no cifraba: esta conexión lo activó. La maestra ya quedó guardada; el código
    *  se muestra UNA vez y el servidor no puede regenerarlo. */
   | { estado: 'activada'; keyEpoch: number; recoveryCode: string }
+  /** El servidor ya activó pero esta máquina no pudo guardar la maestra. El código es lo único
+   *  que reconstruye la clave (`recover`): se conserva y se muestra, nunca se descarta. */
+  | { estado: 'activada-sin-guardar'; recoveryCode: string; detalle: string }
   /** Publicada la pública, falta que otra máquina autorice esta. */
   | { estado: 'esperando-autorizacion'; huella: string }
   /** Esta máquina puede leer lo cifrado. */
@@ -70,6 +73,15 @@ export function mensajeDeEnrolamiento(resultado: ResultadoDeEnrolamiento): strin
         `Or use your recovery code: \`${comando('recover')}\`.`,
         'Recovery spends your one emergency copy; authorizing from another machine is preferred.',
         'Local memory keeps working while you wait.',
+      ]
+    case 'activada-sin-guardar':
+      return [
+        `Encryption is on, but the key could not be saved on this machine: ${resultado.detalle}.`,
+        '',
+        `  Recovery code:  ${resultado.recoveryCode}`,
+        '',
+        `Save this recovery code now and run \`${comando('recover')}\` to finish.`,
+        "It's the only way to get your key back. We can't recover it for you.",
       ]
     case 'sin-llavero':
       return [
@@ -122,7 +134,16 @@ export async function enrolarEstaMaquina(d: DepsDeEnrolamiento): Promise<Resulta
         if (r.nueva) d.guardarMaestra(r.master, r.keyEpoch)
         return { estado: 'lista', keyEpoch: r.keyEpoch }
       case 'activada':
-        d.guardarMaestra(r.master, r.keyEpoch)
+        // Si guardar falla, el servidor ya activó: tirar el código dejaría la cuenta sin nadie
+        // que tenga la maestra. Se devuelve el código para que `recover` la reconstruya.
+        try {
+          d.guardarMaestra(r.master, r.keyEpoch)
+        } catch (err) {
+          return {
+            estado: 'activada-sin-guardar', recoveryCode: r.recoveryCode,
+            detalle: err instanceof Error ? err.message : String(err),
+          }
+        }
         return { estado: 'activada', keyEpoch: r.keyEpoch, recoveryCode: r.recoveryCode }
       case 'esperando-autorizacion':
         return { estado: 'esperando-autorizacion', huella: r.huella }

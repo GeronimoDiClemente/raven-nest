@@ -465,7 +465,7 @@ function exigirLlavero(): ReturnType<typeof cifradoDelSistema> {
  * terminal: nunca a un archivo ni a un log. */
 async function mostrarEnrolamiento(resultado: ResultadoDeEnrolamiento): Promise<void> {
   for (const linea of mensajeDeEnrolamiento(resultado)) console.log(linea)
-  if (resultado.estado !== 'activada') return
+  if (resultado.estado !== 'activada' && resultado.estado !== 'activada-sin-guardar') return
   for (;;) {
     console.log('')
     console.log('  Type "saved" once you have stored it, then press enter.')

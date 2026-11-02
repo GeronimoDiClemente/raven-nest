@@ -42,8 +42,22 @@ describe('enrolarEstaMaquina', () => {
     expect(guardarMaestra).toHaveBeenCalledWith('M', 1)
   })
 
-  it('si no puede guardar la maestra recién activada, lo informa como error', async () => {
+  it('si no puede guardar la maestra recién activada, conserva el código de recuperación', async () => {
+    // El servidor ya activó: sin el código, nadie podría reconstruir la maestra.
     const r = await enrolarEstaMaquina(deps({ guardarMaestra: () => { throw new Error('Disk full') } }))
+    expect(r).toEqual({ estado: 'activada-sin-guardar', recoveryCode: 'CODE-1', detalle: 'Disk full' })
+    const texto = mensajeDeEnrolamiento(r).join('\n')
+    expect(texto).toContain('CODE-1')
+    expect(texto).toContain('could not be saved on this machine: Disk full')
+    expect(texto).toContain('npx @nestmux/memory recover')
+    expect(texto).toContain("We can't recover it for you.")
+  })
+
+  it('si falla guardar una maestra ADOPTADA sigue siendo error: el servidor conserva el sobre', async () => {
+    const r = await enrolarEstaMaquina(deps({
+      guardarMaestra: () => { throw new Error('Disk full') },
+      estadoRemoto: vi.fn(async () => ({ keyEpoch: 3, wrap: { wrapped: 'sobre', wrapMeta: null }, devices: [] })),
+    }))
     expect(r).toEqual({ estado: 'error', detalle: 'Disk full' })
   })
 

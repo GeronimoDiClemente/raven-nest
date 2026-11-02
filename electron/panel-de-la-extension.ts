@@ -92,6 +92,11 @@ export function estadoDelPanel(e: EntradaDelPanel): EstadoDelPanel {
       detalle = `Cloud sync is paused until you run \`${comando('login')}\` to turn it on.`
       break
 
+    case 'activada-sin-guardar':
+      titular = 'Encryption is on, but this machine could not save the key.'
+      detalle = `Run \`${comando('recover')}\` with your recovery code to finish.`
+      break
+
     case 'activada':
       titular = 'Encryption is on.'
       detalle = 'Nothing to do.'
