@@ -39,7 +39,9 @@ servidor (commit `276148b`, hoy sólo con `key_epoch > 0`).
 ### 1. Servidor: ninguna fila personal en claro
 
 - `server/src/push.ts`: el rechazo `encryption_required` deja de depender de `key_epoch`. Toda
-  fila con `scope !== 'team'` que no `viajaSellado` se rechaza. (Las de equipo siguen con
+  fila con `scope !== 'team'` que no `viajaSellado` se rechaza. Única excepción: la env var
+  `ALLOW_PLAINTEXT_PERSONAL=1`, que sólo setea `server/vitest.config.ts` porque 24 archivos de
+  tests del servidor suben filas en claro para probar otras cosas; en producción no existe. (Las de equipo siguen con
   `team_encryption_required` cuando el equipo cifra; un equipo que no cifra queda fuera de este
   spec, ver "Fuera de alcance".)
 - `viajaSellado` suma `git_branch` a los campos que tienen que venir sellados.
@@ -77,7 +79,9 @@ servidor (commit `276148b`, hoy sólo con `key_epoch > 0`).
      adoptar.
 3. El código de recuperación queda guardado **en el main** (en memoria del proceso, nunca en
    disco ni en logs) hasta que el renderer confirme "lo guardé"; así cambiar de pestaña no lo
-   pierde. Recién con esa confirmación se importa la memoria local y corre el primer drain.
+   pierde. La confirmación es de experiencia, no de seguridad: lo que impide subir en claro es
+   el gate del punto 2, y con la maestra ya activa todo lo que sale va sellado. Por eso la
+   importación y el primer drain no esperan la confirmación.
 4. `CloudMemoryCard` muestra, según el resultado: el código (reusa el bloque de
    `MemoryEncryptionCard`, con el checkbox "I have saved it somewhere safe" como condición), la
    espera de autorización con la huella, o el botón **Turn on encryption** para reintentar.
@@ -90,17 +94,20 @@ La segunda máquina nunca llama a `activateEncryption` contra una cuenta que ya 
 - Al abrir la versión nueva, una cuenta conectada en época 0 cae en `needs_encryption_setup`
   (el gate del punto 2). `CloudMemoryCard` muestra "Your cloud memory isn't encrypted yet" con
   **Turn on encryption**, que corre `asegurarCifrado()` y el mismo flujo del código.
-- Al activar se dispara solo el Re-upload (hoy botón manual en `MemoryEncryptionCard`).
+- Con la maestra presente y `plaintext_pending > 0`, el daemon avisa y el main corre el
+  Re-upload solo (hoy botón manual en `MemoryEncryptionCard`). **Una vez por sesión de la
+  app**: `requeueAllForPush` re-encola TODO, y una fila que sólo existe en el servidor nunca
+  bajaría a 0 — reintentar en cada status sería re-subir la base entera cada 15 minutos.
 - La tarjeta dice "Encrypted" sólo con `plaintext_pending === 0`. Mientras tanto,
-  "Encrypting your cloud memory… N left", y el Re-upload se reintenta en cada status hasta
-  llegar a 0 (mismo patrón que la migración de equipo).
+  "Encrypting your cloud memory… N left", con el botón Re-upload para reintentar a mano.
 
 ### 5. CLI (`npx @nestmux/memory`)
 
 - `login`, después de guardar la credencial, corre el mismo `asegurarCifrado()` (vía
   `enrolamiento-del-paquete.ts`):
-  - época 0 → activa, imprime el código de recuperación con el aviso de pérdida y pide escribir
-    `saved` para seguir; sin eso no guarda la maestra como "confirmada" y el sync no arranca;
+  - época 0 → activa, guarda la maestra en el llavero, imprime el código de recuperación con el
+    aviso de pérdida y no termina hasta que el usuario escriba `saved` (Ctrl+C sale igual: la
+    maestra ya quedó guardada y el código se puede regenerar desde Nest);
   - época > 0 → imprime la huella y "Approve this machine from another device, or run
     `nestmux-memory recover`".
 - `status` muestra `needs_encryption_setup`, la espera de autorización y `plaintext_pending`.
