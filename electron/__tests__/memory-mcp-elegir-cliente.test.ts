@@ -5,7 +5,11 @@
 // desktop, VS Code, Cursor— con Nest abierto caía siempre en sólo lectura y no podía guardar,
 // mientras el paquete portátil, en la misma máquina, ya encontraba a Nest por el disco
 // (`nest-vivo-del-paquete.ts`). Ahora los dos usan la misma búsqueda: variables primero, el
-// `pipe-auth.json` después, y un candidato sólo cuenta si contesta un `ping` con su token.
+// `pipe-auth.json` después. Las variables del pane mandan sin ping (como antes): el cliente del
+// daemon ya reintenta lo transitorio (`store_swapping`), y pingear al arrancar dejaba en sólo
+// lectura toda la sesión si el daemon justo no contestaba. Sólo el candidato del disco necesita
+// el `ping`. Y si arrancó en sólo lectura, la primera escritura vuelve a buscar a Nest: cubre
+// abrir Nest después de arrancar la sesión.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
@@ -16,7 +20,8 @@ import { MemoryStore } from '../memory-store'
 import { daemonSocketPath } from '../memory-protocol'
 import { ensureLocalAuthMaterial } from '../memory-local-auth'
 import { MemoryDaemonClient } from '../memory-mcp/client'
-import { MemoryReadonlyClient } from '../memory-mcp/readonly'
+import { SIN_APP } from '../memory-mcp/readonly'
+import { callTool } from '../memory-mcp/servidor'
 import { elegirClienteDeMemoria } from '../memory-mcp/elegir-cliente'
 
 const isWin = process.platform === 'win32'
@@ -65,18 +70,58 @@ describe('elegirClienteDeMemoria', () => {
     expect(r.donde).toEqual({ socket, token: m.token })
   })
 
+  it('con las variables del pane y el daemon SIN contestar al arrancar, igual usa el daemon (no sólo lectura)', async () => {
+    const socket = isWin
+      ? `\\\\.\\pipe\\nest-memory-env-muerto-${randomUUID()}`
+      : join(raven, 'env.sock')
+    const r = await elegirClienteDeMemoria(
+      { NEST_MEMORY_SOCKET: socket, NEST_MEMORY_TOKEN: 'token-del-pane' }, join(raven, 'sin-nest'), isWin, 300,
+    )
+    expect(r.conDaemon).toBe(true)
+    expect(r.cliente).toBeInstanceOf(MemoryDaemonClient)
+    expect(r.donde).toEqual({ socket, token: 'token-del-pane' })
+  })
+
   it('con el pipe-auth.json pero sin nadie que conteste el ping, queda en sólo lectura', async () => {
     ensureLocalAuthMaterial(raven)
     const r = await elegirClienteDeMemoria({}, raven, isWin, 300)
     expect(r.conDaemon).toBe(false)
-    expect(r.cliente).toBeInstanceOf(MemoryReadonlyClient)
+    expect(r.cliente).not.toBeInstanceOf(MemoryDaemonClient)
     expect(r.donde).toBeNull()
   })
 
   it('sin variables ni rastro de Nest en el disco, queda en sólo lectura', async () => {
     const r = await elegirClienteDeMemoria({}, raven, isWin, 300)
     expect(r.conDaemon).toBe(false)
-    expect(r.cliente).toBeInstanceOf(MemoryReadonlyClient)
+    expect(r.cliente).not.toBeInstanceOf(MemoryDaemonClient)
     expect(r.donde).toBeNull()
+  })
+})
+
+describe('re-descubrimiento perezoso: Nest abre después de arrancar la sesión', () => {
+  it('arrancó en sólo lectura, Nest aparece después, y memory_save guarda en el daemon', async () => {
+    const m = ensureLocalAuthMaterial(raven)
+    const r = await elegirClienteDeMemoria({}, raven, isWin, 300)
+    expect(r.conDaemon).toBe(false)
+
+    levantarDaemon(daemonSocketPath(raven, isWin, m.pipeId), m.token)
+    const guardada = JSON.parse(await callTool(r.cliente, raven, 'memory_save', {
+      title: 'Guardada al abrir Nest tarde', content: 'la sesion arranco sin Nest', type: 'decision',
+    }))
+    expect(guardada.syncId).toEqual(expect.any(String))
+    // La escribió el daemon: está en SU store.
+    expect(store.get(guardada.syncId)?.title).toBe('Guardada al abrir Nest tarde')
+
+    // Y el resto de la sesión ya habla con el daemon: las lecturas ven lo guardado sin marca offline.
+    const busqueda = JSON.parse(await callTool(r.cliente, raven, 'memory_search', { query: 'Guardada' }))
+    expect(busqueda.offline).toBeUndefined()
+    expect(busqueda.items.map((i: { syncId: string }) => i.syncId)).toContain(guardada.syncId)
+  })
+
+  it('arrancó en sólo lectura y Nest sigue sin aparecer: escribir responde SIN_APP', async () => {
+    ensureLocalAuthMaterial(raven)
+    const r = await elegirClienteDeMemoria({}, raven, isWin, 300)
+    await expect(r.cliente.call('memory.save', { cwd: raven, title: 't', content: 'c', type: 'decision' }))
+      .rejects.toThrow(SIN_APP)
   })
 })

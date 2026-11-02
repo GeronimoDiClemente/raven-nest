@@ -30,13 +30,14 @@ function env(name: string): string | undefined {
  * Lo mínimo que el shim necesita para responder: el daemon de una Nest viva si contesta, y si
  * no, lectura directa del disco.
  *
- * Nest se busca igual que lo busca el paquete portátil (`elegir-cliente.ts`): las variables
- * del pane primero, el `pipe-auth.json` después, y sólo cuenta quien contesta el `ping`. Así
- * una sesión abierta fuera de un pane de Nest —Claude desktop, VS Code, Cursor— también guarda
- * si Nest está abierto.
+ * Ver `elegir-cliente.ts`: las variables del pane mandan (sin ping, como siempre); sin ellas,
+ * el `pipe-auth.json` del disco, que sólo cuenta si contesta el `ping` — igual que el paquete
+ * portátil. Así una sesión abierta fuera de un pane de Nest —Claude desktop, VS Code, Cursor—
+ * también guarda si Nest está abierto.
  *
  * Sin nadie que conteste no se sale: degrada a sólo lectura y lo dice, para que quien se lleva
- * el plugin a otro editor sin Nest abierto no se quede sin memoria.
+ * el plugin a otro editor sin Nest abierto no se quede sin memoria. La primera escritura vuelve
+ * a buscar a Nest, por si se abrió después.
  */
 async function resolverCliente(): Promise<ClienteDeMemoria> {
   const elegido = await elegirClienteDeMemoria(process.env, ravenHome(), process.platform === 'win32')
