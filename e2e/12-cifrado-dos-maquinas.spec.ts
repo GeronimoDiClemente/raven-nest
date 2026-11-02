@@ -66,7 +66,7 @@ function sql(q: string): string {
   }).trim()
 }
 
-async function conectar(page: Page, token: string, deviceId: string): Promise<void> {
+async function conectar(page: Page, token: string, deviceId: string): Promise<{ estado: string; recoveryCode?: string; huella?: string }> {
   const r = await page.evaluate(async ({ url, token, deviceId }) => {
     const m = (window as unknown as { memory: Record<string, (...a: unknown[]) => Promise<unknown>> }).memory
     const svc = await m.setSyncService(url)
@@ -74,7 +74,9 @@ async function conectar(page: Page, token: string, deviceId: string): Promise<vo
     return { svc, con }
   }, { url: SYNC_URL!, token, deviceId })
   expect((r.svc as { ok: boolean }).ok, JSON.stringify(r.svc)).toBe(true)
-  expect((r.con as { ok?: boolean }).ok ?? true, JSON.stringify(r.con)).toBe(true)
+  const con = r.con as { ok?: boolean; cifrado?: { estado: string; recoveryCode?: string; huella?: string } }
+  expect(con.ok ?? true, JSON.stringify(con)).toBe(true)
+  return con.cifrado ?? { estado: 'desconocido' }
 }
 
 /** Abre el overlay Memories desde la fila de la sidebar, como una persona. */
@@ -121,18 +123,17 @@ test('dos máquinas: A activa el cifrado, B no lee hasta que A la autoriza, y de
   try {
     // ── Máquina A ──────────────────────────────────────────────────────────────
     a = await launchHarness({ withRepo: false })
-    await conectar(a.page, deviceA.token, deviceA.deviceId)
-    await abrirEncryption(a.page)
-
-    const tarjeta = a.page.getByRole('button', { name: 'Turn on encryption' })
-    await expect(tarjeta).toBeVisible({ timeout: 20_000 })
-    await a.page.screenshot({ path: join(SHOTS, '01-a-antes-de-activar.png') })
-    await tarjeta.click()
-
-    await expect(a.page.getByText('Save this code')).toBeVisible({ timeout: 20_000 })
-    await a.page.screenshot({ path: join(SHOTS, '02-a-codigo-de-recuperacion.png') })
+    const cifradoA = await conectar(a.page, deviceA.token, deviceA.deviceId)
+    expect(cifradoA.estado).toBe('activada')
+    expect(cifradoA.recoveryCode).toBeTruthy()
+    await abrirMemories(a.page)
+    await a.page.getByRole('button', { name: 'Memory settings' }).click()
+    await expect(a.page.getByText(cifradoA.recoveryCode!)).toBeVisible({ timeout: 20_000 })
+    await a.page.screenshot({ path: join(SHOTS, '01-a-conecta-y-ve-el-codigo.png') })
     await a.page.getByLabel('I have saved it somewhere safe').check()
     await a.page.getByRole('button', { name: 'Done' }).click()
+    await cerrarMemories(a.page)
+    await abrirEncryption(a.page)
     await expect(a.page.getByText(/^On · key #\d+$/)).toBeVisible({ timeout: 20_000 })
     const huellaA = await a.page.getByText(/This account key:/).innerText()
 
@@ -152,11 +153,13 @@ test('dos máquinas: A activa el cifrado, B no lee hasta que A la autoriza, y de
 
     // ── Máquina B, sin autorizar ───────────────────────────────────────────────
     b = await launchHarness({ withRepo: false })
-    await conectar(b.page, deviceB.token, deviceB.deviceId)
+    const cifradoB = await conectar(b.page, deviceB.token, deviceB.deviceId)
+    expect(cifradoB.estado).toBe('esperando-autorizacion')
     await abrirEncryption(b.page)
     await expect(b.page.getByText('This machine is not authorised yet')).toBeVisible({ timeout: 60_000 })
     const huellaB = (await b.page.locator('p.select-all').first().innerText()).trim()
     expect(huellaB).not.toBe('')
+    expect(huellaB).toBe(cifradoB.huella)
     await b.page.screenshot({ path: join(SHOTS, '03-b-sin-autorizar.png') })
     // Sin la clave, B no puede tener el secreto en claro en ningún lado de la pantalla.
     await expect(b.page.getByText(marca)).toHaveCount(0)
