@@ -99,6 +99,16 @@ describe('MemoryEncryptionCard', () => {
     expect(await screen.findByText(/866/)).toBeInTheDocument()
   })
 
+  // N1: el main no re-sube sin un pull completo antes; la tarjeta lo muestra en vez de contar.
+  it('Re-upload sin pull previo muestra el error y no cuenta nada encolado', async () => {
+    const reencriptar = vi.fn(async () => ({ total: 0, queued: 0, error: 'Could not get the latest memories from the cloud first.' }))
+    montarCon({ active: true, keyEpoch: 1 }, { encryptionReencrypt: reencriptar })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /re-upload/i }))
+    expect(await screen.findByText(/latest memories from the cloud first/i)).toBeInTheDocument()
+    expect(screen.queryByText(/memories queued/i)).toBeNull()
+  })
+
   // F8: generar un código nuevo invalida el guardado. Un clic suelto no puede hacerlo.
   it('New recovery code pide confirmación antes de invalidar el código guardado', async () => {
     const regenerar = vi.fn(async () => ({ ok: true, recoveryCode: 'NEW1-NEW2' }))

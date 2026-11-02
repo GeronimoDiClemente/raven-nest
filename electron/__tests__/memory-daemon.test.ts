@@ -2248,3 +2248,58 @@ describe('MemoryDaemon — swapping guard: trigger entry points no-op mid-swap (
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 })
+
+// N1 (re-review del cifrado obligatorio): el re-upload pide un pull COMPLETO antes de su
+// snapshot, y necesita saber si lo consiguió. `pull()` no lo dice; `pullCompleto()` sí.
+describe('MemoryDaemon — pullCompleto (N1)', () => {
+  const vacio = { ok: true, status: 200, json: async () => ({ rows: [], cursors: { 'proj-1': 0 } }) }
+  function filas(n: number): Array<Record<string, unknown>> {
+    return Array.from({ length: n }, (_, i) => ({
+      sync_id: `pc${i}`, project_key: 'proj-1', client_updated_at: '2026-01-05T21:00:00+00:00',
+      lamport: 1, deleted: false, project_seq: i + 1,
+    }))
+  }
+  const conProyecto = () => fakeStore({
+    listProjects: vi.fn(() => [{ projectKey: 'proj-1', displayName: 'proj-1', enrolled: true }]),
+    getSyncState: vi.fn(() => ({ pullCursor: 0, lastPushSeq: 0 })),
+  })
+
+  it('true cuando la página vuelve sin más por bajar', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(vacio)
+    const daemon = new MemoryDaemon(baseDaemonDeps(conProyecto(), { fetchImpl }))
+    expect(await daemon.pullCompleto()).toBe(true)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('sigue las páginas llenas hasta el final antes de decir true', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ rows: filas(500), cursors: { 'proj-1': 500 } }) })
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ rows: filas(3), cursors: { 'proj-1': 503 } }) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(conProyecto(), { fetchImpl }))
+    expect(await daemon.pullCompleto()).toBe(true)
+    expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(2)
+    daemon.stop()
+  })
+
+  it('false si el servidor falla', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) })
+    const daemon = new MemoryDaemon(baseDaemonDeps(conProyecto(), { fetchImpl }))
+    expect(await daemon.pullCompleto()).toBe(false)
+  })
+
+  it('false sin red, sin pedir nada', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(vacio)
+    const daemon = new MemoryDaemon(baseDaemonDeps(conProyecto(), { fetchImpl, isOnline: () => false }))
+    expect(await daemon.pullCompleto()).toBe(false)
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('false si la red se cae en la segunda página', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ rows: filas(500), cursors: { 'proj-1': 500 } }) })
+      .mockRejectedValue(new Error('network down'))
+    const daemon = new MemoryDaemon(baseDaemonDeps(conProyecto(), { fetchImpl }))
+    expect(await daemon.pullCompleto()).toBe(false)
+    daemon.stop()
+  })
+})

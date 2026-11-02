@@ -1130,7 +1130,7 @@ declare global {
       /** `fingerprint`: la huella que la tarjeta MOSTRÓ. */
       encryptionAuthorize?: (deviceId: string, fingerprint: string) => Promise<{ ok: boolean; error?: string }>
       encryptionRecover?: (code: string) => Promise<{ ok: boolean; error?: string }>
-      encryptionReencrypt?: () => Promise<{ total: number; queued: number }>
+      encryptionReencrypt?: () => Promise<{ total: number; queued: number; error?: string }>
       /** Spec 2026-11-02 §4: «Turn on encryption» — adopta, activa o espera autorización. */
       encryptionSecure?: () => Promise<CifradoAlConectar>
       /** El código de la última activación hasta que el usuario confirme que lo guardó

@@ -307,11 +307,21 @@ let cuentaDeLasClaves: string | null = null
  * cambio de cuenta rearma `reuploadAutomaticoHecho`). Lo disparan dos caminos —el status con
  * `plaintext_pending > 0` y conseguir la maestra (F4 de la review final, ver
  * `asegurar-en-el-main.ts`)— y comparten la marca para no re-subir la base dos veces.
+ *
+ * N1 (re-review): `runReencrypt` hace un pull completo antes del snapshot. Si ese pull no
+ * llega al final no re-sube nada y la marca se rearma: lo retoma el próximo disparo (el
+ * status siguiente con `plaintext_pending > 0`, otra adopción o el botón Re-upload).
  */
 function reuploadAutomaticoUnaVez(): void {
   if (reuploadAutomaticoHecho || !memoryKeys?.master || !memory) return
   reuploadAutomaticoHecho = true
   void runReencrypt(memory.store, memory.daemon, undefined, opcionesDeReupload())
+    .then((r) => {
+      if (r.pullFallo) {
+        reuploadAutomaticoHecho = false
+        console.warn('[memory] automatic re-upload postponed: could not pull from the cloud first')
+      }
+    })
     .catch((err) => console.warn('[memory] automatic re-upload failed', err))
 }
 
@@ -3672,7 +3682,12 @@ ipcMain.handle('memory:encryption:recover', async (_e, code: string) => {
 
 ipcMain.handle('memory:encryption:reencrypt', async () => {
   if (!memory) return { total: 0, queued: 0 }
-  return runReencrypt(memory.store, memory.daemon, undefined, opcionesDeReupload())
+  const r = await runReencrypt(memory.store, memory.daemon, undefined, opcionesDeReupload())
+  // N1: sin un pull completo antes no se re-sube nada (ver `runReencrypt`).
+  if (r.pullFallo) {
+    return { total: 0, queued: r.queued, error: 'Could not get the latest memories from the cloud first. Nothing was re-uploaded; try again when sync is back.' }
+  }
+  return { total: r.total, queued: r.queued }
 })
 
 // Spec 2026-11-02 §4: «Turn on encryption» de la tarjeta de Sync (cuentas viejas y reintento).

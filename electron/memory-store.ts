@@ -1348,7 +1348,9 @@ export class MemoryStore {
    * en main.ts.
    */
   requeueAllForPush(opts: { conSuperseded?: boolean } = {}): number {
-    const conSuperseded = opts.conSuperseded ?? true
+    // Default `false` (N1, re-review): sin señal de capacidad, lo seguro contra un servidor
+    // viejo es NO re-subirlas. Los que llaman hoy lo pasan explícito.
+    const conSuperseded = opts.conSuperseded ?? false
     const rows = this.db
       .prepare(
         `SELECT * FROM observations
@@ -1370,8 +1372,8 @@ export class MemoryStore {
    * quedaron así, y se llama junto con el re-upload, al conseguir la maestra.
    *
    * Sólo los BORRADOS, y sólo si la fila sigue borrada. Un upsert rechazado lo cubre
-   * `requeueAllForPush` con la fila ACTUAL; re-mandar ese snapshot viejo pisaría en el servidor
-   * (cuyo upsert no mira lamport) una edición posterior. Un borrado, en cambio, no lo cubre
+   * `requeueAllForPush` con la fila ACTUAL; re-mandar el snapshot viejo de la mutación subiría
+   * una versión vieja (desde N1 el servidor lo ignora como `stale` sólo si ya tiene algo más nuevo). Un borrado, en cambio, no lo cubre
    * nadie —los tombstones no se re-encolan— y sin esto la fila seguiría viva y en claro en el
    * servidor para siempre. Si la fila volvió a estar viva (la resucitó otra máquina), revivir
    * el borrado la mataría de nuevo.

@@ -59,7 +59,7 @@ describe('re-encriptar lo ya subido', () => {
     expect(store.get(local.syncId)?.superseded_by).toBe('obs_remota')
     store.markPushed(store.pendingMutations(100).map((m) => m.seq))
 
-    expect(store.requeueAllForPush()).toBe(2)
+    expect(store.requeueAllForPush({ conSuperseded: true })).toBe(2)
     const payloads = store.pendingMutations(10).map((m) => JSON.parse(m.payload) as Record<string, unknown>)
     expect(payloads.find((p) => p.sync_id === local.syncId)?.superseded_by).toBe('obs_remota')
   })
@@ -78,7 +78,7 @@ describe('re-encriptar lo ya subido', () => {
     store.markPushed(store.pendingMutations(100).map((m) => m.seq))
     expect(store.requeueAllForPush({ conSuperseded: false })).toBe(1)
     store.markPushed(store.pendingMutations(100).map((m) => m.seq))
-    const res = await runReencrypt(store, { push: async () => {} }, undefined, { conSuperseded: false })
+    const res = await runReencrypt(store, { push: async () => {}, pullCompleto: async () => true }, undefined, { conSuperseded: false })
     expect(res.total).toBe(1)
   })
 
@@ -155,7 +155,7 @@ describe('re-encriptar lo ya subido', () => {
     const push = vi.fn(async () => {
       store.markPushed(store.pendingMutations(2).map((m) => m.seq))
     })
-    const res = await runReencrypt(store, { push })
+    const res = await runReencrypt(store, { push, pullCompleto: async () => true })
     expect(res).toEqual({ total: 5, queued: 0 })
     expect(store.pendingMutationCount()).toBe(0)
     expect(push.mock.calls.length).toBeGreaterThanOrEqual(3)
@@ -167,9 +167,68 @@ describe('re-encriptar lo ya subido', () => {
     const vistos: number[] = []
     await runReencrypt(store, {
       push: async () => { store.markPushed(store.pendingMutations(2).map((m) => m.seq)) },
+      pullCompleto: async () => true,
     }, (p) => vistos.push(p.queued))
     expect(vistos[0]).toBeGreaterThan(0)
     expect(vistos[vistos.length - 1]).toBe(0)
+  })
+
+  // N1 (re-review): una máquina que no tenía la clave conserva versiones viejas de filas que
+  // otra editó o borró. Re-subir su base sin pull previo pisaba la nube con lo viejo (o
+  // resucitaba lo borrado). El snapshot sale DESPUÉS de un pull completo, y sin pull no hay
+  // re-upload.
+  it('pide un pull completo ANTES del snapshot: re-sube la versión que bajó, no la vieja', async () => {
+    const { syncId } = store.save({ projectKey: 'proj1', scope: 'personal', type: 'decision', topicKey: null, title: 'v-vieja', content: 'x', source: 'mcp' })
+    store.markPushed(store.pendingMutations(100).map((m) => m.seq))
+    const orden: string[] = []
+    const pullCompleto = vi.fn(async () => {
+      orden.push('pull')
+      // Lo que otra máquina editó mientras ésta no podía leerlo, ahora legible.
+      store.applyIncomingObservation({
+        syncId, projectKey: 'proj1', scope: 'personal', topicKey: null, type: 'decision',
+        title: 'v-nueva', content: 'y', updatedAt: Date.now() + 60_000, lamport: 50, deleted: false,
+      })
+      return true
+    })
+    const subidas: Array<Record<string, unknown>> = []
+    const push = vi.fn(async () => {
+      orden.push('push')
+      const pend = store.pendingMutations(100)
+      for (const m of pend) subidas.push(JSON.parse(m.payload) as Record<string, unknown>)
+      store.markPushed(pend.map((m) => m.seq))
+    })
+
+    const res = await runReencrypt(store, { push, pullCompleto })
+
+    expect(orden[0]).toBe('pull')
+    expect(res).toEqual({ total: 1, queued: 0 })
+    expect(subidas).toHaveLength(1)
+    expect(subidas[0].title).toBe('v-nueva')
+    expect(subidas[0].lamport).toBe(50)
+  })
+
+  it('si el pull falla no re-encola ni empuja nada, y lo dice', async () => {
+    guardar(3)
+    store.markPushed(store.pendingMutations(100).map((m) => m.seq))
+    const push = vi.fn(async () => {})
+
+    const res = await runReencrypt(store, { push, pullCompleto: async () => false })
+
+    expect(res).toEqual({ total: 0, queued: 0, pullFallo: true })
+    expect(store.pendingMutationCount()).toBe(0)
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('requeueAllForPush sin opciones deja afuera las superseded (default seguro contra un servidor viejo)', () => {
+    store.save({ projectKey: 'proj1', scope: 'personal', type: 'decision', topicKey: 'deploy', title: 'local', content: 'x', source: 'mcp' })
+    const local = store.context('proj1', 10)[0]
+    store.applyIncomingObservation({
+      syncId: 'obs_remota', projectKey: 'proj1', scope: 'personal', topicKey: 'deploy', type: 'decision',
+      title: 'remote', content: 'y', updatedAt: Date.now() + 60_000, lamport: 99, deleted: false,
+      supersedeLocal: local.syncId,
+    })
+    store.markPushed(store.pendingMutations(100).map((m) => m.seq))
+    expect(store.requeueAllForPush()).toBe(1)
   })
 
   // Si el push no avanza (sin red, cuota llena, todo bloqueado), la funcion tiene que
@@ -177,7 +236,7 @@ describe('re-encriptar lo ya subido', () => {
   it('corta si el push deja de avanzar, y devuelve lo pendiente', async () => {
     guardar(3)
     store.markPushed(store.pendingMutations(100).map((m) => m.seq))
-    const res = await runReencrypt(store, { push: async () => { /* no avanza */ } })
+    const res = await runReencrypt(store, { push: async () => { /* no avanza */ }, pullCompleto: async () => true })
     expect(res.queued).toBe(3)
   })
 })

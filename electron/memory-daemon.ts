@@ -36,6 +36,14 @@ const BACKOFF_MAX_MS = 5 * 60_000
 const QUIT_PUSH_BUDGET_MS = 2_000
 const PUSH_BATCH_SIZE = 200
 const PULL_PAGE_SIZE = 500
+/**
+ * Cómo terminó UNA página de pull: `completo` = no queda nada por bajar; `hay-mas` = quedó
+ * otra página (o un reset de cursores en vuelo) y ya se encadenó; `fallo` = no se bajó o no
+ * se pudo aplicar (sin red, sin token, error, otra cuenta). Ver `pullCompleto`.
+ */
+type ResultadoDePull = 'completo' | 'hay-mas' | 'fallo'
+/** Tope de páginas de `pullCompleto`: 500 × 500 filas, muy por encima de cualquier base real. */
+const MAX_VUELTAS_DE_PULL_COMPLETO = 500
 // §4.5 "hard cap 50 000, after which the daemon compacts the queue".
 const QUEUE_HARD_CAP = 50_000
 // Without this, a hung backend wedges the daemon until the app restarts. The
@@ -91,7 +99,9 @@ const TEAM_READOPT_TIMEOUT_MS = 10_000
 
 export interface PushResultItem {
   sync_id: string
-  outcome: 'applied' | 'superseded' | 'rejected'
+  /** `stale` (N1): más vieja por lamport que la fila del servidor, que no la escribió. Está
+   * hecha igual que `applied` —la versión buena baja por el pull—, así que no se reintenta. */
+  outcome: 'applied' | 'superseded' | 'rejected' | 'stale'
   project_seq: number
   error?: string
 }
@@ -388,6 +398,8 @@ export class MemoryDaemon {
   // second request.
   private pushInFlight: Promise<void> | null = null
   private pullInFlight: Promise<void> | null = null
+  /** Cómo terminó el último pull; lo lee `pullCompleto`. */
+  private ultimoResultadoDePull: ResultadoDePull = 'fallo'
   // status()'s own network fetch is awaited, so it has to be tracked like push()/pull() or
   // it is invisible to pause()'s drain-wait (see pause() below). drain() calls status()
   // BEFORE pull()/push(), so the window this closes is: pause() called while a drain()'s
@@ -1600,7 +1612,9 @@ export class MemoryDaemon {
   pull(): Promise<void> {
     // Dedupe concurrent callers onto the same in-flight request.
     if (this.pullInFlight) return this.pullInFlight
-    const run = this.doPull().finally(() => {
+    // El resultado se anota ANTES de resolver: quien espere esta misma promesa (también los
+    // acoplados por dedupe) lo lee en `pullConResultado`.
+    const run = this.doPull().then((r) => { this.ultimoResultadoDePull = r }).finally(() => {
       this.pullInFlight = null
       this.soltarCandadoSiQuedoOcioso()
     })
@@ -1608,22 +1622,56 @@ export class MemoryDaemon {
     return run
   }
 
-  private async doPull(): Promise<void> {
+  /**
+   * N1 (re-review del cifrado obligatorio): baja TODO lo que haya, página tras página, y dice
+   * si terminó bien. Lo usa el re-upload antes de su snapshot (`runReencrypt`): una máquina
+   * que no tenía la clave conserva versiones viejas de filas que otra editó o borró, y
+   * re-subirlas sin pull previo pisaba la nube con lo viejo. Con el pull, esas filas se
+   * descifran y se aplican por LWW antes de re-encolar.
+   *
+   * `false` ante cualquier cosa que no sea "llegué al final": sin red, sin token, otro proceso
+   * con el candado, un error del servidor, un cambio de cuenta en vuelo, o demasiadas
+   * vueltas. El que llama no re-sube con un snapshot que no refrescó.
+   *
+   * Comparte el in-flight de `pull()`: el encadenado por página llena (`setImmediate`) se acopla
+   * a la próxima vuelta de este bucle en lugar de salir aparte.
+   */
+  async pullCompleto(): Promise<boolean> {
+    for (let vuelta = 0; vuelta < MAX_VUELTAS_DE_PULL_COMPLETO; vuelta++) {
+      if (this.swapping) return false
+      const r = await this.pullConResultado()
+      if (r === 'completo') return true
+      if (r === 'fallo') return false
+    }
+    return false
+  }
+
+  private async pullConResultado(): Promise<ResultadoDePull> {
+    this.ultimoResultadoDePull = 'fallo'
+    try {
+      await this.pull()
+    } catch {
+      return 'fallo'
+    }
+    return this.ultimoResultadoDePull
+  }
+
+  private async doPull(): Promise<ResultadoDePull> {
     // §6.3: el pull también, y no sólo por cortesía — avanza los cursores de proyecto en
     // la base. Dos procesos bajando a la vez se pisan el cursor y uno se saltea filas.
-    if (!this.meTocaSincronizar()) return
+    if (!this.meTocaSincronizar()) return 'fallo'
     const { store, getSyncBaseUrl, getToken, isOnline } = this.deps
     // La cuenta con la que ESTE pull sale. Si cambia antes de que vuelva la respuesta, las
     // filas que traiga son de otra cuenta y no se escriben.
     const generacionAlSalir = this.generacionDeStore
-    if (this.authBlocked) return // gate every entry point
+    if (this.authBlocked) return 'fallo' // gate every entry point
     if (!isOnline()) {
       this.setStatus('paused', 'offline')
-      return
+      return 'fallo'
     }
     const url = getSyncBaseUrl()
     const token = getToken()
-    if (!url || !token) return
+    if (!url || !token) return 'fallo'
 
     // Each known local project gets its own cursor, read from and written back to its own
     // sync_state partition (keyed by project_key, matching how push() scopes mutations per
@@ -1643,7 +1691,7 @@ export class MemoryDaemon {
     // would trade a local no-op for a pointless round trip that accomplishes the exact
     // same nothing, working against §11.4's whole point (~99% of pulls come back empty;
     // don't make one on purpose when it's known in advance to be empty).
-    if (projects.length === 0) return
+    if (projects.length === 0) return 'completo'
 
     // Capturado junto con los cursores que salen en este request: ver el chequeo al volver.
     // `?.` porque los stores falsos de los tests unitarios no lo implementan.
@@ -1675,17 +1723,17 @@ export class MemoryDaemon {
         if (code === 'plan_required') {
           // See doPush()'s identical branch — not an auth failure, breaker untouched.
           this.setStatus('plan_required')
-          return
+          return 'fallo'
         }
         if (code === 'not_in_beta') {
           // See doPush()'s identical branch — not a credential problem, breaker untouched.
           this.setStatus('error', 'not_in_beta')
-          return
+          return 'fallo'
         }
         if (code === 'device_limit') {
           // See doPush()'s identical branch — not a credential problem, breaker untouched.
           this.setStatus('error', 'device_limit')
-          return
+          return 'fallo'
         }
         // Feeds the same shared counter/flag push()/status() use: the three entry points
         // gate identically on `authBlocked`, so they have to agree on what counts toward
@@ -1695,7 +1743,7 @@ export class MemoryDaemon {
           this.authBlocked = true
           this.setStatus('error', 'auth')
         }
-        return
+        return 'fallo'
       }
       if (!response.ok) throw new Error(`pull failed: ${response.status}`)
       const body = (await response.json()) as {
@@ -1708,7 +1756,7 @@ export class MemoryDaemon {
       // volver a pedirse, y lo va a pedir la cuenta a la que le corresponde.
       if (generacionAlSalir !== this.generacionDeStore) {
         this.setStatus('idle')
-        return
+        return 'fallo'
       }
       for (const raw of body.rows) this.applyPulledRow(mapRawPulledRow(raw))
 
@@ -1724,7 +1772,7 @@ export class MemoryDaemon {
           if (this.swapping) return
           void this.pull()
         })
-        return
+        return 'hay-mas'
       }
 
       const now = Date.now()
@@ -1799,10 +1847,13 @@ export class MemoryDaemon {
           if (this.swapping) return
           void this.pull()
         })
+        return 'hay-mas'
       }
+      return 'completo'
     } catch (err) {
       store.setSyncState('__account__', { lastError: err instanceof Error ? err.message : String(err) })
       this.setStatus('error', err instanceof Error ? err.message : String(err))
+      return 'fallo'
     } finally {
       release?.()
     }

@@ -38,6 +38,13 @@ y eso sí cambió lo que el servicio hace:
   por `sync_id` pisa cada fila en claro con la sellada — `origin_account`, `git_branch`,
   `origin_ai` y `author_display` incluidos. Una fila que llega superseded y acá ya lo está
   conserva su `superseded_by` sin pasar por la colisión de temas: re-cifrar no es editar.
+- **Guarda de lamport en el push** (N1): una mutación con `lamport` MENOR que el de la fila
+  guardada (mismo autor) no escribe nada y vuelve con `outcome: "stale"` y el `project_seq` que
+  la fila ya tenía (no se pide seq nuevo, así que ningún pull la vuelve a bajar). El cliente la
+  da por hecha, como `applied`. El empate pasa: el re-upload sellado lleva el mismo lamport que
+  la fila en claro que reemplaza. Cubre los dos sentidos: un upsert viejo no pisa una edición
+  nueva ni resucita un borrado nuevo, y un borrado viejo no mata una fila nueva. El cliente,
+  además, hace un pull completo antes de tomar el snapshot del re-upload.
 - **Un tombstone no guarda texto**: el delete vacía `title` (`''`, es NOT NULL), `content`,
   `tags`, `topic_key`, `content_hash`, `origin_account` y `git_branch`. La migración `013` hizo lo
   mismo con los tombstones que ya estaban.

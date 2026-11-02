@@ -145,7 +145,9 @@ export default function MemoryEncryptionCard({ onSetUpSync }: { onSetUpSync?: ()
 
   const reencriptar = () => conBloqueo(async () => {
     const res = await api?.encryptionReencrypt?.()
-    if (res) setReencriptadas(res.total)
+    // N1: sin un pull completo antes, el main no re-sube nada y lo dice.
+    if (res?.error) setError(res.error)
+    else if (res) setReencriptadas(res.total)
     await refrescar()
   })
 

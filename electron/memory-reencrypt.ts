@@ -12,12 +12,27 @@ export interface ReencryptProgress {
   queued: number
 }
 
+/**
+ * `pullFallo`: no se pudo bajar todo antes del snapshot, así que no se re-encoló nada. El que
+ * llama lo deja para el próximo disparo (ver `reuploadAutomaticoUnaVez` en main.ts).
+ */
+export type ResultadoDeReencrypt = ReencryptProgress & { pullFallo?: true }
+
 export function planReencrypt(store: MemoryStore): ReencryptProgress {
   return { total: store.count(), queued: store.pendingMutationCount() }
 }
 
 /**
- * Encola todo y empuja hasta que la cola se vacia.
+ * Baja todo, encola todo y empuja hasta que la cola se vacia.
+ *
+ * N1 (re-review del cifrado obligatorio): el pull completo va ANTES del snapshot y no es
+ * opcional. Una máquina que no tenía la clave conserva versiones viejas de filas que otra
+ * editó o borró (las bajó ilegibles y no las aplicó); re-subirlas tal cual pisaba la edición
+ * nueva en la nube o resucitaba el borrado. Con la clave ya puesta, el pull las descifra y las
+ * aplica por LWW, y recién ahí se toma el snapshot. Si el pull no llega al final, NO se re-sube
+ * nada: un snapshot sin refrescar es justo lo que hay que evitar. El servidor además ignora
+ * una mutación más vieja que su fila (`stale`, server/src/push.ts), pero eso es la red de
+ * abajo, no el plan.
  *
  * El corte por falta de progreso no es una optimizacion, es lo unico que separa esto de un
  * bucle infinito: sin red, con la cuota llena o con todo bloqueado, `push()` vuelve sin
@@ -27,10 +42,13 @@ export function planReencrypt(store: MemoryStore): ReencryptProgress {
  */
 export async function runReencrypt(
   store: MemoryStore,
-  daemon: { push(): Promise<void> },
+  daemon: { push(): Promise<void>; pullCompleto(): Promise<boolean> },
   onProgress?: (p: ReencryptProgress) => void,
   opts: { conSuperseded?: boolean } = {}
-): Promise<ReencryptProgress> {
+): Promise<ResultadoDeReencrypt> {
+  if (!(await daemon.pullCompleto())) {
+    return { total: 0, queued: store.pendingMutationCount(), pullFallo: true }
+  }
   const total = store.requeueAllForPush(opts)
   let queued = store.pendingMutationCount()
   onProgress?.({ total, queued })

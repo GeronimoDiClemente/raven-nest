@@ -80,6 +80,12 @@ export async function asegurarEnElMain(d: DepsDeAsegurarEnElMain): Promise<Cifra
   // F4: con la maestra en la mano, lo que un build viejo dio por perdido vuelve a la cola y
   // se re-sube todo sellado. Después de resetear los cursores, no antes: es el mismo orden que
   // el re-upload por status, que corre con el store ya al día.
+  //
+  // N1 (re-review): el re-upload NO toma su snapshot acá. `runReencrypt` primero baja todo
+  // (`pullCompleto`) con los cursores ya en 0 y la maestra puesta, así lo que esta máquina
+  // tenía viejo o ilegible se aplica por LWW antes de re-encolar; si ese pull falla, no re-sube
+  // y lo deja para el próximo disparo. Los borrados re-encolados acá sí pueden salir antes del
+  // pull: si la fila es más nueva en la nube, el servidor los ignora (`stale`, push.ts).
   d.store.reencolarRechazadosPorCifrado()
   d.reuploadUnaVez()
   return r.estado === 'lista' ? { estado: 'lista' } : { estado: 'activada', recoveryCode: r.recoveryCode, aviso }

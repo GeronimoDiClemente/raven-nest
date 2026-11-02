@@ -22,7 +22,8 @@ export interface PushBody {
 
 export interface PushResult {
   sync_id: string
-  outcome: 'applied' | 'superseded' | 'rejected'
+  /** `stale`: más vieja (por lamport) que la fila guardada; no se escribió nada y está hecha. */
+  outcome: 'applied' | 'superseded' | 'rejected' | 'stale'
   project_seq: number
   error?: string
 }
@@ -607,6 +608,45 @@ export async function handlePush(
 
         const projectId = projectIds.get(projectKey)
         if (projectId === undefined) throw projectErrors.get(projectKey) ?? new Error('no project')
+
+        // N1 (re-review del cifrado obligatorio): guarda de lamport. Una mutación MÁS VIEJA que
+        // la fila guardada no la toca. Sin esto, una máquina que no tenía la clave (y por eso
+        // conserva versiones viejas de filas que otra editó o borró) las re-subía al adoptarla
+        // y pisaba la edición nueva en la nube, o resucitaba el borrado (`deleted =
+        // excluded.deleted`). El empate PASA: el re-upload sellado lleva el mismo lamport que
+        // la fila en claro que reemplaza.
+        //
+        // Va ANTES de pedir el seq y de la colisión de temas, no como un `where` del upsert: un
+        // stale que "ganara" la colisión ya habría supersedido a la dueña viva del tema, y el
+        // seq pedido quedaría como un agujero. Así no se escribe nada y `project_seq` no se
+        // mueve: ningún pull vuelve a bajar la fila. El `for update` la bloquea hasta el commit
+        // contra un push concurrente de la misma fila. Sólo la del MISMO autor: una de otra
+        // cuenta sigue al `sync_id_conflict` de abajo, sin revelarle nada de esa fila.
+        //
+        // `stale` no es `rejected`: el cliente la da por hecha (marca pushed sin error) y no la
+        // reintenta, que es lo correcto — la versión buena ya está en la nube y le va a llegar
+        // por el pull.
+        const vigente = await client.query(
+          `select lamport, project_seq from observations
+            where sync_id = $1 and author_id = $2 for update`,
+          [syncId, auth.userId]
+        )
+        if (vigente.rows.length > 0 && Number(vigente.rows[0].lamport) > Number(p.lamport ?? 0)) {
+          const stale: PushResult = {
+            sync_id: syncId,
+            outcome: 'stale',
+            project_seq: Number(vigente.rows[0].project_seq),
+          }
+          await client.query(
+            `update push_receipts set sync_id = $3, outcome = $4, project_seq = $5
+              where device_id = $1 and seq = $2`,
+            [auth.deviceId, m.seq, syncId, stale.outcome, stale.project_seq]
+          )
+          await client.query('commit')
+          results.push(stale)
+          continue
+        }
+
         const seq = await allocateSeqRange(client, projectId, 1)
 
         // §8.1: a topic collision supersedes the loser; it never rejects it. The old server
