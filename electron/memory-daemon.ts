@@ -99,7 +99,7 @@ const TEAM_READOPT_TIMEOUT_MS = 10_000
 
 export interface PushResultItem {
   sync_id: string
-  /** `stale` (N1): más vieja por lamport que la fila del servidor, que no la escribió. Está
+  /** `stale` (N1): más vieja (updated_at, después lamport) que la fila del servidor, que no la escribió. Está
    * hecha igual que `applied` —la versión buena baja por el pull—, así que no se reintenta. */
   outcome: 'applied' | 'superseded' | 'rejected' | 'stale'
   project_seq: number

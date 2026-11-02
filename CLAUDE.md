@@ -208,8 +208,9 @@ presente al trabajar acá:
   un servidor viejo las resucita. Un tombstone no guarda texto en el servidor (migración `013`).
   **El re-upload baja todo antes de su snapshot** (`pullCompleto` en `runReencrypt`): la máquina
   que adopta tiene versiones viejas de lo que otra editó o borró, y sin pull las subía. Si el
-  pull falla no re-sube nada. Red de abajo: el push ignora una mutación con lamport menor que
-  la fila guardada (`outcome: "stale"`, el empate pasa).
+  pull falla no re-sube nada. Red de abajo: el push ignora una mutación que pierde por LWW
+  (`updated_at` y después lamport, como el cliente) contra la fila guardada (`outcome: "stale"`;
+  el empate total pasa). Sólo lamport rompía la convergencia: no lo "simplifiques".
   Antes de desplegar: "Orden de despliegue" en `server/README.md`.
 - **Regenerar el código de recuperación es el modo `recovery` de `/v1/keys/publish`**: un solo
   wrap en el slot `recovery`, la época vigente y `rotate_proof`; el código viejo deja de abrir.

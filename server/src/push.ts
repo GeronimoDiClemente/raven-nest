@@ -22,7 +22,7 @@ export interface PushBody {
 
 export interface PushResult {
   sync_id: string
-  /** `stale`: más vieja (por lamport) que la fila guardada; no se escribió nada y está hecha. */
+  /** `stale`: más vieja (updated_at, después lamport) que la fila guardada; no se escribió nada y está hecha. */
   outcome: 'applied' | 'superseded' | 'rejected' | 'stale'
   project_seq: number
   error?: string
@@ -609,12 +609,25 @@ export async function handlePush(
         const projectId = projectIds.get(projectKey)
         if (projectId === undefined) throw projectErrors.get(projectKey) ?? new Error('no project')
 
-        // N1 (re-review del cifrado obligatorio): guarda de lamport. Una mutación MÁS VIEJA que
+        // N1 (re-review del cifrado obligatorio): guarda de LWW. Una mutación MÁS VIEJA que
         // la fila guardada no la toca. Sin esto, una máquina que no tenía la clave (y por eso
         // conserva versiones viejas de filas que otra editó o borró) las re-subía al adoptarla
         // y pisaba la edición nueva en la nube, o resucitaba el borrado (`deleted =
-        // excluded.deleted`). El empate PASA: el re-upload sellado lleva el mismo lamport que
-        // la fila en claro que reemplaza.
+        // excluded.deleted`).
+        //
+        // "Más vieja" es EXACTAMENTE el orden de resolveLWW del cliente (memory-merge.ts) y de la
+        // colisión de temas (lww.ts): updated_at primero, lamport después. R1 (re-review de N1):
+        // con sólo lamport, una máquina atrasada en el pull que edita MÁS TARDE con lamport MÁS
+        // BAJO quedaba stale acá, pero ganaba en su LWW local: ella se quedaba con su versión,
+        // la nube con la otra, para siempre. Mismo sync_id, así que el desempate por syncId no
+        // existe: el empate total (el re-upload sellado lleva el updated_at y el lamport de la
+        // fila en claro que reemplaza) PASA — `resolveTopicCollision` le da el empate al segundo
+        // argumento, la entrante.
+        //
+        // R2: el lock de `projects` va ANTES que el de la fila, el mismo orden que la colisión
+        // de temas (allocateSeqRange, después el owner) y que team-keys-recrypt.ts. Al revés,
+        // dos pushes cruzados terminaban en 40P01. Es el mismo lock que toma allocateSeqRange
+        // más abajo, así que no agrega espera: sólo la adelanta.
         //
         // Va ANTES de pedir el seq y de la colisión de temas, no como un `where` del upsert: un
         // stale que "ganara" la colisión ya habría supersedido a la dueña viva del tema, y el
@@ -626,12 +639,25 @@ export async function handlePush(
         // `stale` no es `rejected`: el cliente la da por hecha (marca pushed sin error) y no la
         // reintenta, que es lo correcto — la versión buena ya está en la nube y le va a llegar
         // por el pull.
+        await client.query('select 1 from projects where id = $1 for update', [projectId])
         const vigente = await client.query(
-          `select lamport, project_seq from observations
+          `select lamport, client_updated_at, project_seq from observations
             where sync_id = $1 and author_id = $2 for update`,
           [syncId, auth.userId]
         )
-        if (vigente.rows.length > 0 && Number(vigente.rows[0].lamport) > Number(p.lamport ?? 0)) {
+        const guardada = vigente.rows[0]
+          ? {
+              syncId,
+              updatedAt: new Date(vigente.rows[0].client_updated_at).getTime(),
+              lamport: Number(vigente.rows[0].lamport),
+            }
+          : null
+        const entrante = {
+          syncId,
+          updatedAt: parseClientTimestamp(p.updated_at ?? p.client_updated_at, now).getTime(),
+          lamport: Number(p.lamport ?? 0),
+        }
+        if (guardada && resolveTopicCollision(guardada, entrante).winner === guardada) {
           const stale: PushResult = {
             sync_id: syncId,
             outcome: 'stale',
