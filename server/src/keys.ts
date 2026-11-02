@@ -241,11 +241,29 @@ export async function publishWraps(
      *
      * No hay compatibilidad que romper: estas rutas nunca llegaron a produccion.
      */
-    if (body?.mode !== 'activate' && body?.mode !== 'authorize') {
+    if (body?.mode !== 'activate' && body?.mode !== 'authorize' && body?.mode !== 'recovery') {
       await client.query('rollback')
       return { ok: false, status: 400, error: 'invalid_mode' }
     }
     const modo = body.mode
+
+    /**
+     * Spec 2026-11-02: regenerar el código de recuperación sin rotar. Un solo wrap, el de
+     * recuperación; la época vigente; y la prueba de la maestra — sin ella cualquier device
+     * de la cuenta pisaría la copia de recuperación con una que no abre nada (el motivo de
+     * `cannot_overwrite_recovery` en `authorize`).
+     */
+    if (modo === 'recovery') {
+      const unico = wraps.length === 1 ? wraps[0] : null
+      if (!unico || unico.slot !== 'recovery' || unico.kind !== 'recovery') {
+        await client.query('rollback')
+        return { ok: false, status: 400, error: 'invalid_recovery_wrap' }
+      }
+      if (keyEpoch !== actual || actual === 0) {
+        await client.query('rollback')
+        return { ok: false, status: 409, error: actual === 0 ? 'not_activated' : 'stale_key_epoch' }
+      }
+    }
 
     /**
      * Activar SIN `rotate_verifier` dejaba la columna en null, y una cuenta con el verificador
@@ -413,6 +431,10 @@ export async function publishWraps(
         const propio = wraps.some((w) => w.slot === auth.deviceId)
         return { ok: false, status: 403, error: propio ? 'cannot_authorize_self' : 'must_hold_master' }
       }
+    }
+    if (modo === 'recovery' && !(await pruebaDePosesion())) {
+      await client.query('rollback')
+      return { ok: false, status: 403, error: 'must_hold_master' }
     }
     // Rotar es empezar de cero: las envolturas de la epoca vieja no sirven para la maestra
     // nueva y dejarlas seria ofrecerle al cliente una llave que no abre.

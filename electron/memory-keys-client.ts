@@ -186,6 +186,31 @@ export async function authorizeDevice(
 }
 
 /**
+ * Spec 2026-11-02: un código de recuperación nuevo para la MISMA maestra (sin rotar). El
+ * anterior deja de servir: el servidor reemplaza el slot `recovery`. Como `activateEncryption`,
+ * el código se devuelve para mostrarlo una vez y no se guarda en ningún lado.
+ */
+export async function regenerateRecoveryCode(
+  deps: KeysClientDeps,
+  master: string,
+  keyEpoch: number
+): Promise<string> {
+  const maestra = Buffer.from(master, 'base64')
+  const recoveryCode = generateRecoveryCode()
+  const recovery = wrapForRecovery(recoveryCode, maestra)
+  await pedir(deps, '/v1/keys/publish', {
+    method: 'POST',
+    body: {
+      key_epoch: keyEpoch,
+      mode: 'recovery',
+      rotate_proof: rotateVerifier(maestra, keyEpoch),
+      wraps: [{ slot: 'recovery', kind: 'recovery', wrapped: recovery.wrapped, wrap_meta: { salt: recovery.salt } }],
+    },
+  })
+  return recoveryCode
+}
+
+/**
  * El camino sin ninguna maquina viva. Abre la copia de recuperacion con el codigo y
  * despues se auto-autoriza, para que el proximo arranque no vuelva a pedirlo.
  */
