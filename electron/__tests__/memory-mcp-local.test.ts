@@ -18,6 +18,9 @@ import { armarDaemonDelPaquete } from '../daemon-del-paquete'
 import { SyncDelMcp } from '../sync-del-mcp'
 import { guardarCredencial } from '../credencial-del-paquete'
 import { lockPathParaBase } from '../memory-sync-lock'
+import { saveKeyMaterial } from '../memory-key-store'
+import { generateDeviceKeyPair } from '../memory-key-wrap'
+import { randomBytes } from 'crypto'
 
 let dir: string
 let dbPath: string
@@ -99,11 +102,13 @@ describe('MemoryLocalClient — con sync (§6.2)', () => {
   })
 
   it('de punta a punta: memory_save termina en un push al servicio, y suelta el candado', async () => {
-    // Todo real —store, daemon, candado, coordinador— menos la red.
+    // Todo real —store, daemon, candado, coordinador— menos la red. La máquina es una que ya
+    // pasó por `login` (spec 2026-11-02): la cuenta cifra (época 1) y la maestra está guardada.
+    // Sin ella el daemon del paquete no sube nada, que es justo lo que se quiere.
     const pedidos: Array<{ url: string; body: string }> = []
     const fetchImpl = vi.fn(async (url: string, init?: { body?: string }) => {
       pedidos.push({ url: String(url), body: String(init?.body ?? '') })
-      return { ok: true, status: 200, json: async () => ({ results: [], rows: [], key_epoch: 0 }) }
+      return { ok: true, status: 200, json: async () => ({ results: [], rows: [], key_epoch: 1 }) }
     }) as unknown as typeof fetch
     const home = join(dir, 'home')
     const base = join(home, '.nest-memory', 'memory.db')
@@ -113,6 +118,9 @@ describe('MemoryLocalClient — con sync (§6.2)', () => {
       decryptString: (b: Buffer) => b.toString().slice(2, -2),
     }
     guardarCredencial(home, safe, { token: 'nmk_x', deviceId: 'd-1' })
+    saveKeyMaterial(home, null, safe, {
+      device: generateDeviceKeyPair(), master: randomBytes(32).toString('base64'), keyEpoch: 1,
+    })
     let sync!: SyncDelMcp
     const conSync = new MemoryLocalClient(base, () => null, (store) => {
       const { daemon, hayCuenta } = armarDaemonDelPaquete({ store, dbPath: base, home, baseUrl: 'https://sync.example', safe, fetchImpl })
@@ -125,7 +133,9 @@ describe('MemoryLocalClient — con sync (§6.2)', () => {
       await sync.enCurso()
       const push = pedidos.find((p) => /push/.test(p.url))
       expect(push, `pedidos: ${pedidos.map((p) => p.url).join(', ')}`).toBeDefined()
-      expect(push!.body).toContain('sube a la nube')
+      // Sube SELLADO: el título y el contenido nunca viajan legibles.
+      expect(push!.body).toContain('nmc1:')
+      expect(push!.body).not.toContain('sube a la nube')
       expect(existsSync(lockPathParaBase(base))).toBe(false)
     } finally { conSync.close() }
   })
