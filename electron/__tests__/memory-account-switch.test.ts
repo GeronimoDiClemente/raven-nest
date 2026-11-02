@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { dirname } from 'path'
 import { makeTmpDir, cleanupTmp } from './setup'
-import { swapMemoryStore, type SwapContext } from '../memory-account-switch'
+import { swapMemoryStore, cambioLaCuenta, type SwapContext } from '../memory-account-switch'
 import { MemoryStore, resolveStorePath } from '../memory-store'
 
 function fakeDaemon() {
@@ -415,4 +415,17 @@ describe('swapMemoryStore — adopt=false (Task 2, "no son mias")', () => {
 
     result.store.close()
   })
+})
+
+// Spec 2026-11-02: el renderer llama a setUser en cada refresh del token de Supabase (~cada
+// hora) con la MISMA cuenta. Sólo un cambio real de cuenta limpia el código de recuperación
+// pendiente y rearma el re-upload automático.
+describe('cambioLaCuenta', () => {
+  it('la misma cuenta (refresh del token) no es un cambio', () => {
+    expect(cambioLaCuenta('user-a', 'user-a')).toBe(false)
+    expect(cambioLaCuenta(null, null)).toBe(false)
+  })
+  it('de A a B sí', () => expect(cambioLaCuenta('user-a', 'user-b')).toBe(true))
+  it('de ninguna cuenta a A sí', () => expect(cambioLaCuenta(null, 'user-a')).toBe(true))
+  it('de A a ninguna cuenta sí', () => expect(cambioLaCuenta('user-a', null)).toBe(true))
 })

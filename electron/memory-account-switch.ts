@@ -69,6 +69,17 @@ async function renameDirWithRetry(from: string, to: string): Promise<void> {
  * narrow enough that tests can pass a plain object implementing only these methods instead
  * of constructing (or fully mocking) the real classes.
  */
+/**
+ * Spec 2026-11-02: ¿el swap cambió de cuenta de verdad? `memory:setUser` corre en cada
+ * `onAuthStateChange` del renderer — incluido el TOKEN_REFRESHED de Supabase, más o menos
+ * cada hora — con la MISMA cuenta. Lo que es por cuenta y por sesión (el código de
+ * recuperación pendiente, el re-upload automático) sólo se reinicia si esto da true.
+ * `null` es "sin cuenta" (la partición `_local`).
+ */
+export function cambioLaCuenta(anterior: string | null, nueva: string | null): boolean {
+  return anterior !== nueva
+}
+
 export interface SwapContext {
   store: MemoryStore
   daemon: Pick<MemoryDaemon, 'pause' | 'resume' | 'setStore'>

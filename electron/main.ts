@@ -149,7 +149,7 @@ import { readVaultHealth } from './memory-vault-health'
 import type { MemoryGraph, MemoryGraphQuery } from './memory-graph'
 import type { CrossProjectMemoryPage, CrossProjectMemoryQuery, MemoryObservationDetail } from './memory-store'
 import { daemonSocketPath } from './memory-protocol'
-import { swapMemoryStore, type SwapContext } from './memory-account-switch'
+import { swapMemoryStore, cambioLaCuenta, type SwapContext } from './memory-account-switch'
 import type { ProvisionerPaths } from './memory-provisioner'
 import { adapterForBin } from './memory-cli-adapters'
 import { ensureLocalAuthMaterial } from './memory-local-auth'
@@ -293,6 +293,13 @@ let memoryKeys: KeyMaterial | null = null
 let codigoDeRecuperacionPendiente: string | null = null
 /** Spec 2026-11-02 §4: el re-upload automático corre UNA vez por sesión de la app. */
 let reuploadAutomaticoHecho = false
+/**
+ * La cuenta para la que están cargadas `memoryKeys` (null = `_local`). Se compara contra la
+ * que pide `recargarClavesDeMemoria` y no contra el dueño del store de antes del swap: una
+ * partición sin dueño reclamado devuelve null ahí aunque sea la misma cuenta, y el refresh
+ * del token contaría como cambio cada vez.
+ */
+let cuentaDeLasClaves: string | null = null
 
 /** teamId -> maestra de ESE equipo, sólo en memoria — igual de propósito que `memoryKeys.master`
  * pero SIN persistencia a disco (nunca se guarda en el keyring/safeStorage): se re-adopta
@@ -416,11 +423,16 @@ function recargarClavesDeMemoria(userId: string | null): void {
   // la misma máquina seguiría cifrando/abriendo con la clave de equipo de la cuenta vieja.
   teamMasterKeys.clear()
   clavesDeEquipoRechazadas.clear()
-  // Spec 2026-11-02: el código pendiente es de la cuenta ANTERIOR. Dárselo a la nueva haría que
-  // el usuario guarde el código de A como si fuera el de B. Y el re-upload automático es uno
-  // por cuenta: la nueva también tiene derecho al suyo en esta sesión.
-  codigoDeRecuperacionPendiente = null
-  reuploadAutomaticoHecho = false
+  // Spec 2026-11-02: sólo si la cuenta cambió DE VERDAD. setUser llega también con cada
+  // refresh del token (misma cuenta, ~cada hora): limpiar ahí borraría un código que el
+  // usuario todavía no guardó y rearmaría el re-upload completo de la base cada hora.
+  // Con cambio real, el código pendiente es de la cuenta ANTERIOR — dárselo a la nueva haría
+  // que el usuario guarde el código de A como el de B — y el re-upload es uno por cuenta.
+  if (cambioLaCuenta(cuentaDeLasClaves, userId)) {
+    codigoDeRecuperacionPendiente = null
+    reuploadAutomaticoHecho = false
+  }
+  cuentaDeLasClaves = userId
   try {
     memoryKeys = ensureKeyMaterial(ravenHome(), userId, safeStorage)
   } catch {
@@ -514,7 +526,8 @@ try {
     // `store`, no `memory.store`: acá `memory` todavía se está construyendo — se asigna
     // recién al final de este bloque. La cuenta real llega después, por `memory:setUser`, y
     // ahí `recargarClavesDeMemoria` vuelve a leer las claves de ESA partición.
-    memoryKeys = ensureKeyMaterial(ravenHome(), store.getOwnerUserId(), safeStorage)
+    cuentaDeLasClaves = store.getOwnerUserId()
+    memoryKeys = ensureKeyMaterial(ravenHome(), cuentaDeLasClaves, safeStorage)
     const ctxInicial = currentEnvelopeContext()
     store.setTopicHasher(ctxInicial ? (p, sc, t) => localTopicHmac(ctxInicial, p, sc, t) : null)
   } catch {
