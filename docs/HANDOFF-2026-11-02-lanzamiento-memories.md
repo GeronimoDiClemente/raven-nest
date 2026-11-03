@@ -1,7 +1,24 @@
 # Handoff 2026-11-02 — lanzamiento de Nest Memories (Fase 1)
 
-**Rama:** `feat/memories-settings` (worktree `memory-smoke`), local, **sin push**. No mergear a main.
-**pagina-nest:** worktree `C:\Users\gerod\Dev\pagina-nest-link`, rama `feat/link-page` (sobre PR #10), local, sin push.
+**Rama:** `feat/memories-settings` (worktree `memory-smoke`), **pusheada el 03-11**. No mergear a main.
+**pagina-nest:** worktree `C:\Users\gerod\Dev\pagina-nest-link`, rama `feat/link-page` (sobre PR #10), **pusheada el 03-11** @`58de0ac`, sin PR.
+
+## Addendum 03-11 — para seguir desde la otra PC
+
+- **Todo en GitHub:** `raven-nest` → `feat/memories-settings`; `pagina-nest` → `feat/link-page`.
+  En la otra PC: `git fetch origin && git checkout <rama> && git pull`.
+- **Guía de Nest para el equipo** (nuevo artifact, para que los chicos conozcan Nest):
+  https://claude.ai/artifact/Tk6iYhT1dkexW1Yw1nS4YZ — 9 hojas: qué es Nest, stack, Memories,
+  cifrado, infra, mapa del código, ruta de estudio, dónde ayudar, glosario. Fuente en
+  `docs/guia-equipo/guia-nest-equipo.html` (para republicar: Artifact con `url` de arriba).
+  Sin info sensible a propósito: nada de IDs de proyecto, incidentes, backups, mercado ni
+  pitch; se sacaron también "sin observabilidad" y "bugs que sobrevivieron revisiones".
+  Gero lo compartió con link. Pendiente: decidir si la hoja "Dónde ayudar" se queda.
+- **No subido a propósito:** los reportes scratch de `.superpowers/sdd/*.md` (el repo no versiona
+  scratch). Fuera de esta rama: el checkout principal (`docs/pitch-semifinal`) tiene `CLAUDE.md`
+  modificado + posts de LinkedIn y `pitch-neutron.md` sin versionar; `feat/sidebar-tabs` (23
+  commits) nunca se pusheó. Ambos sin tocar, esperan decisión de Gero.
+- El próximo paso sigue siendo el de abajo (TUI → writing-plans).
 
 ## Hecho hoy (todo con review por task y review final)
 
