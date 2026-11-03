@@ -1,6 +1,6 @@
 # La TUI de Nest Memory — diseño
 
-**Fecha:** 2026-11-02 · **Rama:** `feat/memories-settings` · **Estado:** para revisión de Gero ·
+**Fecha:** 2026-11-02 · **Rama:** `feat/memories-settings` · **Estado:** aprobado por Gero (2026-11-02) ·
 **Fase 1** del lanzamiento de Nest Memories
 
 ## Objetivo
