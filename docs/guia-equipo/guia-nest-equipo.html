@@ -99,6 +99,10 @@ dl.gloss dt:first-of-type, dl.gloss dd:first-of-type { border-top: 0; }
 dl.gloss dt { font-family: var(--mono); font-size: 13.5px; font-weight: 500; }
 dl.gloss dd { font-size: 14.5px; color: var(--muted); }
 @media (max-width: 560px) { dl.gloss { grid-template-columns: 1fr; } dl.gloss dd { border-top: 0; padding-top: 0; } }
+.script { display: flex; flex-direction: column; gap: 10px; }
+.script blockquote { margin: 0; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.script blockquote .k { font-family: var(--mono); font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); }
+.script blockquote p { font-size: 15.5px; max-width: 72ch; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -119,6 +123,7 @@ dl.gloss dd { font-size: 14.5px; color: var(--muted); }
     <button role="tab" id="t-ruta" aria-controls="ruta" data-sheet="ruta"><span class="n">7</span>Ruta de estudio</button>
     <button role="tab" id="t-ayudar" aria-controls="ayudar" data-sheet="ayudar"><span class="n">8</span>Dónde ayudar</button>
     <button role="tab" id="t-glosario" aria-controls="glosario" data-sheet="glosario"><span class="n">9</span>Glosario</button>
+    <button role="tab" id="t-pitch" aria-controls="pitch" data-sheet="pitch"><span class="n">10</span>Para el pitch</button>
   </nav>
 
   <!-- ============ 1 QUÉ ES NEST ============ -->
@@ -501,6 +506,108 @@ flowchart LR
       <dt>Edge function</dt><dd>Una función serverless de Supabase, escrita en Deno.</dd>
       <dt>Spec · plan · handoff</dt><dd>El diseño de una feature, sus pasos de implementación y el estado al cerrar el día. Viven en <code>docs/</code>.</dd>
     </dl>
+    <div class="next"><button type="button" data-go="pitch">Siguiente: para el pitch →</button></div>
+  </section>
+
+  <!-- ============ 11 PITCH ============ -->
+  <section class="sheet" id="pitch" role="tabpanel" aria-labelledby="t-pitch" hidden>
+    <h2>Para el pitch</h2>
+    <p class="lede">Todo lo que hace falta para trabajar el guion y las diapositivas de la semifinal de ATICMA Emprende 2026: el formato, lo que evalúa el jurado, las 11 diapos, el guion vigente y de dónde sale cada número.</p>
+
+    <div class="cards">
+      <div class="card"><span class="k">Formato</span><span class="t">3 minutos, habla Gero</span><p>Semifinal de ATICMA Emprende 2026. Un solo orador (el CEO), con el deck en pantalla.</p></div>
+      <div class="card"><span class="k">El jurado</span><span class="t">No es técnico</span><p>Nada de stack ni de cómo se guarda o cifra la memoria. El foco es que el negocio tenga futuro.</p></div>
+      <div class="card"><span class="k">El hilo</span><span class="t">La historia de Bianca</span><p>Todo se cuenta como la historia de Bianca y su equipo. Bianca va sólo en la voz; las diapos hablan sólo de Nest.</p></div>
+    </div>
+
+    <h3>Lo que evalúa el jurado</h3>
+    <p>Según el Taller de Pitch de ATICMA: innovación, viabilidad, capacidad de escalar, equipo, mercado, cómo ganamos plata, que conozcamos el problema, la industria y la competencia, que haya un norte (roadmap) y, sobre todo, un <strong>diferencial notorio</strong>. Cada diapo tiene que responder al menos uno de estos puntos.</p>
+
+    <h3>Estructura y tiempos</h3>
+    <p class="small">Los tiempos son los de la guía del taller. El deck calca los cuadros que pide el taller (usaron CuraTrack de ejemplo).</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Bloque</th><th>Tiempo</th><th>Diapos</th><th>Qué tiene que lograr</th></tr></thead>
+        <tbody>
+          <tr><th>Hook</th><td>20 s</td><td>1 · portada</td><td>Enganchar con una historia, sin presentarse.</td></tr>
+          <tr><th>Problema</th><td>40 s</td><td>2 · problema, 3 · dato</td><td>Que se entienda el dolor y cuánto cuesta.</td></tr>
+          <tr><th>Solución + demo</th><td>50 s</td><td>4 · Nest, 5 · Memories, 6 · competencia</td><td>Qué es, que ya funciona y en qué somos distintos.</td></tr>
+          <tr><th>Negocio y mercado</th><td>40 s</td><td>7 · negocio, 8 · mercado, 9 · roadmap</td><td>Cómo ganamos plata, qué tan grande es y adónde vamos.</td></tr>
+          <tr><th>Equipo</th><td>20 s</td><td>10 · equipo</td><td>Por qué nosotros.</td></tr>
+          <tr><th>CTA</th><td>10 s</td><td>11 · pedido</td><td>Qué pedimos y cómo contactarnos.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Las 11 diapositivas</h3>
+    <p>Deck vigente (v2, última edición el 2-nov): <a href="https://claude.ai/artifact/2FsvSL1a9ccN2PE29mwzg1">Nest · Pitch ATICMA (historia de Bianca)</a>. Es el único que vale: los PDF y decks anteriores son viejos. Cada diapo trae las notas del orador con el texto del guion y los <code>[clic]</code> de las animaciones. Si no te abre, pedíselo a Gero.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>#</th><th>Diapo</th><th>Qué muestra</th></tr></thead>
+        <tbody>
+          <tr><th>1</th><td>Portada</td><td>«Trabajá con IA, sepas programar o no. Y con todo tu equipo.» Una tarjeta de «memoria del equipo al día» con tres notas que no escribió nadie y que leen todos.</td></tr>
+          <tr><th>2</th><td>Problema</td><td>«Cada persona del equipo trabaja con su IA. Ninguna comparte lo que sabe.» Cinco roles aislados: desarrollo con Claude, desarrollo con Codex, producto con Cursor, diseño con Gemini y marketing con Copilot. Abajo, el «por qué ahora»: hace dos años la IA era un chat personal; hoy cada equipo trabaja con varias y nada las conecta.</td></tr>
+          <tr><th>3</th><td>El dato</td><td>En pantalla: «8 de 10» programadores pierden más de media hora por día buscando respuestas y «US$ 6000» por mes en un equipo de 10. La voz dice otra cosa: ver «Lo que falta resolver».</td></tr>
+          <tr><th>4</th><td>Nest</td><td>Cuatro puntos: tutoriales interactivos, todas tus IAs juntas, Nest Memories, se escribe sola. v1.5 en macOS, Windows y Linux.</td></tr>
+          <tr><th>5</th><td>Memories</td><td>Animación en loop de 10 s: alguien resuelve algo con Copilot («El cliente aprueba los martes»), pasa por Nest Memories y Codex, Gemini, Cursor y Claude «ya lo saben». Al costado, el diferencial («funciona con cualquier IA y se escribe sola») y los 250 usuarios activos. Es ilustrativa y está rotulada así: todavía no hay capturas reales.</td></tr>
+          <tr><th>6</th><td>Competencia</td><td>Tabla de cuatro criterios: se anota sola, la ve todo el equipo, con cualquier IA y sin instalar nada raro. Los demás tienen 2 de 4; Nest, 4 de 4.</td></tr>
+          <tr><th>7</th><td>Negocio</td><td>Gratis (la puerta de entrada), Equipo a US$ 15 por persona al mes (US$ 12 pagando el año) y Empresa a medida. «Un usuario gratis trae a su equipo.»</td></tr>
+          <tr><th>8</th><td>Mercado</td><td>TAM US$ 6.970 M, SAM US$ 2.680 M y SOM US$ 14,4 M al año.</td></tr>
+          <tr><th>9</th><td>Roadmap</td><td>«De 250 usuarios a 100.000 en 3 años.» 2026 StartLab → hoy 250 usuarios activos → 6 meses, con cualquier IA sin abrir Nest → 12 meses, «los primeros 100 equipos pagando» (la voz dice diez) → 2 años en América y Europa → 3 años, 100.000 personas y US$ 14,4 M al año.</td></tr>
+          <tr><th>10</th><td>Equipo</td><td>Gerónimo (CEO), Matías (CTO) y Bautista (CMO). Ganadores de StartLab, semifinalistas de ATICMA.</td></tr>
+          <tr><th>11</th><td>Pedido</td><td>El viaje a Silicon Valley para levantar la ronda, con los datos de Gero y el QR.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>El guion vigente (v3)</h3>
+    <p class="small">Unas 430 palabras, alrededor de 3:00. Todavía no se cronometró en voz alta.</p>
+    <div class="script">
+      <blockquote><span class="k">Hook · 20 s</span><p>Les quiero contar la historia de Bianca. Bianca estudia marketing, y en la facultad le pidieron convertir una idea en un producto real. Nunca había programado ni usado inteligencia artificial para trabajar. Le recomendé Nest, nuestra aplicación, y con Nest armó su producto, lo publicó y ganó la competencia del curso.</p></blockquote>
+      <blockquote><span class="k">Problema · 40 s</span><p>Entusiasmada, quiso convertirlo en un emprendimiento y armó un equipo: dos desarrolladores, una chica de marketing y una amiga. Cada uno con una IA distinta: Claude, Gemini, Codex, Cursor. Y ahí chocaron: todo lo que Bianca sabía estaba en su computadora y en ningún otro lado. Hace dos años, la IA era un chat que usabas solo; hoy cada persona de un equipo trabaja con la suya, y nada las conecta. Seis de cada diez programadores pierden más de media hora por día buscando respuestas: en un equipo de diez, son cuatro mil quinientos dólares por mes tirados.</p></blockquote>
+      <blockquote><span class="k">Solución + demo · 50 s</span><p>Nest resuelve las dos partes de la historia de Bianca. Primero, te lleva de la mano: te enseña a trabajar con inteligencia artificial, sepas programar o no, y te deja usar todas tus IAs juntas en un solo lugar. Así Bianca, sin saber programar, creó su producto. Y segundo, Nest Memories: la memoria compartida del equipo. [DEMO EN PANTALLA] Miren: lo que Bianca resolvió con su IA, la IA de su compañero ya lo sabe. Nadie anotó nada. Las grandes IAs recuerdan, pero solo para su dueño. Nest es la memoria de equipo que funciona con cualquier IA y se escribe sola. Y ya funciona: tenemos doscientos cincuenta usuarios activos.</p></blockquote>
+      <blockquote><span class="k">Negocio y mercado · 40 s</span><p>Bianca empezó gratis. Para compartir la memoria con su equipo, cada uno paga quince dólares por mes. Y así crecemos: cada usuario gratis trae a su equipo. Y hay muchas Biancas: cuarenta y ocho millones de programadores en el mundo, la mitad ya trabaja con IA todos los días, y cada vez más gente que no programa empieza a crear con IA. Hoy es un mercado de dos mil seiscientos ochenta millones de dólares al año. Nuestro norte: en seis meses, que funcione con cualquier IA; en doce, los primeros diez equipos pagando; en dos años, equipos en América y Europa; y en tres años, cien mil personas.</p></blockquote>
+      <blockquote><span class="k">Equipo · 20 s</span><p>Somos tres: yo, Jerónimo, CEO; Matías, CTO; y Bautista, CMO. Somos desarrolladores: armamos software para clientes todos los días con estas IAs, y este problema lo sufríamos nosotros. Por eso construimos Nest. Ganamos StartLab y clasificamos a esta semifinal de ATICMA Emprende.</p></blockquote>
+      <blockquote><span class="k">CTA · 10 s</span><p>Queremos ir a Silicon Valley a levantar nuestra ronda y llevar Nest a cada equipo del mundo. Mis datos y el QR están en pantalla. Gracias.</p></blockquote>
+    </div>
+
+    <h3>Los números y de dónde salen</h3>
+    <p>Si el jurado pregunta, cada cifra tiene que poder defenderse:</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Cifra</th><th>Cálculo</th><th>Fuente</th></tr></thead>
+        <tbody>
+          <tr><th>6 de cada 10 pierden más de 30 min/día</th><td>El 61 % de los programadores.</td><td>Stack Overflow 2024</td></tr>
+          <tr><th>US$ 4.500/mes en un equipo de 10</th><td>Entre 110 y 150 horas por mes a US$ 30 la hora: de US$ 3.300 a 4.500.</td><td>Stack Overflow 2024</td></tr>
+          <tr><th>TAM US$ 6.970 M/año</th><td>48,4 M de programadores × US$ 144 al año.</td><td>SlashData Q3 2025</td></tr>
+          <tr><th>SAM US$ 2.680 M/año</th><td>36,5 M de profesionales × 51 % que usa IA a diario = 18,6 M × US$ 144.</td><td>SlashData Q3 2025 y Stack Overflow 2025</td></tr>
+          <tr><th>SOM US$ 14,4 M/año</th><td>La meta a 3 años: 100.000 personas × US$ 144.</td><td>Meta propia</td></tr>
+          <tr><th>US$ 144 al año</th><td>El precio más bajo: el plan de equipo pagando el año (US$ 12 por mes). Mes a mes son US$ 15.</td><td>Planes de Nest</td></tr>
+          <tr><th>250 usuarios activos</th><td>Dato de Gero del 1-nov.</td><td>Interno</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Reglas que ya están decididas</h3>
+    <ul>
+      <li><strong>Las diapos hablan sólo de Nest.</strong> Bianca aparece en la voz y en las notas del orador, no en pantalla.</li>
+      <li><strong>Nada técnico en la voz:</strong> ni stack, ni MCP, ni cifrado, ni cómo se guarda la memoria. Si el jurado pregunta por seguridad, alcanza con decir que lo que sube a la nube se cifra en la máquina del usuario y ni nosotros podemos leerlo.</li>
+      <li><strong>Qué IAs nombrar.</strong> Nest trae de fábrica Claude, Gemini, Codex, Copilot, OpenCode, DeepSeek, Grok, Qwen y Cursor, y acepta cualquier otra por línea de comandos. ChatGPT, como tal, no corre adentro de Nest (lo de OpenAI que corre es Codex): no decir que «funciona con ChatGPT». En la tabla de competencia sí aparece, porque ahí es un competidor.</li>
+      <li><strong>La competencia, en una línea:</strong> Anthropic, OpenAI y Microsoft tienen memoria, pero personal. Onyx y Cursor sirven al equipo, pero alguien tiene que escribir. Nest es de equipo, con cualquier IA, y se escribe sola.</li>
+      <li><strong>Modelo de negocio:</strong> le vendemos al equipo, no a la persona. El usuario gratis es la puerta de entrada y trae a su equipo, que paga.</li>
+    </ul>
+
+    <h3>Lo que falta resolver</h3>
+    <div class="traps">
+      <div class="trap"><strong>La diapo del dato no coincide con la voz ni con la fuente</strong><p>En pantalla dice «8 de 10» y «US$ 6000»; las notas del orador y el guion dicen seis de cada diez y cuatro mil quinientos. La fuente que figura en la misma diapo (Stack Overflow 2024, 61 %; 110 a 150 h × US$ 30) sostiene 6 de 10 y US$ 3.300–4.500, no 8 de 10 ni 6.000. Hay que decidir una versión y, si cambia la cifra, cambiar también la fuente.</p></div>
+      <div class="trap"><strong>Roadmap: ¿10 o 100 equipos?</strong><p>La diapo dice «los primeros 100 equipos pagando» a 12 meses; la voz dice diez. Tienen que decir lo mismo.</p></div>
+      <div class="trap"><strong>Ojo con el mercado</strong><p>Los US$ 2.680 M se calculan sobre programadores, pero la meta dice «cien mil personas» y el guion suma a la gente que no programa. Si preguntan, el cálculo es sobre programadores. Conviene que voz y diapo digan lo mismo.</p></div>
+      <div class="trap"><strong>Qué significa «activos»</strong><p>No está definido si los 250 usuarios activos son diarios, semanales o mensuales. Hay que tenerlo claro por si el jurado pregunta.</p></div>
+      <div class="trap"><strong>Roadmap a confirmar</strong><p>Lo de «2 años, equipos en América y Europa» fue una propuesta, no está confirmado. Al hito de StartLab le falta el mes: hoy dice sólo «2026».</p></div>
+      <div class="trap"><strong>Capturas reales</strong><p>La diapo de Memories usa una animación ilustrativa. Quedaría más fuerte con capturas reales de Nest, o con la demo en vivo que pide el guion.</p></div>
+      <div class="trap"><strong>Cronometrar y exportar</strong><p>Falta pasarlo en voz alta con reloj. Para el día del evento: exportar el deck a .pptx (Share → Export → PowerPoint) y, en la Mac, abrirlo con Keynote.</p></div>
+      <div class="trap"><strong>Consentimiento de Bianca</strong><p>Falta confirmar que está de acuerdo con que contemos su historia.</p></div>
+    </div>
   </section>
 </div>
 
