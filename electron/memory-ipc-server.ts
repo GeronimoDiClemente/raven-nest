@@ -398,7 +398,8 @@ export class MemoryIpcServer {
 
         case 'memory.context': {
           const params = request.params as ContextMemoryParams
-          const projectKey = await this.projectKeyForCwd(params.cwd)
+          // `allProjects`: la TUI muestra todo, no sólo lo del cwd — y entonces el cwd ni se resuelve.
+          const projectKey = params.allProjects ? null : await this.projectKeyForCwd(params.cwd)
           return { items: store.context(projectKey, params.limit ?? 10) }
         }
 
@@ -430,6 +431,7 @@ export class MemoryIpcServer {
             item,
             neighbors: item ? store.vecinos(params.syncId) : [],
             pendingLinks: item ? store.linksPendientes(params.syncId) : [],
+            resolvedLinks: item ? store.linksResueltos(params.syncId) : [],
           } as GetMemoryResult
         }
 
@@ -444,6 +446,7 @@ export class MemoryIpcServer {
             title: params.title,
             content: params.content,
             tags: params.tags,
+            type: params.type,
           })
           if (result.updated) this.deps.onMutation?.()
           return result

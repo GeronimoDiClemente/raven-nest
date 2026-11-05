@@ -8,6 +8,7 @@ import { join } from 'path'
 import { platform } from 'os'
 import { makeTmpDir, cleanupTmp } from './setup'
 import { MemoryIpcServer } from '../memory-ipc-server'
+import { MemoryStore as MemoryStoreReal } from '../memory-store'
 import type { MemoryStore, SaveInput } from '../memory-store'
 import type { MemoryRequest, MemoryResponse, ObservationSummary } from '../memory-protocol'
 
@@ -28,6 +29,7 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
     // sin esto en el doble, el handler se cae al llamar un método que no existe.
     vecinos: vi.fn(() => []),
     linksPendientes: vi.fn(() => []),
+    linksResueltos: vi.fn(() => []),
     ...overrides,
   } as unknown as MemoryStore
 }
@@ -683,6 +685,7 @@ describe('MemoryIpcServer — memory.get / memory.update (spec 2026-09-11)', () 
       item: fakeObservation({ title: 'la memoria pedida' }),
       neighbors: [],
       pendingLinks: [],
+      resolvedLinks: [],
     })
     expect(getSummary).toHaveBeenCalledWith('obs-1')
   })
@@ -706,7 +709,7 @@ describe('MemoryIpcServer — memory.get / memory.update (spec 2026-09-11)', () 
     expect(response.ok).toBe(true)
     if (!response.ok) throw new Error('unreachable')
     // Sin memoria no hay vecinos que traer, y ni siquiera se le pregunta al store.
-    expect(response.result).toEqual({ item: null, neighbors: [], pendingLinks: [] })
+    expect(response.result).toEqual({ item: null, neighbors: [], pendingLinks: [], resolvedLinks: [] })
   })
 
   it('memory.update forwards syncId/title/content/tags to store.update and calls onMutation on success', async () => {
@@ -754,5 +757,69 @@ describe('MemoryIpcServer — memory.get / memory.update (spec 2026-09-11)', () 
     if (!response.ok) throw new Error('unreachable')
     expect(response.result).toEqual({ updated: false, reason: 'not_found' })
     expect(onMutation).not.toHaveBeenCalled()
+  })
+})
+
+// La TUI de Nest Memory: tres cambios aditivos del despacho, probados contra un store REAL
+// (el despacho en proceso, `responder`, es el mismo que usa MemoryLocalClient).
+describe('MemoryIpcServer — lo que necesita la TUI (store real)', () => {
+  let dir: string
+  let store: MemoryStoreReal
+  let server: MemoryIpcServer
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-ipc-tui-')
+    store = new MemoryStoreReal(join(dir, 'memory.db'))
+    server = new MemoryIpcServer({
+      store,
+      socketPath: uniqueSocketPath(dir),
+      authToken: TOKEN,
+      // Un remote distinto por cwd: así cada cwd es un proyecto distinto.
+      resolveGitInfo: async (cwd: string) => ({ remoteUrl: `https://example.com/${cwd.split(/[\\/]/).pop()}.git` }) as never,
+    })
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  const guardar = (cwd: string, title: string, content = 'x', type = 'discovery') =>
+    (server.responder('memory.save', { cwd, type, title, content, source: 'agent' }) as Promise<{ syncId: string }>)
+  const mutaciones = () =>
+    (store as unknown as { db: { prepare(s: string): { get(): { n: number } } } }).db
+      .prepare('SELECT COUNT(*) AS n FROM mutation_log').get().n
+
+  it('memory.context con allProjects trae memorias de otro proyecto', async () => {
+    await guardar('/tmp/repo-a', 'de A')
+    await guardar('/tmp/repo-b', 'de B')
+    const titulos = async (extra: object) =>
+      ((await server.responder('memory.context', { cwd: '/tmp/repo-a', ...extra })) as { items: Array<{ title: string }> })
+        .items.map((i) => i.title).sort()
+    expect(await titulos({ allProjects: true })).toEqual(['de A', 'de B'])
+    expect(await titulos({})).toEqual(['de A'])
+  })
+
+  it('memory.get devuelve resolvedLinks en orden, con null para el hueco', async () => {
+    const b = await guardar('/tmp/repo-a', 'B')
+    const a = await guardar('/tmp/repo-a', 'A', 'see [[B]] and [[Nope]]')
+    const r = (await server.responder('memory.get', { cwd: '/tmp/repo-a', syncId: a.syncId })) as { resolvedLinks: unknown[] }
+    expect(r.resolvedLinks).toEqual([{ name: 'B', syncId: b.syncId }, { name: 'Nope', syncId: null }])
+  })
+
+  it('memory.update cambia sólo el tipo', async () => {
+    const { syncId } = await guardar('/tmp/repo-a', 'T', 'c', 'discovery')
+    const antes = mutaciones()
+    const r = await server.responder('memory.update', { cwd: '/tmp/repo-a', syncId, type: 'bugfix' })
+    expect(r).toMatchObject({ updated: true })
+    const g = (await server.responder('memory.get', { cwd: '/tmp/repo-a', syncId })) as { item: { type: string } }
+    expect(g.item.type).toBe('bugfix')
+    expect(mutaciones()).toBe(antes + 1)
+  })
+
+  it('memory.update con el mismo tipo y nada más es unchanged', async () => {
+    const { syncId } = await guardar('/tmp/repo-a', 'T', 'c', 'discovery')
+    const r = await server.responder('memory.update', { cwd: '/tmp/repo-a', syncId, type: 'discovery' })
+    expect(r).toMatchObject({ updated: false, reason: 'unchanged' })
   })
 })

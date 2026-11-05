@@ -1,8 +1,8 @@
 import type { BaseSqlite } from './sqlite-forma'
 import { parsearWikilinks, parsearAlias, resolverWikilink, CHARS_DE_FRONTMATTER, type CandidatoMemoria } from './wikilinks'
-import type { VecinoDeMemoria } from './memory-protocol'
+import type { VecinoDeMemoria, WikilinkResuelto } from './memory-protocol'
 
-export type { VecinoDeMemoria }
+export type { VecinoDeMemoria, WikilinkResuelto }
 
 /**
  * Los vecinos de una memoria: con qué otras está conectada, y para qué lado.
@@ -93,12 +93,6 @@ export function linksResueltosDe(db: BaseSqlite, syncId: string): WikilinkResuel
   if (!ctx) return []
   return parsearWikilinks(ctx.fila.content ?? '')
     .map((name) => ({ name, syncId: resolverWikilink(name, ctx.comoCandidato) }))
-}
-
-export interface WikilinkResuelto {
-  /** El destino tal como se escribió, sin alias ni sección: `[[a|b]]` → `a`. */
-  name: string
-  syncId: string | null
 }
 
 export function vecinosDeMemoria(db: BaseSqlite, syncId: string): VecinoDeMemoria[] {

@@ -59,6 +59,8 @@ export interface SearchMemoryParams {
 export interface ContextMemoryParams {
   cwd: string
   limit?: number
+  /** Con `true` trae las más recientes de TODOS los proyectos y el `cwd` no filtra. */
+  allProjects?: boolean
 }
 
 // `refreshed` is only ever present (and only ever `true`) when memory-ipc-server.ts's
@@ -168,6 +170,16 @@ export interface VecinoDeMemoria {
   via: 'wikilink' | 'manual'
 }
 
+/**
+ * Un `[[...]]` del texto con la memoria a la que apunta, o `null` si es un hueco. Vive acá
+ * por la misma razón que `VecinoDeMemoria`; `memory-vecinos.ts` lo re-exporta.
+ */
+export interface WikilinkResuelto {
+  /** El destino tal como se escribió, sin alias ni sección: `[[a|b]]` → `a`. */
+  name: string
+  syncId: string | null
+}
+
 export interface GetMemoryResult {
   /** `null` — nunca una excepción — cuando el syncId no existe o está borrado. */
   item: ObservationSummary | null
@@ -188,6 +200,8 @@ export interface GetMemoryResult {
    * el hueco — un link pendiente es una memoria que alguien ya decidió que hacía falta.
    */
   pendingLinks: string[]
+  /** Cada `[[...]]` del texto con su destino (`syncId: null` = hueco), en el orden en que aparecen. */
+  resolvedLinks: WikilinkResuelto[]
 }
 
 // MCP `memory_update` (docs/nest-memory-architecture.md §1.1) — corrige título/contenido/
@@ -201,6 +215,8 @@ export interface UpdateMemoryParams {
   content?: string
   /** `null` explícito borra los tags; ausente los deja como están. */
   tags?: string[] | null
+  /** Si viene y es distinto del actual, se cambia. */
+  type?: ObservationType
 }
 
 export interface UpdateMemoryResult {

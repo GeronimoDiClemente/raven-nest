@@ -390,6 +390,8 @@ export interface UpdateMemoryInput {
   content?: string
   /** `null` explícito borra los tags; `undefined` (ausente) los deja como están. */
   tags?: string[] | null
+  /** Si viene y es distinto del actual, se cambia. */
+  type?: ObservationType
 }
 
 export interface UpdateMemoryResult {
@@ -1796,7 +1798,7 @@ export class MemoryStore {
    * Quien quiera el cuerpo completo de una memoria tiene `getSummary(syncId)`. Ver el
    * comentario de `contextObservations` para los tres escalones y por que importan.
    */
-  context(projectKey: string, limit = 10, maxContentChars: number | null = CONTEXT_MAX_CHARS): ObservationSummary[] {
+  context(projectKey: string | null, limit = 10, maxContentChars: number | null = CONTEXT_MAX_CHARS): ObservationSummary[] {
     return contextObservations(
       this.db, projectKey, GLOBAL_PROJECT_KEY, limit,
       maxContentChars ?? undefined,
@@ -2242,7 +2244,9 @@ export class MemoryStore {
     const { title, content, redacted, hash } = computeContentIdentity(nextTitleRaw, nextContentRaw)
     const nextTags = input.tags !== undefined ? (input.tags ? JSON.stringify(input.tags) : null) : existing.tags
 
-    if (hash === existing.content_hash && nextTags === existing.tags) {
+    const nextType = input.type ?? (existing.type as ObservationType)
+
+    if (hash === existing.content_hash && nextTags === existing.tags && nextType === existing.type) {
       return { updated: false, reason: 'unchanged', syncId: existing.sync_id }
     }
 
@@ -2254,6 +2258,7 @@ export class MemoryStore {
         title,
         content,
         tags: nextTags,
+        type: nextType,
         content_hash: hash,
         revision_count: existing.revision_count + 1,
         updated_at: Date.now(),
