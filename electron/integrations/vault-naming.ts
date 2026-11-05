@@ -4,6 +4,7 @@
 // vaultSlug() is deliberately NOT chunker.ts's slugify(): that one keeps `/` (its input
 // is a heading path, which can be hierarchical on purpose) — reusing it for a filename
 // would create accidental subdirectories on all three OSes (H-3 in the vault spec).
+import { createHash } from 'crypto'
 import type { MemoryProject } from './memory-port'
 
 const MAX_SLUG_LENGTH = 60
@@ -35,9 +36,20 @@ export function vaultSlug(input: string): string {
   return trimmed || 'untitled'
 }
 
+/**
+ * The sync_id as it may appear in a file name. A pulled teammate row carries whatever sync_id
+ * its author pushed, so one with `/`, `\\` or `..` would place the note outside the vault. An
+ * id outside `[A-Za-z0-9_-]` (the ones Nest generates never are) is replaced by its SHA-256 in
+ * hex: same id, same name, and the ids already in use keep their file names.
+ */
+export function vaultSafeSyncId(syncId: string): string {
+  return /^[A-Za-z0-9_-]{1,128}$/.test(syncId) ? syncId : createHash('sha256').update(syncId).digest('hex')
+}
+
 /** Default (no-collision) file name for one observation: `{slug(title)}--{last 8 hex of sync_id}.md`. */
 export function vaultFileName(title: string, syncId: string, useFullSyncId = false): string {
-  const suffix = useFullSyncId ? syncId : syncId.slice(-8)
+  const id = vaultSafeSyncId(syncId)
+  const suffix = useFullSyncId ? id : id.slice(-8)
   return `${vaultSlug(title)}--${suffix}.md`
 }
 
@@ -50,7 +62,7 @@ export function vaultFileName(title: string, syncId: string, useFullSyncId = fal
 export function resolveVaultFileNames(items: Array<{ syncId: string; title: string }>): Map<string, string> {
   const groups = new Map<string, string[]>()
   for (const item of items) {
-    const key = `${vaultSlug(item.title)}--${item.syncId.slice(-8)}`
+    const key = `${vaultSlug(item.title)}--${vaultSafeSyncId(item.syncId).slice(-8)}`
     const bucket = groups.get(key)
     if (bucket) bucket.push(item.syncId)
     else groups.set(key, [item.syncId])
@@ -58,14 +70,14 @@ export function resolveVaultFileNames(items: Array<{ syncId: string; title: stri
 
   const result = new Map<string, string>()
   for (const item of items) {
-    const key = `${vaultSlug(item.title)}--${item.syncId.slice(-8)}`
+    const key = `${vaultSlug(item.title)}--${vaultSafeSyncId(item.syncId).slice(-8)}`
     const bucket = groups.get(key) ?? [item.syncId]
     if (bucket.length <= 1) {
       result.set(item.syncId, `${key}.md`)
       continue
     }
     const winner = [...bucket].sort()[0]
-    result.set(item.syncId, item.syncId === winner ? `${key}.md` : `${vaultSlug(item.title)}--${item.syncId}.md`)
+    result.set(item.syncId, item.syncId === winner ? `${key}.md` : `${vaultSlug(item.title)}--${vaultSafeSyncId(item.syncId)}.md`)
   }
   return result
 }

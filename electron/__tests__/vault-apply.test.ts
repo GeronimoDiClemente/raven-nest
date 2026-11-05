@@ -142,6 +142,36 @@ describe('applyVaultPlan — end to end', () => {
   })
 })
 
+describe('applyVaultPlan — never writes outside the root', () => {
+  it('team rows with crafted sync_ids land inside the vault', async () => {
+    const root = tmp()
+    const vault = join(root, 'a', 'b', 'vault')
+    const records = [
+      record({ syncId: '0e/CLAUDE', title: 't', scope: 'team' }),
+      record({ syncId: 'x/../../../../../e/CLAUDE', title: 't', scope: 'team' }),
+    ]
+    const p = planVault({ records, projects: [PROJECT], manifest: emptyManifest(), config: { includeSuperseded: true, includeTeamScope: true }, onDiskHashes: {} })
+
+    await applyVaultPlan(vault, p)
+
+    const fuera = findAllFiles(root).filter((f) => !f.startsWith(vault))
+    expect(fuera).toEqual([])
+    expect(findAllFiles(vault).filter((f) => f.endsWith('.md') && f.includes('_team'))).toHaveLength(2)
+  })
+
+  it('a plan whose path climbs out of the root fails before writing', async () => {
+    const root = tmp()
+    const vault = join(root, 'vault')
+    const plan = {
+      writes: [{ syncId: 'x', filePath: '../escape.md', content: '# x\n', fileHash: 'fh', sourceHash: 'sh' }],
+      moves: [], deletes: [], conflicts: [], warnings: [], indexWrites: [], indexDeletes: [], readme: '# r\n',
+    }
+
+    await expect(applyVaultPlan(vault, plan)).rejects.toThrow('vault_path_escape')
+    expect(existsSync(join(root, 'escape.md'))).toBe(false)
+  })
+})
+
 describe('rutas de contabilidad parametrizables', () => {
   it('por default deja todos los archivos de contabilidad donde siempre', () => {
     expect(DEFAULT_APPLY_PATHS.manifest).toBe('.nest-vault/manifest.json')

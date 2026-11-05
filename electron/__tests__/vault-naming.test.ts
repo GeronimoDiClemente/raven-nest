@@ -5,6 +5,7 @@ import {
   resolveVaultFileNames,
   projectFolderName,
   isForbiddenVaultRoot,
+  vaultSafeSyncId,
 } from '../integrations/vault-naming'
 import type { MemoryProject } from '../integrations/memory-port'
 
@@ -90,6 +91,31 @@ describe('vaultFileName / resolveVaultFileNames', () => {
     ]
     const names = resolveVaultFileNames(items)
     expect(new Set(names.values()).size).toBe(2)
+  })
+})
+
+describe('vaultSafeSyncId', () => {
+  it('leaves the ids Nest generates as they are, so existing file names do not change', () => {
+    expect(vaultSafeSyncId('obs-0123456789abcdef0123456789abcdef')).toBe('obs-0123456789abcdef0123456789abcdef')
+    expect(vaultFileName('Some fact', 'obs-aaaaaaaa12345678')).toBe('some-fact--12345678.md')
+  })
+
+  it('replaces an id with a slash or dots by its hex hash, stable for the same id', () => {
+    const evil = 'x/../../../../.claude/CLAUDE'
+    expect(vaultSafeSyncId(evil)).toMatch(/^[0-9a-f]{64}$/)
+    expect(vaultSafeSyncId(evil)).toBe(vaultSafeSyncId(evil))
+    expect(vaultSafeSyncId('a\\b')).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('a teammate forcing a collision with crafted ids never gets a separator into a name', () => {
+    const names = resolveVaultFileNames([
+      { syncId: '0e/CLAUDE', title: 't' },
+      { syncId: 'x/../../../../../../../../Users/v/.claude/CLAUDE', title: 't' },
+    ])
+    for (const name of names.values()) {
+      expect(name).not.toMatch(/[\\/]/)
+      expect(name).not.toContain('..')
+    }
   })
 })
 

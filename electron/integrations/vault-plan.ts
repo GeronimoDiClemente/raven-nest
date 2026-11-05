@@ -4,7 +4,7 @@
 import { redact } from '../memory-redaction'
 import { conflictPathFor, sha256 } from './vault-hash'
 import type { MemoryProject, MemoryRecord } from './memory-port'
-import { projectFolderName, resolveVaultFileNames } from './vault-naming'
+import { projectFolderName, resolveVaultFileNames, vaultSafeSyncId } from './vault-naming'
 import { renderNote, scrubSourceRef, type NoteContext } from './vault-note'
 
 export interface VaultManifestEntry {
@@ -261,7 +261,7 @@ export function planVault(input: PlanVaultInput): VaultPlan {
         continue
       }
 
-      const fileName = fileNames.get(record.syncId) ?? `${record.syncId}.md`
+      const fileName = fileNames.get(record.syncId) ?? `${vaultSafeSyncId(record.syncId)}.md`
       const targetPath = `${folder}/${disposition.subfolder}${fileName}`
 
       if (record.content === null) {

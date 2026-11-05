@@ -3,7 +3,7 @@
 // detection needs live on-disk hashes) and §12.
 import { randomBytes } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, appendFileSync, writeFileSync } from 'fs'
-import { dirname, join } from 'path'
+import { dirname, join, resolve, sep } from 'path'
 import { sha256 } from './vault-hash'
 import type { VaultManifest, VaultManifestEntry, VaultPlan, VaultWarning } from './vault-plan'
 
@@ -22,8 +22,12 @@ export const DEFAULT_APPLY_PATHS: VaultApplyPaths = {
   readme: 'README.md',
 }
 
+/** Every path the plan touches has to stay under `rootDir`: a `..` in a name never leaves it. */
 function abs(rootDir: string, relPath: string): string {
-  return join(rootDir, ...relPath.split('/'))
+  const base = resolve(rootDir)
+  const p = resolve(join(base, ...relPath.split('/')))
+  if (p !== base && !p.startsWith(base + sep)) throw new Error(`vault_path_escape: ${relPath}`)
+  return p
 }
 
 /** Atomic write: `.tmp` + `rename`, so a crash mid-write never leaves a truncated `.md` (§13). */
