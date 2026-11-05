@@ -192,6 +192,23 @@ describe('handlePush', () => {
     expect(await countEmpty()).toBe(before)
   })
 
+  it('rejects a sync_id with a path separator: it ends up in a file name on a teammate machine', async () => {
+    const p = PROJECT()
+    const res = await handlePush(pool, auth, {
+      mutations: [
+        mutation(9501, 'x/../../.claude/CLAUDE', p),
+        mutation(9502, 'a\\b', p),
+        mutation(9503, SYNC('after-bad-id'), p),
+      ],
+    })
+
+    expect(res.results[0]).toMatchObject({ outcome: 'rejected', error: 'invalid_sync_id' })
+    expect(res.results[1]).toMatchObject({ outcome: 'rejected', error: 'invalid_sync_id' })
+    expect(res.results[2]).toMatchObject({ sync_id: SYNC('after-bad-id'), outcome: 'applied' })
+    const { rows } = await pool.query(`select count(*)::int as n from observations where sync_id like 'x/%'`)
+    expect(rows[0].n).toBe(0)
+  })
+
   it('rejects a terminally-broken mutation, keeps the batch going, and persists nothing', async () => {
     const p = PROJECT()
     const res = await handlePush(pool, auth, {

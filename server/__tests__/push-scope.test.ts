@@ -102,6 +102,10 @@ describe('push — the team scope is gated by plan', () => {
     await pool.query('update projects set team_id = $1 where user_id = $2 and project_key = $3', [
       teamId, team.userId, project,
     ])
+    await pool.query(
+      `insert into team_memberships (user_id, team_id, team_name, role, status) values ($1, $2, 'Equipo', 'member', 'active')`,
+      [team.userId, teamId]
+    )
 
     const syncId = SYNC('team-team-scope')
     const res = await handlePush(pool, team, {
@@ -184,6 +188,10 @@ describe('push — team scope also requires the project itself to be shared (Par
     await pool.query('update projects set team_id = $1 where user_id = $2 and project_key = $3', [
       teamId, team.userId, project,
     ])
+    await pool.query(
+      `insert into team_memberships (user_id, team_id, team_name, role, status) values ($1, $2, 'Equipo', 'member', 'active')`,
+      [team.userId, teamId]
+    )
 
     const syncId = SYNC('shared-directly-team-scope')
     const res = await handlePush(pool, team, {

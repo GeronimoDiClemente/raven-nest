@@ -292,3 +292,51 @@ describe('handlePull — team_id en cada fila de scope team (Task 14)', () => {
     expect('team_id' in porId.get(SYNC('a-project'))!).toBe(false)
   })
 })
+
+// Sacar a alguien del equipo sólo toca su espejo de `team_memberships`: su `projects.team_id`
+// sigue seteado y su token sigue valiendo. Sin exigir que el AUTOR siga siendo miembro, sus
+// filas de equipo nuevas se aceptaban y les llegaban a los que quedan.
+describe('un ex-miembro del equipo', () => {
+  let autor: Account
+  let lector: Account
+  let equipo: string
+  let proyecto: string
+
+  beforeAll(async () => {
+    autor = await seedAccount('exAutor', 'team')
+    lector = await seedAccount('lector', 'team')
+    equipo = randomUUID()
+    await seedMembership(autor.userId, equipo)
+    await seedMembership(lector.userId, equipo)
+    proyecto = PROJECT('ex')
+    await handlePush(pool, autor, { mutations: [mutation(1, SYNC('ex-personal'), proyecto, 'personal')] })
+    await pool.query('update projects set team_id = $1 where user_id = $2 and project_key = $3', [
+      equipo, autor.userId, proyecto,
+    ])
+    const antes = await handlePush(pool, autor, { mutations: [mutation(2, SYNC('ex-antes'), proyecto, 'team')] })
+    expect(antes.results[0].outcome).toBe('applied')
+    // Lo saca del equipo, como `aplicarMembresias` sin ese equipo.
+    await pool.query('delete from team_memberships where user_id = $1 and team_id = $2', [autor.userId, equipo])
+  })
+
+  it('no puede subir filas de equipo nuevas', async () => {
+    const res = await handlePush(pool, autor, { mutations: [mutation(3, SYNC('ex-despues'), proyecto, 'team')] })
+    expect(res.results[0]).toMatchObject({ outcome: 'rejected', error: 'project_not_shared_with_team' })
+  })
+
+  it('lo que subió ya no les llega a los que quedan, por ninguno de los dos pulls', async () => {
+    const comoLector = { deviceId: lector.deviceId, userId: lector.userId, plan: lector.plan }
+    const nuevo = await handlePull(pool, comoLector, { cursors: { [proyecto]: 0 }, team_cursors: {}, limit: 500 })
+    const viejo = await handlePull(pool, comoLector, { cursors: { [proyecto]: 0 }, limit: 500 })
+    expect(nuevo.rows).toEqual([])
+    expect(viejo.rows).toEqual([])
+  })
+
+  it('si vuelve al equipo, lo suyo vuelve a llegar', async () => {
+    await seedMembership(autor.userId, equipo)
+    const res = await handlePull(pool, { deviceId: lector.deviceId, userId: lector.userId, plan: lector.plan }, {
+      cursors: { [proyecto]: 0 }, team_cursors: {}, limit: 500,
+    })
+    expect(res.rows.map((r) => r.sync_id)).toEqual([SYNC('ex-antes')])
+  })
+})

@@ -177,6 +177,9 @@ export async function handlePull(
              or (o.scope = 'team' and p.team_id in (
                   select team_id from team_memberships
                    where user_id = $1 and status = 'active'
+                ) and exists (
+                  select 1 from team_memberships am
+                   where am.user_id = p.user_id and am.team_id = p.team_id and am.status = 'active'
                 )))
         and o.project_seq > c.cursor
       order by o.project_seq asc
@@ -270,6 +273,12 @@ async function pullConCursoresDeEquipo(
         and p.team_id in (
               select team_id from team_memberships
                where user_id = $1 and status = 'active'
+            )
+        -- el autor también tiene que seguir en el equipo: un ex-miembro conserva su
+        -- \`projects.team_id\`, y sin esto sus filas les seguían llegando a los demás
+        and exists (
+              select 1 from team_memberships am
+               where am.user_id = p.user_id and am.team_id = p.team_id and am.status = 'active'
             )
         and o.project_seq > coalesce(t.cursor, 0)
       order by p.id asc, o.project_seq asc

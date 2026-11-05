@@ -137,6 +137,9 @@ async function ensureProject(
 // legítimo lo toca.
 const MAX_OBSERVATION_BYTES = 1024 * 1024
 
+/** Sin separadores de ruta ni caracteres de control; los clientes generan `obs-<hex>`. */
+const SYNC_ID_VALIDO = /^[A-Za-z0-9_.:-]{1,128}$/
+
 /**
  * La partición interna donde cae toda mutación sin `project_key`. NO es un proyecto del
  * usuario: no cuenta contra `maxProjects` y nunca se rechaza con `project_limit_reached`.
@@ -241,8 +244,13 @@ export async function handlePush(
     // project_key que YA tienen `team_id` seteado — compartidos vía POST
     // /v1/projects/share (Parte 3) — porque eso es justo lo que separa un push
     // `scope: 'team'` legítimo de uno a un proyecto que nunca se compartió con nadie.
+    // Y sólo mientras el autor siga siendo miembro activo de ESE equipo: sacarlo del equipo
+    // no limpia `projects.team_id`, así que sin el join un ex-miembro seguía escribiendo filas
+    // de equipo que el pull les servía a los demás.
     const { rows: sharedRows } = await client.query(
-      `select project_key from projects where user_id = $1 and team_id is not null`,
+      `select p.project_key from projects p
+         join team_memberships tm on tm.user_id = p.user_id and tm.team_id = p.team_id and tm.status = 'active'
+        where p.user_id = $1 and p.team_id is not null`,
       [auth.userId]
     )
     const sharedProjectKeys = new Set(sharedRows.map((r) => r.project_key as string))
@@ -299,6 +307,17 @@ export async function handlePush(
         prepared.push({
           kind: 'rejected',
           result: { sync_id: '', outcome: 'rejected', project_seq: 0, error: 'missing_sync_id' },
+        })
+        continue
+      }
+
+      // El sync_id de una fila de equipo termina en el nombre de un archivo en la máquina de
+      // otro miembro (el vault): con `/`, `\\` o un carácter de control escapaba de la carpeta.
+      // Los que generan los clientes son `obs-<hex>`; terminal por lo mismo que el de arriba.
+      if (!SYNC_ID_VALIDO.test(syncId)) {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: syncId.slice(0, 200), outcome: 'rejected', project_seq: 0, error: 'invalid_sync_id' },
         })
         continue
       }
