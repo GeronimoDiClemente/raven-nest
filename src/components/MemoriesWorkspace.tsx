@@ -81,6 +81,8 @@ interface Props {
   /** Sube cada vez que arranca el tour de Memories: activa Graph para que sus anclas se vean.
    *  Mismo mecanismo que `pedidoDeSettings`. */
   pedidoDelGrafo?: number
+  /** Abre la TUI de memoria en un pane de terminal (App.tsx cierra este overlay antes). */
+  onOpenInTerminal?: () => void
 }
 
 /** Ventana angosta: el panel derecho arranca colapsado. */
@@ -109,7 +111,7 @@ function leerColumnas(): [number, number, number] {
 
 export default function MemoriesWorkspace({
   onClose, activeRepoPath, onOpenFile, onLinkRepo, closing = false, ansi, onHowItWorks,
-  pedidoDeSettings = 0, pedidoDelGrafo = 0, seccionDeSettings, onPlanYFacturacion,
+  pedidoDeSettings = 0, pedidoDelGrafo = 0, seccionDeSettings, onPlanYFacturacion, onOpenInTerminal,
 }: Props) {
   const state = useMemories()
 
@@ -524,6 +526,11 @@ export default function MemoriesWorkspace({
           <Button variant="ghost" size="sm" onClick={onHowItWorks} data-tour-id="memories-how">
             How it works
           </Button>
+          {onOpenInTerminal && (
+            <Button variant="outline" size="sm" onClick={onOpenInTerminal}>
+              Open Memory in terminal
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"

@@ -6,7 +6,7 @@ import {
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import {
   PaneNode, AIType, AI_CONFIG, SessionData, SessionPane, Workspace,
-  WorkspaceTab, LayoutId, MAX_PANES, WorktreeMeta, WorkerSpec, EditorTab,
+  WorkspaceTab, LayoutId, MAX_PANES, WorktreeMeta, WorkerSpec, EditorTab, NEST_MEMORY_TUI_CMD,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
@@ -391,6 +391,14 @@ export default function App() {
     })
     setAddingPane(null)
   }, [updateActiveTab])
+
+  // La TUI de memoria en un pane de terminal (el centinela lo resuelve pty-manager). Si el
+  // overlay de Memories está abierto se cierra antes: el pane nace abajo y no se vería. Sin
+  // gate por memoria habilitada: sin la integración el pty ya devuelve su error.
+  const abrirMemoriaEnTerminal = () => {
+    setMemoriesOpen(false)
+    addPane('terminal', '', '', AI_CONFIG.terminal.color, NEST_MEMORY_TUI_CMD, 'Memory')
+  }
 
   // "Arreglá el rojo": baja en main el log del run fallido del worktree y lo
   // inyecta al agente. Si ya hay un pane en ese worktree, lo escribe y lo enfoca;
@@ -2153,6 +2161,7 @@ export default function App() {
           onMemoriesOpen={() => abrirMemories()}
           onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
           onGraphBoardOpen={() => setGraphBoardOpen(true)}
+          onMemoryTerminalOpen={abrirMemoriaEnTerminal}
         />
       )}
 
@@ -2236,6 +2245,7 @@ export default function App() {
           seccionDeSettings={seccionDeSettings}
           onPlanYFacturacion={abrirPlanYFacturacion}
           pedidoDelGrafo={pedidoDelGrafo}
+          onOpenInTerminal={abrirMemoriaEnTerminal}
         />
       )}
 

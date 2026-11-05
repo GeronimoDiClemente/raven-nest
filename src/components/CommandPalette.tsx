@@ -31,6 +31,8 @@ interface Props {
   onMemoriesOpen?: () => void
   onIntegrationsOpen?: () => void
   onGraphBoardOpen?: () => void
+  /** Abre la TUI de memoria en un pane de terminal. Opcional por lo mismo que las pantallas. */
+  onMemoryTerminalOpen?: () => void
 }
 
 function score(item: PaletteItem, query: string): number {
@@ -66,7 +68,7 @@ export default function CommandPalette({
   onClose, tabs, activeTabId, focusedPaneId, broadcastMode,
   onTabSelect, onWorkspaceLoad, onSnippetSend, onSnippetBroadcast,
   onHistoryOpen, onNewTab, onNewPane, onBroadcastToggle, onHubOpen,
-  onPersonalOpen, onMemoriesOpen, onIntegrationsOpen, onGraphBoardOpen,
+  onPersonalOpen, onMemoriesOpen, onIntegrationsOpen, onGraphBoardOpen, onMemoryTerminalOpen,
 }: Props) {
   const [query, setQuery] = useState('')
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -122,6 +124,14 @@ export default function CommandPalette({
       keywords: 'pane terminal new',
       action: () => { onNewPane(); onClose() },
     })
+    if (onMemoryTerminalOpen) {
+      items.push({
+        id: 'action-memory-tui', section: 'actions',
+        label: 'Open Memory in terminal', sublabel: 'Browse and edit memories in a terminal pane',
+        keywords: 'memory terminal tui',
+        action: () => { onMemoryTerminalOpen(); onClose() },
+      })
+    }
     items.push({
       id: 'action-broadcast', section: 'actions',
       label: broadcastMode ? 'Disable broadcast' : 'Enable broadcast',
@@ -198,7 +208,7 @@ export default function CommandPalette({
   }, [tabs, activeTabId, workspaces, snippets, conversations, broadcastMode,
       onNewTab, onNewPane, onBroadcastToggle, onHubOpen, onHistoryOpen,
       onTabSelect, onWorkspaceLoad, onSnippetSend, onSnippetBroadcast, onClose,
-      onPersonalOpen, onMemoriesOpen, onIntegrationsOpen, onGraphBoardOpen])
+      onPersonalOpen, onMemoriesOpen, onIntegrationsOpen, onGraphBoardOpen, onMemoryTerminalOpen])
 
   const filtered = buildItems()
     .map(item => ({ item, s: score(item, query) }))

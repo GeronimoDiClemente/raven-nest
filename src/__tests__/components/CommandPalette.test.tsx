@@ -82,3 +82,23 @@ describe('CommandPalette — las pantallas', () => {
     expect(screen.queryByText('Integrations')).not.toBeInTheDocument()
   })
 })
+
+// La TUI de memoria en un pane (Task 10 del plan 2026-11-05-tui-de-memory). Es una acción,
+// no una pantalla: abre algo acá, en el layout, en vez de llevarte a otro lado.
+describe('CommandPalette — la TUI de memoria', () => {
+  it('muestra Open Memory in terminal y lo ejecuta', () => {
+    const props = base()
+    const onMemoryTerminalOpen = vi.fn()
+    render(<CommandPalette {...props} onMemoryTerminalOpen={onMemoryTerminalOpen} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'tui' } })
+    expect(screen.getByText('Browse and edit memories in a terminal pane')).toBeInTheDocument()
+    fireEvent.mouseDown(screen.getByText('Open Memory in terminal'))
+    expect(onMemoryTerminalOpen).toHaveBeenCalledTimes(1)
+    expect(props.onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('sin callback no dibuja la fila', () => {
+    render(<CommandPalette {...base()} />)
+    expect(screen.queryByText('Open Memory in terminal')).not.toBeInTheDocument()
+  })
+})
