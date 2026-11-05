@@ -18,6 +18,7 @@ export default defineConfig({
           environment: 'node',
           include: [
             'electron/__tests__/**/*.test.ts',
+            'electron/__tests__/**/*.test.tsx',
             'src/__tests__/**/*.test.ts',
             'supabase/functions/**/__tests__/**/*.test.ts',
           ],

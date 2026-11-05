@@ -30,7 +30,7 @@ import { destinosDeSetup, planDeSetup, planDeDeshacer, comoLanzarElServidor } fr
 import { aplicarPlan, sondasDeDisco } from './aplicar-setup'
 import { dondeEstaLaBase } from './donde-esta-la-base'
 import { leerStatusDelPaquete, type FilaDeEstado } from './status-del-paquete'
-import { leerDoctorDelPaquete } from './doctor-del-paquete'
+import { leerDoctorDelPaquete, resumenDelDoctor } from './doctor-del-paquete'
 import { usarAbridorPorDefecto } from './sqlite-motor'
 import { abrirBase, abrirBaseSoloLectura } from './sqlite-sin-compilar'
 import { searchObservations } from './memory-reads'
@@ -284,11 +284,10 @@ async function comandoDoctor(): Promise<void> {
   }
 
   console.log('')
-  const { problemas, avisos } = datos
-  const resumen = [problemas && `${problemas} ${problemas === 1 ? 'problem' : 'problems'}`, avisos && `${avisos} ${avisos === 1 ? 'warning' : 'warnings'}`].filter(Boolean).join(', ')
+  const resumen = resumenDelDoctor(datos)
   console.log(`  ${resumen ? e.negrita(`${resumen}.`) : e.acento('All good.')}`)
   console.log('')
-  if (problemas > 0) salir(1)
+  if (datos.problemas > 0) salir(1)
 }
 
 /**

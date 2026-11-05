@@ -108,3 +108,13 @@ export async function leerDoctorDelPaquete(d: DependenciasDeDoctor): Promise<Dat
     problemas, avisos,
   }
 }
+
+/** «1 problem, 2 warnings», o `null` si está todo bien: la última línea del doctor. */
+export function resumenDelDoctor(d: Pick<DatosDeDoctor, 'problemas' | 'avisos'>): string | null {
+  const { problemas, avisos } = d
+  const partes = [
+    problemas && `${problemas} ${problemas === 1 ? 'problem' : 'problems'}`,
+    avisos && `${avisos} ${avisos === 1 ? 'warning' : 'warnings'}`,
+  ].filter(Boolean)
+  return partes.length > 0 ? partes.join(', ') : null
+}
