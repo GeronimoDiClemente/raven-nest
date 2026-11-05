@@ -192,6 +192,44 @@ describe('editor', () => {
     expect(paso(e, tecla('r')).efectos).toEqual([{ tipo: 'reabrir-editor', archivo: '/tmp/x.md' }])
     expect(paso(e, tecla('d')).estado.errorDeEditor).toBeNull()
   })
+  it('pedir un editor marca editando; mientras tanto n/e/r/d no hacen nada', () => {
+    const r = paso(conLista(), tecla('n'))
+    expect(r.efectos).toEqual([{ tipo: 'editar', syncId: null }])
+    expect(r.estado.editando).toBe(true)
+    for (const t of ['n', 'e', 'd']) {
+      const otra = paso(r.estado, tecla(t))
+      expect(otra.efectos).toEqual([])
+      expect(otra.estado).toBe(r.estado)
+    }
+    // Un Reopen en vuelo: ni otro r ni Discard.
+    const conError = paso(conLista(), { tipo: 'error-de-editor', mensaje: 'boom', archivo: '/tmp/x.md' }, tecla('r')).estado
+    expect(conError.editando).toBe(true)
+    expect(paso(conError, tecla('r')).efectos).toEqual([])
+    expect(paso(conError, tecla('d')).estado.errorDeEditor).not.toBeNull()
+    // Salir y moverse siguen andando.
+    expect(paso(r.estado, tecla('q')).efectos).toEqual([{ tipo: 'salir' }])
+    expect(paso(r.estado, tecla('j')).estado.cursor).toBe(1)
+  })
+
+  it('editando se apaga con escrito, error-de-editor, fallo, limpiar-aviso y edicion-perdida', () => {
+    const en = paso(conLista(), tecla('n')).estado
+    const fin: Accion[] = [
+      { tipo: 'escrito', syncId: null },
+      { tipo: 'error-de-editor', mensaje: 'x', archivo: '/tmp/y.md' },
+      { tipo: 'fallo', mensaje: 'x' },
+      { tipo: 'limpiar-aviso' },
+      { tipo: 'edicion-perdida', mensaje: 'x' },
+    ]
+    for (const a of fin) expect(paso(en, a).estado.editando).toBe(false)
+  })
+
+  it('edicion-perdida suelta el error de editor y lo avisa', () => {
+    const e = paso(conLista(), { tipo: 'error-de-editor', mensaje: 'boom', archivo: '/tmp/x.md' }, tecla('r'),
+      { tipo: 'edicion-perdida', mensaje: 'Editor exited with code 3' }).estado
+    expect(e.errorDeEditor).toBeNull()
+    expect(e.aviso).toEqual({ texto: 'Editor exited with code 3', tipo: 'error' })
+    expect(paso(e, tecla('r')).efectos).toEqual([])
+  })
 })
 
 describe('segmentosDeContenido y columnas', () => {

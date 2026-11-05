@@ -2,7 +2,7 @@
 // editor (desmontar Ink, editar, volver a montar con el mismo estado, escribir por la fuente).
 import { describe, it, expect, beforeAll, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,8 +52,9 @@ class Stdout extends EventEmitter {
   rows = 30
   escrito: string[] = []
   write = (s: string) => { this.escrito.push(s); return true }
-  /** El último frame que pintó Ink (sin las secuencias de la pantalla alternativa). */
-  ultimo = () => [...this.escrito].reverse().find((s) => s !== ENTRAR && !s.startsWith(SALIR)) ?? ''
+  /** El último frame que pintó Ink: se saltean las escrituras que son sólo secuencias de
+   *  control (pantalla alternativa, el `?25l` con que Ink esconde el cursor al montar). */
+  ultimo = () => [...this.escrito].reverse().find((s) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').trim() !== '') ?? ''
   veces = (s: string) => this.escrito.filter((x) => x.includes(s)).length
 }
 
@@ -82,9 +83,16 @@ const STATUS: DatosDeStatus = {
   guardadaEn: '~/.nest/memory.db', servicio: null, filas: [], ilegiblesDeEquipo: 0, recientes: [], resumen: 'synced',
 }
 
-function fuenteFalsa(o: { fallaAlGuardar?: () => Error | null } = {}) {
+type Retenida = { resolver: () => void; rechazar: (e: Error) => void }
+
+/** `retener`: guardar/actualizar quedan colgados hasta que el test los suelte (`retenidas`). */
+function fuenteFalsa(o: { fallaAlGuardar?: () => Error | null; retener?: boolean } = {}) {
   const guardadas: MemoriaEscrita[] = []
   const actualizadas: Array<[string, MemoriaEscrita]> = []
+  const retenidas: Retenida[] = []
+  const quizasRetener = () => o.retener
+    ? new Promise<void>((resolver, rechazar) => { retenidas.push({ resolver, rechazar }) })
+    : Promise.resolve()
   let cerrada = false
   const fuente: FuenteDeLaTui = {
     proyecto: () => 'raven-nest',
@@ -95,16 +103,18 @@ function fuenteFalsa(o: { fallaAlGuardar?: () => Error | null } = {}) {
       const err = o.fallaAlGuardar?.()
       if (err) throw err
       guardadas.push(m)
+      await quizasRetener()
     },
-    actualizar: async (id, m) => { actualizadas.push([id, m]) },
+    actualizar: async (id, m) => { actualizadas.push([id, m]); await quizasRetener() },
     borrar: async () => {},
     status: async () => STATUS,
     doctor: async () => ({ filas: [], homeDeNest: false, bloqueadas: [], problemas: 0, avisos: 0 }),
     cerrar: () => { cerrada = true },
   }
-  return { fuente, guardadas, actualizadas, cerrada: () => cerrada }
+  return { fuente, guardadas, actualizadas, retenidas, cerrada: () => cerrada }
 }
 
+const tics = async (n: number) => { for (let i = 0; i < n; i++) await tic() }
 const tic = () => new Promise<void>((r) => setImmediate(r))
 async function hasta(cond: () => boolean, que: string): Promise<void> {
   for (let i = 0; i < 200 && !cond(); i++) await tic()
@@ -280,5 +290,86 @@ describe('el ida y vuelta con el editor falso', () => {
     stdin.escribir('\x03')
     await listo
     expect([...temporales()].filter((t) => !antes.has(t))).toEqual([])
+  })
+
+  it('un segundo n con la escritura en vuelo no abre otro editor ni escribe dos veces', async () => {
+    modo('valido', serializarMemoria({ title: 'Once', type: 'decision', tags: [], content: 'only one' }))
+    const f = fuenteFalsa({ retener: true })
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('n')
+    await hasta(() => f.retenidas.length === 1, 'guardar en vuelo')
+    await hasta(() => stdout.ultimo().includes('Saving…'), 'Saving…')
+    stdin.escribir('n')
+    await tics(20)
+    expect(stdout.veces(ENTRAR)).toBe(2) // un solo editor: arranque + un re-montaje
+    f.retenidas[0]!.resolver()
+    await hasta(() => stdout.ultimo().includes('Saved'), 'Saved')
+    expect(f.guardadas).toHaveLength(1)
+    stdin.escribir('q')
+    await listo
+  })
+
+  it('r dos veces durante un Reopen: un editor, y actualiza la MISMA memoria', async () => {
+    modo('invalido')
+    const f = fuenteFalsa({ retener: true })
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('e')
+    await hasta(() => stdout.ultimo().includes('Missing frontmatter'), 'el error')
+    modo('valido', serializarMemoria({ title: 'Fixed', type: 'decision', tags: [], content: 'ok now' }))
+    stdin.escribir('r')
+    await hasta(() => f.retenidas.length === 1, 'actualizar en vuelo')
+    stdin.escribir('r')
+    await tics(20)
+    expect(stdout.veces(ENTRAR)).toBe(3) // arranque, vuelta del e, vuelta del primer r
+    f.retenidas[0]!.resolver()
+    await hasta(() => stdout.ultimo().includes('Saved'), 'Saved')
+    expect(f.actualizadas.map(([id]) => id)).toEqual(['a'])
+    expect(f.guardadas).toEqual([])
+    stdin.escribir('q')
+    await listo
+  })
+
+  it('q con la escritura en vuelo: espera, y si falla no deja un temporal huérfano', async () => {
+    modo('valido', serializarMemoria({ title: 'In flight', type: 'decision', tags: [], content: 'x' }))
+    const antes = temporales()
+    const f = fuenteFalsa({ retener: true })
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('n')
+    await hasta(() => f.retenidas.length === 1, 'guardar en vuelo')
+    stdin.escribir('q')
+    let termino = false
+    void listo.then(() => { termino = true })
+    await tics(20)
+    expect(termino).toBe(false) // espera a la escritura antes de cerrar la fuente
+    expect(f.cerrada()).toBe(false)
+    f.retenidas[0]!.rechazar(new ErrorDeEscritura('Memory is locked by another process'))
+    await listo
+    expect(f.cerrada()).toBe(true)
+    expect([...temporales()].filter((t) => !antes.has(t))).toEqual([])
+  })
+
+  it('Reopen sin el temporal y con el editor caído suelta el error: r ya no abre nada', async () => {
+    modo('invalido')
+    const antes = temporales()
+    const f = fuenteFalsa()
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('n')
+    await hasta(() => stdout.ultimo().includes('Missing frontmatter'), 'el error')
+    const [nuevo] = [...temporales()].filter((t) => !antes.has(t))
+    unlinkSync(join(tmpdir(), nuevo!))
+    modo('falla')
+    stdin.escribir('r')
+    await hasta(() => stdout.ultimo().includes('Editor exited with code 3'), 'el fallo del editor')
+    expect(stdout.ultimo()).not.toMatch(/r reopen/i)
+    const entradas = stdout.veces(ENTRAR)
+    stdin.escribir('r')
+    await tics(20)
+    expect(stdout.veces(ENTRAR)).toBe(entradas)
+    stdin.escribir('q')
+    await listo
   })
 })

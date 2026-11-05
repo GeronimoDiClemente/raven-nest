@@ -35,6 +35,12 @@ export interface EstadoDeLaTui {
   aviso: { texto: string; tipo: 'info' | 'error' } | null
   confirmando: { syncId: string; titulo: string } | null
   errorDeEditor: { mensaje: string; archivo: string } | null
+  /**
+   * Hay un editar/reabrir en curso: desde que se pidió hasta que vuelve su resultado (que
+   * incluye la escritura por la fuente). Mientras tanto n/e/r/d no hacen nada: un segundo
+   * editor o un Reopen doble sobre la misma edición duplicarían la memoria.
+   */
+  editando: boolean
   ayuda: boolean
   cargando: boolean
 }
@@ -63,6 +69,8 @@ export type Accion =
   | { tipo: 'borrado'; syncId: string }
   | { tipo: 'error-de-editor'; mensaje: string; archivo: string }
   | { tipo: 'fallo'; mensaje: string }
+  /** La edición no tiene arreglo (su temporal ya no está): se avisa y se suelta el error. */
+  | { tipo: 'edicion-perdida'; mensaje: string }
   | { tipo: 'limpiar-aviso' }
 
 export type Efecto =
@@ -83,7 +91,7 @@ const PESTANAS: Pestana[] = ['recent', 'search', 'status', 'doctor']
 export function estadoInicial(): EstadoDeLaTui {
   return {
     pestana: 'recent', todosLosProyectos: false, lista: [], cursor: 0, consulta: '',
-    pila: [], detalle: null, aviso: null, confirmando: null, errorDeEditor: null,
+    pila: [], detalle: null, aviso: null, confirmando: null, errorDeEditor: null, editando: false,
     ayuda: false, cargando: true,
   }
 }
@@ -220,7 +228,23 @@ function teclaEnPestana(e: EstadoDeLaTui, input: string, key: Tecla): Resultado 
   return sin(e)
 }
 
+const abreEditor = (ef: Efecto) => ef.tipo === 'editar' || ef.tipo === 'reabrir-editor'
+
+/** La tecla, con la guarda de la edición en curso alrededor. */
 function alApretar(e: EstadoDeLaTui, input: string, key: Tecla): Resultado {
+  const r = teclaSinGuarda(e, input, key)
+  if (e.editando) {
+    // Otro editor, un borrado, la confirmación de uno, o tocar el error (Reopen/Discard)
+    // mientras la edición anterior no terminó: se ignora la tecla entera.
+    const choca = r.efectos.some((ef) => abreEditor(ef) || ef.tipo === 'borrar')
+      || (r.estado.confirmando !== null && e.confirmando === null)
+      || r.estado.errorDeEditor !== e.errorDeEditor
+    return choca ? sin(e) : r
+  }
+  return r.efectos.some(abreEditor) ? { ...r, estado: { ...r.estado, editando: true } } : r
+}
+
+function teclaSinGuarda(e: EstadoDeLaTui, input: string, key: Tecla): Resultado {
   if (key.ctrl && input === 'c') return sin(e, [{ tipo: 'salir' }])
 
   if (e.confirmando) {
@@ -275,7 +299,7 @@ export function reducir(e: EstadoDeLaTui, a: Accion): Resultado {
       return sin({ ...e, detalle: a.detalle, cargando: false })
     }
     case 'escrito': {
-      const estado = { ...e, errorDeEditor: null, aviso: { texto: 'Saved', tipo: 'info' as const } }
+      const estado = { ...e, errorDeEditor: null, editando: false, aviso: { texto: 'Saved', tipo: 'info' as const } }
       const tope = e.pila[e.pila.length - 1]
       return sin(estado, [...refrescar(e), ...(tope ? [{ tipo: 'abrir' as const, syncId: tope.syncId }] : [])])
     }
@@ -285,11 +309,13 @@ export function reducir(e: EstadoDeLaTui, a: Accion): Resultado {
         refrescar(e),
       )
     case 'error-de-editor':
-      return sin({ ...e, errorDeEditor: { mensaje: a.mensaje, archivo: a.archivo } })
+      return sin({ ...e, editando: false, errorDeEditor: { mensaje: a.mensaje, archivo: a.archivo } })
     case 'fallo':
-      return sin({ ...e, cargando: false, aviso: { texto: a.mensaje, tipo: 'error' } })
+      return sin({ ...e, editando: false, cargando: false, aviso: { texto: a.mensaje, tipo: 'error' } })
+    case 'edicion-perdida':
+      return sin({ ...e, editando: false, errorDeEditor: null, aviso: { texto: a.mensaje, tipo: 'error' } })
     case 'limpiar-aviso':
-      return sin({ ...e, aviso: null })
+      return sin({ ...e, editando: false, aviso: null })
   }
 }
 

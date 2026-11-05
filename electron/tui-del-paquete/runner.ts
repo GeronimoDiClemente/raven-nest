@@ -12,7 +12,8 @@ import type { DatosDeStatus } from '../status-del-paquete'
 import type { DatosDeDoctor } from '../doctor-del-paquete'
 
 export type EfectoDeEditor = Efecto & { tipo: 'editar' | 'reabrir-editor' }
-export type SuspenderYEditar = (e: EfectoDeEditor) => Promise<Accion>
+/** `null`: no hay nada que despachar (otra edición ya estaba en curso, o la TUI terminó). */
+export type SuspenderYEditar = (e: EfectoDeEditor) => Promise<Accion | null>
 
 export interface Instantanea {
   estado: EstadoDeLaTui

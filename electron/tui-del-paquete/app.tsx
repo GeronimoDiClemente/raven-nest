@@ -3,10 +3,10 @@
 // El estado no vive en React: lo tiene el `Runner` y la App se suscribe. Quien suelta la
 // terminal para el editor puede desmontar Ink y volver a montar la App con el mismo runner.
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { columnas, type Accion, type EstadoDeLaTui } from './estado'
+import { columnas, type EstadoDeLaTui } from './estado'
 import type { FuenteDeLaTui } from './fuente'
 import { ink } from './ink'
-import { crearRunner, type EfectoDeEditor, type Instantanea, type Runner } from './runner'
+import { crearRunner, type Instantanea, type Runner, type SuspenderYEditar } from './runner'
 import { hayColor, pintar } from './colores'
 import { Lista } from './lista'
 import { Detalle } from './detalle'
@@ -95,6 +95,7 @@ function Barra(p: { estado: EstadoDeLaTui; color: boolean }) {
   const { Text } = ink()
   const e = p.estado
   if (e.confirmando) return <Text color={pintar(p.color, 'red')} wrap="truncate">Delete "{e.confirmando.titulo}"? y/N</Text>
+  if (e.editando) return <Text dimColor wrap="truncate">Saving…</Text>
   if (e.errorDeEditor) {
     return (
       <Text wrap="truncate">
@@ -140,7 +141,7 @@ function Pantalla(p: { inst: Instantanea; ancho: number; alto: number; color: bo
 export function App(p: {
   fuente: FuenteDeLaTui
   ancho: number
-  suspenderYEditar: (e: EfectoDeEditor) => Promise<Accion>
+  suspenderYEditar: SuspenderYEditar
   /** Para volver a montar con el estado de antes; sin él, la App arma uno propio. */
   runner?: Runner
 }): JSX.Element {

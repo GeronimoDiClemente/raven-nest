@@ -66,6 +66,10 @@ export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Pr
   let instancia: Instancia | null = null
   let enAlterna = false
   let terminar: (err?: unknown) => void = () => {}
+  /** La edición en curso (editor + escritura). Una sola a la vez: el reducer ya lo cuida, esto es la segunda red. */
+  let enCurso: Promise<Accion | null> | null = null
+  /** La TUI terminó: lo que llegue tarde no vuelve a montar Ink ni deja temporales. */
+  let cerrando = false
 
   const restaurar = () => {
     if (!enAlterna) return
@@ -119,7 +123,7 @@ export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Pr
   }
 
   /** Lo que el editor devolvió, ya con la terminal de vuelta: se escribe por la fuente. */
-  async function resolver(r: ResultadoDeEdicion, syncId: string | null): Promise<Accion> {
+  async function resolver(r: ResultadoDeEdicion, syncId: string | null): Promise<Accion | null> {
     switch (r.tipo) {
       case 'sin-cambios':
         return { tipo: 'limpiar-aviso' }
@@ -134,6 +138,9 @@ export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Pr
           else await fuente.guardar(r.memoria)
           return { tipo: 'escrito', syncId }
         } catch (err) {
+          // Se salió con la escritura en vuelo: no queda quién ofrezca Reopen, y un temporal
+          // ahora quedaría huérfano en tmpdir.
+          if (cerrando) return null
           // Lo normal es un `ErrorDeEscritura` (candado, sólo lectura, cambió en otro lado),
           // pero el texto del usuario se conserva ante CUALQUIER fallo: perderlo no tiene arreglo.
           const archivo = conservarEnTemporal(serializarMemoria(r.memoria), idDeTemporal(syncId))
@@ -143,13 +150,21 @@ export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Pr
     }
   }
 
-  async function suspenderYEditar(ef: EfectoDeEditor): Promise<Accion> {
+  function suspenderYEditar(ef: EfectoDeEditor): Promise<Accion | null> {
+    if (enCurso || cerrando) return Promise.resolve(null)
+    const esta = editar(ef).finally(() => { if (enCurso === esta) enCurso = null })
+    enCurso = esta
+    return esta
+  }
+
+  async function editar(ef: EfectoDeEditor): Promise<Accion | null> {
     if (ef.tipo === 'editar') {
       const { syncId } = ef
       let inicial = plantillaDeNueva()
       if (syncId) {
         // El texto entero: el `content` de la lista puede venir recortado.
         const d = await fuente.obtener(syncId)
+        if (cerrando) return null // se salió mientras se leía: no se abre ningún editor
         if (!d) return { tipo: 'fallo', mensaje: 'This memory no longer exists' }
         const { title, type, tags, content } = d.item
         inicial = serializarMemoria({ title, type, tags, content })
@@ -165,7 +180,10 @@ export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Pr
     let previo: string | null = null
     try { previo = readFileSync(archivo, 'utf8') } catch { /* ya no está */ }
     const r = enPausa(() => reabrirEnEditor(archivo, editor))
-    if (r.tipo === 'fallo-el-editor' && previo !== null && !existsSync(archivo)) {
+    if (r.tipo === 'fallo-el-editor' && !existsSync(archivo)) {
+      // Sin el temporal no hay qué reabrir: se suelta el error, si no `r` abriría un archivo
+      // vacío sin saber a qué memoria iba.
+      if (previo === null) return { tipo: 'edicion-perdida', mensaje: r.error }
       // El editor no arrancó y `reabrirEnEditor` borró el temporal: el texto vuelve a quedar.
       const nuevo = conservarEnTemporal(previo, idDeTemporal(syncId))
       pendientes.set(nuevo, syncId)
@@ -200,11 +218,16 @@ export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Pr
       montar()
     })
   } finally {
+    cerrando = true
     // `as`: tsc no ve que `montar` (un closure) la asignó y la estrecha a `null`.
     const ultima = instancia as Instancia | null
     instancia = null
     ultima?.unmount()
     restaurar()
+    // Una escritura en vuelo termina antes de cerrar la fuente (si falla, `resolver` ya no
+    // conserva nada); recién después se borran los temporales.
+    const pendiente = enCurso as Promise<Accion | null> | null // mismo estrechamiento que `ultima`
+    if (pendiente) await pendiente.catch(() => null)
     dejarDeMirar()
     runner.detener()
     descartarPendientes()
