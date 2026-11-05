@@ -11,21 +11,36 @@
  * ni resuelve nombres, sólo dice qué nombres se mencionaron.
  */
 
+/** Reemplaza por espacios todo menos los saltos de línea: conserva los desplazamientos. */
+function enBlanco(texto: string): string {
+  return texto.replace(/[^\n]/g, ' ')
+}
+
 /** Un fence de ``` abre y cierra; uno sin cerrar se considera abierto hasta el final. */
 function sinBloquesDeCodigo(texto: string): string {
   const lineas = texto.split('\n')
   const salida: string[] = []
   let dentro = false
   for (const linea of lineas) {
-    if (/^\s*```/.test(linea)) { dentro = !dentro; continue }
-    salida.push(dentro ? '' : linea)
+    if (/^\s*```/.test(linea)) { dentro = !dentro; salida.push(enBlanco(linea)); continue }
+    salida.push(dentro ? enBlanco(linea) : linea)
   }
   return salida.join('\n')
 }
 
 /** Código en línea con backticks: `[[ -f x ]]` es bash, no un link. */
 function sinCodigoEnLinea(texto: string): string {
-  return texto.replace(/`[^`\n]*`/g, '')
+  return texto.replace(/`[^`\n]*`/g, enBlanco)
+}
+
+/**
+ * El texto con el código (bloques y backticks) borrado a espacios, del MISMO largo que el
+ * original: un índice sobre el resultado es un índice sobre el texto. Quien dibuja los links
+ * (la TUI) necesita ubicarlos, y para eso las dos reglas de «esto es código» tienen que ser
+ * ésta y no una copia.
+ */
+export function enmascararCodigo(texto: string): string {
+  return sinCodigoEnLinea(sinBloquesDeCodigo(texto))
 }
 
 /**
@@ -40,7 +55,7 @@ function sinCodigoEnLinea(texto: string): string {
  */
 export function parsearWikilinks(texto: string): string[] {
   if (!texto) return []
-  const limpio = sinCodigoEnLinea(sinBloquesDeCodigo(texto))
+  const limpio = enmascararCodigo(texto)
   const nombres: string[] = []
   const vistos = new Set<string>()
   // `[^\[\]]` en vez de `.`: sin eso un `[[a]] ... [[b]]` se toma como un solo match
