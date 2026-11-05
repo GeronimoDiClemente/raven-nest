@@ -394,8 +394,9 @@ export default function App() {
 
   // La TUI de memoria en un pane de terminal (el centinela lo resuelve pty-manager). Si el
   // overlay de Memories está abierto se cierra antes: el pane nace abajo y no se vería. Sin
-  // gate por memoria habilitada: sin la integración el pty ya devuelve su error.
-  const abrirMemoriaEnTerminal = () => {
+  // gate por memoria habilitada: sin la integración el pty ya devuelve su error. En Windows no se
+  // ofrece: los comandos de PowerShell/cmd que esperan al exe GUI nunca se probaron ahí.
+  const abrirMemoriaEnTerminal = window.platform?.isWin ? undefined : () => {
     setMemoriesOpen(false)
     addPane('terminal', '', '', AI_CONFIG.terminal.color, NEST_MEMORY_TUI_CMD, 'Memory')
   }
