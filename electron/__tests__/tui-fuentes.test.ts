@@ -12,14 +12,17 @@ function armar(opts: {
   nest: Array<{ socket: string; token: string } | null>
   responder?: (donde: 'daemon' | 'local', method: string, n: number) => unknown
   existe?: boolean
+  sinNest?: { modo: 'nest'; path: string } | { modo: 'propia'; path: string; nueva: boolean }
 }) {
   const llamadas: Llamada[] = []
   let creadosLocal = 0
+  const basesLocales: string[] = []
   let nBusquedas = 0
   const deps: DependenciasDeFuente = {
     base: opts.base,
     cwd: '/tmp/un-repo',
     existe: () => opts.existe ?? true,
+    baseSinNest: () => opts.sinNest ?? ({ modo: 'propia', path: '/x/memory.db', nueva: false } as const),
     buscarNest: async () => opts.nest[Math.min(nBusquedas++, opts.nest.length - 1)],
     crearDaemon: () => ({
       call: async (method: string, params: unknown) => {
@@ -29,8 +32,9 @@ function armar(opts: {
         return r ?? { ok: true }
       },
     }),
-    crearLocal: () => {
+    crearLocal: (b: { path: string }) => {
       creadosLocal++
+      basesLocales.push(b.path)
       return {
         call: async (method: string, params: unknown) => {
           llamadas.push({ donde: 'local', method, params })
@@ -44,7 +48,7 @@ function armar(opts: {
     leerStatus: async () => { throw new Error('no usado') },
     leerDoctor: async () => { throw new Error('no usado') },
   }
-  return { fuente: crearFuenteDelPaquete(deps), llamadas, creados: () => creadosLocal }
+  return { fuente: crearFuenteDelPaquete(deps), llamadas, creados: () => creadosLocal, basesLocales }
 }
 
 const memoria = { title: 'T', type: 'decision' as const, tags: ['a'], content: 'C' }
@@ -135,6 +139,59 @@ describe('fuente del paquete', () => {
     await fuente.recientes({ todos: true, limite: 5 })
     expect(llamadas.every((l) => l.donde === 'daemon')).toBe(true)
     expect(llamadas[1].params).toMatchObject({ allProjects: true, limit: 5 })
+  })
+})
+
+describe('fuente del paquete: seguir a Nest en los dos sentidos', () => {
+  const deNest = { modo: 'nest' as const, path: '/nest/memory.db' }
+  const daemon: DecisionDeBase = { modo: 'daemon', socket: 's', token: 't' }
+
+  it('base daemon y Nest cerrado: guardar va al local sobre la base de Nest', async () => {
+    const { fuente, llamadas, basesLocales } = armar({ base: daemon, nest: [null], sinNest: deNest })
+    await fuente.guardar(memoria)
+    expect(llamadas.map((l) => l.donde)).toEqual(['local'])
+    expect(basesLocales).toEqual(['/nest/memory.db'])
+  })
+
+  it('base daemon que da ECONNREFUSED: cae al local sobre la base de Nest', async () => {
+    const err = Object.assign(new Error('x'), { code: 'ECONNREFUSED' })
+    const { fuente, llamadas, basesLocales } = armar({
+      base: daemon, nest: [nest], sinNest: deNest, responder: (d) => (d === 'daemon' ? err : { ok: true }),
+    })
+    await fuente.guardar(memoria)
+    expect(llamadas.map((l) => l.donde)).toEqual(['daemon', 'local'])
+    expect(basesLocales).toEqual(['/nest/memory.db'])
+  })
+
+  it('tras cerrarse Nest, las lecturas dejan de ir al daemon', async () => {
+    const { fuente, llamadas } = armar({ base: daemon, nest: [null], sinNest: deNest, responder: () => ({ items: [] }) })
+    await fuente.guardar(memoria)
+    await fuente.recientes({ todos: true, limite: 5 })
+    expect(llamadas.map((l) => l.donde)).toEqual(['local', 'local'])
+  })
+
+  it('base propia y Nest abierto después: la escritura va al daemon y las lecturas la siguen', async () => {
+    const { fuente, llamadas } = armar({ base: propia, nest: [nest], responder: () => ({ items: [] }) })
+    await fuente.guardar(memoria)
+    await fuente.recientes({ todos: false, limite: 5 })
+    expect(llamadas.map((l) => l.donde)).toEqual(['daemon', 'daemon'])
+  })
+
+  it('un ok:false del daemon que dice "timed out" NO reintenta en el local', async () => {
+    const { fuente, llamadas } = armar({
+      base: propia, nest: [nest], responder: (d) => (d === 'daemon' ? new Error('upstream timed out') : {}),
+    })
+    await expect(fuente.guardar(memoria)).rejects.toBeInstanceOf(ErrorDeEscritura)
+    expect(llamadas).toHaveLength(1)
+  })
+
+  it('el timeout del propio cliente del daemon sí reintenta', async () => {
+    const { fuente, llamadas } = armar({
+      base: propia, nest: [nest],
+      responder: (d) => (d === 'daemon' ? new Error('Nest Memory daemon timed out (method=memory.save)') : {}),
+    })
+    await fuente.guardar(memoria)
+    expect(llamadas.map((l) => l.donde)).toEqual(['daemon', 'local'])
   })
 })
 

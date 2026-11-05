@@ -10,17 +10,19 @@
 // otro error (candado, base de sólo lectura, un `ok: false`) es `ErrorDeEscritura` con su
 // mensaje, sin reintentar.
 import { existsSync } from 'fs'
+import { homedir } from 'os'
 import { MemoryDaemonClient } from '../memory-mcp/client'
 import { MemoryLocalClient } from '../memory-mcp/local'
 import { resolveGitInfoForCwd } from '../git-info'
 import { buscarNestVivo, type DondeHablarle } from '../nest-vivo-del-paquete'
 import { dondeEstaLaBase } from '../donde-esta-la-base'
 import { ravenHome } from '../raven-home'
+import { readActivePointer } from '../memory-active-store'
 import { alAbrirConSync } from '../sync-del-paquete-tras-escribir'
 import { dependenciasDeStatus, dependenciasDeDoctor } from '../dependencias-de-lectura-del-paquete'
 import { leerStatusDelPaquete, type DatosDeStatus } from '../status-del-paquete'
 import { leerDoctorDelPaquete, type DatosDeDoctor } from '../doctor-del-paquete'
-import type { DecisionDeBase } from '../base-para-el-paquete'
+import { decidirBase, type DecisionDeBase } from '../base-para-el-paquete'
 import type { UpdateMemoryResult } from '../memory-protocol'
 import { ErrorDeEscritura, type FuenteDeLaTui } from './fuente'
 import {
@@ -28,56 +30,81 @@ import {
   pedidoDeActualizar, verificarActualizacion, mensajeDe, type Llamador,
 } from './fuente-comun'
 
+export type BaseLocal = Exclude<DecisionDeBase, { modo: 'daemon' }>
+
 export interface DependenciasDeFuente {
   /** La base decidida al arrancar. */
   base: DecisionDeBase
   cwd: string
   existe: (path: string) => boolean
   buscarNest: () => Promise<DondeHablarle | null>
+  /**
+   * La base a usar cuando Nest no contesta: la de Nest en disco (el puntero activo) o, si no
+   * hay, la propia. Se vuelve a decidir en cada escritura que cae al local.
+   */
+  baseSinNest: () => BaseLocal
   crearDaemon: (d: DondeHablarle) => Llamador
-  crearLocal: (path: string) => Llamador & { close: () => void }
+  /** Recibe la base decidida en ese momento: con la propia engancha el sync, con la de Nest no. */
+  crearLocal: (base: BaseLocal) => Llamador & { close: () => void }
   leerStatus: (base: DecisionDeBase) => Promise<DatosDeStatus>
   leerDoctor: (base: DecisionDeBase) => Promise<DatosDeDoctor>
 }
 
 const CODIGOS_DE_CONEXION = new Set(['ECONNREFUSED', 'ENOENT', 'EPIPE'])
 
+/** El mensaje propio del cliente del daemon (`memory-mcp/client.ts`); un `ok: false` que lo
+ *  mencione en su texto no cuenta. */
+const TIMEOUT_DEL_CLIENTE = 'Nest Memory daemon timed out'
+
 /** El daemon no está o se cortó: distinto de un daemon que contestó que no. */
 function esErrorDeConexion(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code
   if (typeof code === 'string' && CODIGOS_DE_CONEXION.has(code)) return true
-  return mensajeDe(err).includes('timed out')
+  return mensajeDe(err).startsWith(TIMEOUT_DEL_CLIENTE)
 }
+
+/** A quién le habla la lectura: lo último que una escritura decidió, o la base de arranque. */
+type Destino = { tipo: 'daemon'; d: DondeHablarle } | { tipo: 'local'; base: BaseLocal }
 
 export function crearFuenteDelPaquete(deps: DependenciasDeFuente): FuenteDeLaTui {
   const { base, cwd } = deps
-  let local: (Llamador & { close: () => void }) | null = null
+  const locales = new Map<string, Llamador & { close: () => void }>()
+  let destino: Destino = base.modo === 'daemon'
+    ? { tipo: 'daemon', d: { socket: base.socket, token: base.token } }
+    : { tipo: 'local', base }
 
-  /** El path de la base local, o `null` si la base decidida era la de un Nest vivo. */
-  const pathLocal = (): string | null => (base.modo === 'daemon' ? null : base.path)
-  const abrirLocal = (path: string) => (local ??= deps.crearLocal(path))
+  const abrirLocal = (b: BaseLocal) => {
+    let c = locales.get(b.path)
+    if (!c) { c = deps.crearLocal(b); locales.set(b.path, c) }
+    return c
+  }
 
   const lector = async (): Promise<Llamador | null> => {
-    if (base.modo === 'daemon') return deps.crearDaemon({ socket: base.socket, token: base.token })
-    if (base.modo === 'propia' && base.nueva && !deps.existe(base.path)) return null
-    return abrirLocal(base.path)
+    if (destino.tipo === 'daemon') return deps.crearDaemon(destino.d)
+    const b = destino.base
+    if (b.modo === 'propia' && b.nueva && !deps.existe(b.path)) return null
+    return abrirLocal(b)
   }
 
   /** Va al daemon si Nest está vivo, con un reintento al local si se cae; si no, al local. */
   async function escribir<T>(method: string, params: unknown): Promise<T> {
     const nest = await deps.buscarNest()
     const alLocal = async (): Promise<T> => {
-      const path = pathLocal()
-      if (!path) throw new ErrorDeEscritura('Nest is not running and there is no local memory to write to')
+      // Con la base de arranque local se sigue en ella; si se arrancó con Nest, se decide
+      // de nuevo ahora que ya no está (el puntero de Nest, o la propia).
+      const b = base.modo === 'daemon' ? deps.baseSinNest() : base
+      destino = { tipo: 'local', base: b }
       try {
-        return (await abrirLocal(path).call(method, params)) as T
+        return (await abrirLocal(b).call(method, params)) as T
       } catch (err) {
         throw new ErrorDeEscritura(mensajeDe(err))
       }
     }
     if (!nest) return alLocal()
     try {
-      return (await deps.crearDaemon(nest).call(method, params)) as T
+      const r = (await deps.crearDaemon(nest).call(method, params)) as T
+      destino = { tipo: 'daemon', d: nest }
+      return r
     } catch (err) {
       if (esErrorDeConexion(err)) return alLocal()
       throw new ErrorDeEscritura(mensajeDe(err))
@@ -101,7 +128,7 @@ export function crearFuenteDelPaquete(deps: DependenciasDeFuente): FuenteDeLaTui
     borrar: async (id) => { await escribir('memory.delete', { cwd, syncId: id }) },
     status: () => deps.leerStatus(base),
     doctor: () => deps.leerDoctor(base),
-    cerrar: () => { try { local?.close() } finally { local = null } },
+    cerrar: () => { for (const c of locales.values()) { try { c.close() } catch { /* ya cerrada */ } } locales.clear() },
   }
 }
 
@@ -111,12 +138,18 @@ export function crearFuenteDelPaquete(deps: DependenciasDeFuente): FuenteDeLaTui
  */
 export async function crearFuenteReal(cwd: string): Promise<FuenteDeLaTui> {
   const base = await dondeEstaLaBase()
+  const raven = ravenHome()
   return crearFuenteDelPaquete({
     base, cwd,
     existe: (p) => existsSync(p),
-    buscarNest: () => buscarNestVivo(process.env, ravenHome(), process.platform === 'win32'),
+    buscarNest: () => buscarNestVivo(process.env, raven, process.platform === 'win32'),
+    baseSinNest: () => decidirBase({
+      home: homedir(), existe: (p) => existsSync(p), nestVivo: null,
+      punteroDeNest: () => readActivePointer(raven)?.storePath ?? null,
+    }) as BaseLocal,
     crearDaemon: (d) => new MemoryDaemonClient(d.socket, d.token),
-    crearLocal: (path) => new MemoryLocalClient(path, resolveGitInfoForCwd, alAbrirConSync(base)),
+    // El sync se arma con la base decidida AHORA, no con la de arranque.
+    crearLocal: (b) => new MemoryLocalClient(b.path, resolveGitInfoForCwd, alAbrirConSync(b)),
     leerStatus: (b) => leerStatusDelPaquete(dependenciasDeStatus(b)),
     leerDoctor: (b) => leerDoctorDelPaquete(dependenciasDeDoctor(b)),
   })
