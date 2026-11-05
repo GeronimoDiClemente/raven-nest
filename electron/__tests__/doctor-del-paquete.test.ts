@@ -22,7 +22,9 @@ describe('leerDoctorDelPaquete', () => {
   it('doctor con Node 22.11 es un problema que nombra 22.12', async () => {
     const r = await leerDoctorDelPaquete(deps({ versionDeNode: 'v22.11.0' }))
     expect(r.filas[0]).toMatchObject({ marca: 'falla', etiqueta: 'Node' })
-    expect(r.filas[0].detalle).toContain('needs 22.12.0 or newer')
+    expect(r.filas[0].detalle).toBe('v22.11.0 — needs 22.12.0 or newer')
+    // El piso 22.12 no es por node:sqlite: el motivo no lo nombra.
+    expect(r.filas[0].detalle).not.toContain('sqlite')
     expect(r.problemas).toBe(1)
   })
 

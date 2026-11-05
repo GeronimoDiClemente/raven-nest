@@ -40,7 +40,9 @@ export async function leerBusqueda(c: Llamador, cwd: string, consulta: string, l
 export async function leerDetalle(c: Llamador, cwd: string, syncId: string): Promise<DetalleDeMemoria | null> {
   const r = (await c.call('memory.get', { cwd, syncId })) as GetMemoryResult
   if (!r.item) return null
-  return { item: r.item, pendingLinks: r.pendingLinks, resolvedLinks: r.resolvedLinks }
+  // Un daemon de un Nest más viejo no manda los links: sin el `?? []`, el detalle revienta en
+  // cuanto el contenido tiene un `[[…]]`.
+  return { item: r.item, pendingLinks: r.pendingLinks ?? [], resolvedLinks: r.resolvedLinks ?? [] }
 }
 
 export function pedidoDeGuardar(cwd: string, m: MemoriaEscrita): SaveMemoryParams {

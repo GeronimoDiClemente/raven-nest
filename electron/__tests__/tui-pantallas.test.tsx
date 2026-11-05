@@ -12,6 +12,7 @@ import type { ObservationSummary } from '../memory-protocol'
 import type { DatosDeStatus } from '../status-del-paquete'
 import type { DatosDeDoctor } from '../doctor-del-paquete'
 import type { DetalleDeMemoria } from '../tui-del-paquete/estado'
+import { leerDetalle } from '../tui-del-paquete/fuente-comun'
 
 const ahora = Date.now()
 const mem = (syncId: string, title: string, type: ObservationSummary['type'], content: string, horas: number): ObservationSummary => ({
@@ -162,6 +163,22 @@ describe('pantallas de la TUI', () => {
     r.stdin.write(ESC)
     await hasta(() => !!r.lastFrame()?.includes('Stale guard'))
     expect(r.lastFrame()).not.toContain('The full body')
+    r.unmount()
+  })
+
+  it('un daemon viejo sin resolvedLinks/pendingLinks: el detalle con [[…]] se dibuja sin reventar', async () => {
+    const { fuente } = fuenteFalsa()
+    // `memory.get` de un Nest anterior a los wikilinks: sólo `item`.
+    const viejo = { call: async () => ({ item: { ...MEMORIAS[0]!, content: 'Body that points to [[Stale guard]] here.' } }) }
+    fuente.obtener = (id) => leerDetalle(viejo, '/tmp/r', id)
+    const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('Link codes'))
+    r.stdin.write('\r')
+    await hasta(() => !!r.lastFrame()?.includes('Body that points'))
+    expect(r.lastFrame()).toContain('Body that points to [[Stale guard]] here.')
+    r.stdin.write('\t') // pasar por los links no puede romper con la lista vacía
+    await tic()
+    expect(r.lastFrame()).toContain('Body that points')
     r.unmount()
   })
 

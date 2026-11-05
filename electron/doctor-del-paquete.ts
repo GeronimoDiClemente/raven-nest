@@ -80,7 +80,7 @@ export async function leerDoctorDelPaquete(d: DependenciasDeDoctor): Promise<Dat
   if (nodeAlcanza(d.versionDeNode)) ok('Node', d.versionDeNode)
   else {
     problemas++
-    filas.push({ marca: 'falla', etiqueta: 'Node', detalle: `${d.versionDeNode} — needs ${NODE_MINIMO} or newer (node:sqlite)` })
+    filas.push({ marca: 'falla', etiqueta: 'Node', detalle: `${d.versionDeNode} — needs ${NODE_MINIMO} or newer` })
   }
   nada('Home', acortarHome(d.home, [d.homeReal]))
 
