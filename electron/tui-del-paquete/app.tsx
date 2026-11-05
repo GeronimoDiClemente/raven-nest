@@ -51,31 +51,41 @@ export function teclasDe(e: EstadoDeLaTui): string {
   }
 }
 
-function Encabezado(p: { proyecto: string; inst: Instantanea; ancho: number; color: boolean }) {
+/** Bajo este ancho el encabezado y las pestañas van compactos, para que sigan en una fila. */
+const ANCHO_COMPACTO = 50
+
+function Encabezado(p: { proyecto: string; inst: Instantanea; ancho: number; compacto: boolean; color: boolean }) {
   const { Box, Text } = ink()
   const s = p.inst.status
   const sincronizado = s?.resumen === 'synced'
+  const items = s && s.modo !== 'daemon' && !p.compacto
+    ? ` · ${s.total.toLocaleString('en-US')} ${s.total === 1 ? 'item' : 'items'}`
+    : ''
   return (
     <Box justifyContent="space-between" width={p.ancho}>
-      <Text bold>Nest Memory · {p.proyecto}</Text>
+      <Text bold wrap="truncate">Nest Memory · {p.proyecto}</Text>
       {s && s.resumen ? (
-        <Text>
-          <Text color={pintar(p.color, sincronizado ? 'green' : 'yellow')}>●</Text>
-          {` ${s.resumen}${s.modo === 'daemon' ? '' : ` · ${s.total.toLocaleString('en-US')} ${s.total === 1 ? 'item' : 'items'}`}`}
-        </Text>
+        <Box flexShrink={0} marginLeft={1}>
+          <Text wrap="truncate">
+            <Text color={pintar(p.color, sincronizado ? 'green' : 'yellow')}>●</Text>
+            {` ${s.resumen}${items}`}
+          </Text>
+        </Box>
       ) : null}
     </Box>
   )
 }
 
-function Pestanas(p: { estado: EstadoDeLaTui }) {
+function Pestanas(p: { estado: EstadoDeLaTui; compacto: boolean }) {
   const { Text } = ink()
+  const separacion = p.compacto ? ' ' : '  '
   return (
-    <Text>
+    <Text wrap="truncate">
       {PESTANAS.map((t, i) => {
         const activa = t.id === p.estado.pestana && p.estado.pila.length === 0
         const nombre = `${i + 1} ${t.nombre}${t.id === 'recent' && p.estado.todosLosProyectos ? ' · all' : ''}`
-        return <Text key={t.id} bold={activa}>{activa ? `[${nombre}]` : ` ${nombre} `}  </Text>
+        const relleno = p.compacto ? '' : ' '
+        return <Text key={t.id} bold={activa}>{activa ? `[${nombre}]` : `${relleno}${nombre}${relleno}`}{separacion}</Text>
       })}
     </Text>
   )
@@ -84,16 +94,16 @@ function Pestanas(p: { estado: EstadoDeLaTui }) {
 function Barra(p: { estado: EstadoDeLaTui; color: boolean }) {
   const { Text } = ink()
   const e = p.estado
-  if (e.confirmando) return <Text color={pintar(p.color, 'red')}>Delete "{e.confirmando.titulo}"? y/N</Text>
+  if (e.confirmando) return <Text color={pintar(p.color, 'red')} wrap="truncate">Delete "{e.confirmando.titulo}"? y/N</Text>
   if (e.errorDeEditor) {
     return (
-      <Text>
+      <Text wrap="truncate">
         <Text color={pintar(p.color, 'red')}>{e.errorDeEditor.mensaje}</Text>
         <Text dimColor>  r reopen  d discard</Text>
       </Text>
     )
   }
-  if (e.aviso) return <Text color={pintar(p.color, e.aviso.tipo === 'error' ? 'red' : 'green')}>{e.aviso.texto}</Text>
+  if (e.aviso) return <Text color={pintar(p.color, e.aviso.tipo === 'error' ? 'red' : 'green')} wrap="truncate">{e.aviso.texto}</Text>
   return <Text dimColor wrap="truncate">{teclasDe(e)}</Text>
 }
 
@@ -117,7 +127,7 @@ function Pantalla(p: { inst: Instantanea; ancho: number; alto: number; color: bo
     // De qué proyecto es la memoria no viaja en el summary: sólo se dice cuando Recent está
     // filtrada por el proyecto actual, que es lo único que sabemos seguro.
     const proyecto = e.pestana === 'recent' && !e.todosLosProyectos ? p.proyecto : null
-    return <Detalle estado={e} alto={p.alto} color={p.color} ahora={ahora} proyecto={proyecto} />
+    return <Detalle estado={e} ancho={p.ancho - 2} alto={p.alto} color={p.color} ahora={ahora} proyecto={proyecto} />
   }
   switch (e.pestana) {
     case 'recent':
@@ -168,8 +178,8 @@ export function App(p: {
   const linea = '─'.repeat(Math.max(0, ancho - 2))
   return (
     <Box flexDirection="column" width={ancho} paddingX={1}>
-      <Encabezado proyecto={proyecto} inst={inst} ancho={ancho - 2} color={color} />
-      <Pestanas estado={inst.estado} />
+      <Encabezado proyecto={proyecto} inst={inst} ancho={ancho - 2} compacto={ancho < ANCHO_COMPACTO} color={color} />
+      <Pestanas estado={inst.estado} compacto={ancho < ANCHO_COMPACTO} />
       <Text dimColor>{linea}</Text>
       <Box flexDirection="column" height={Math.max(1, alto - FILAS_FIJAS)}>
         <Pantalla inst={inst} ancho={ancho} alto={Math.max(1, alto - FILAS_FIJAS)} color={color} proyecto={proyecto} />

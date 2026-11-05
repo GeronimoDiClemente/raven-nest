@@ -59,23 +59,31 @@ export function crearRunner(o: { fuente: FuenteDeLaTui; suspenderYEditar: Suspen
     busquedaPendiente = null
   }
 
-  /** Una promesa de la fuente: su resultado se despacha salvo que el runner ya se haya detenido. */
-  function luego<T>(p: Promise<T>, accion: (v: T) => Accion | null): void {
-    p.then(
-      (v) => {
+  /**
+   * Una llamada a la fuente: su resultado se despacha salvo que el runner ya se haya detenido.
+   * Se arranca dentro de un `then` para que un throw sincrónico de la fuente (o de
+   * `suspenderYEditar`) también termine en `fallo`, igual que uno al despachar el resultado.
+   */
+  function luego<T>(hacer: () => Promise<T>, accion: (v: T) => Accion | null): void {
+    Promise.resolve()
+      .then(hacer)
+      .then((v) => {
         if (detenido) return
         const a = accion(v)
         if (a) despachar(a)
-      },
-      (err) => { if (!detenido) despachar({ tipo: 'fallo', mensaje: mensajeDe(err) }) },
-    )
+      })
+      .catch((err) => {
+        if (detenido) return
+        // Si despachar el fallo también tira, no hay a quién avisarle: no se deja un rechazo suelto.
+        try { despachar({ tipo: 'fallo', mensaje: mensajeDe(err) }) } catch { /* nada */ }
+      })
   }
 
   function ejecutar(ef: Efecto): void {
     switch (ef.tipo) {
       case 'cargar-recientes': {
         const { todos } = ef
-        luego(fuente.recientes({ todos, limite: LIMITE }), (lista) => ({ tipo: 'lista-cargada', lista, de: { pestana: 'recent', todos } }))
+        luego(() => fuente.recientes({ todos, limite: LIMITE }), (lista) => ({ tipo: 'lista-cargada', lista, de: { pestana: 'recent', todos } }))
         return
       }
       case 'buscar': {
@@ -88,27 +96,27 @@ export function crearRunner(o: { fuente: FuenteDeLaTui; suspenderYEditar: Suspen
         }
         busquedaPendiente = setTimeout(() => {
           busquedaPendiente = null
-          luego(fuente.buscar(consulta, LIMITE), (lista) => ({ tipo: 'lista-cargada', lista, de: { pestana: 'search', consulta } }))
+          luego(() => fuente.buscar(consulta, LIMITE), (lista) => ({ tipo: 'lista-cargada', lista, de: { pestana: 'search', consulta } }))
         }, ef.enMs)
         return
       }
       case 'abrir':
-        luego(fuente.obtener(ef.syncId), (detalle) => ({ tipo: 'detalle-cargado', detalle }))
+        luego(() => fuente.obtener(ef.syncId), (detalle) => ({ tipo: 'detalle-cargado', detalle }))
         return
       case 'editar':
       case 'reabrir-editor':
-        luego(o.suspenderYEditar(ef), (a) => a)
+        luego(() => o.suspenderYEditar(ef), (a) => a)
         return
       case 'borrar': {
         const { syncId } = ef
-        luego(fuente.borrar(syncId), () => ({ tipo: 'borrado', syncId }))
+        luego(() => fuente.borrar(syncId), () => ({ tipo: 'borrado', syncId }))
         return
       }
       case 'cargar-status':
-        luego(fuente.status(), (status) => { publicar({ status }); return null })
+        luego(() => fuente.status(), (status) => { publicar({ status }); return null })
         return
       case 'cargar-doctor':
-        luego(fuente.doctor(), (doctor) => { publicar({ doctor }); return null })
+        luego(() => fuente.doctor(), (doctor) => { publicar({ doctor }); return null })
         return
       case 'salir':
         detener()
@@ -130,10 +138,15 @@ export function crearRunner(o: { fuente: FuenteDeLaTui; suspenderYEditar: Suspen
 
   function despachar(a: Accion): void {
     if (detenido) return
-    const previo = actual.estado.aviso
-    const { estado, efectos } = reducir(actual.estado, a)
+    const antes = actual.estado
+    const { estado, efectos } = reducir(antes, a)
     publicar({ estado })
-    if (estado.aviso !== previo) programarLimpiezaDeAviso(estado.aviso)
+    if (estado.aviso !== antes.aviso) programarLimpiezaDeAviso(estado.aviso)
+    // Una búsqueda pendiente que ya no corresponde (Esc limpió la consulta, o se cambió de
+    // pestaña) se cancela: si llegara a fallar, su `fallo` no trae `de` y pintaría el error
+    // en la pantalla a la que el usuario se fue.
+    const pideBuscar = efectos.some((ef) => ef.tipo === 'buscar')
+    if (estado.pestana !== 'search' || (estado.consulta !== antes.consulta && !pideBuscar)) cancelarBusqueda()
     for (const ef of efectos) ejecutar(ef)
   }
 

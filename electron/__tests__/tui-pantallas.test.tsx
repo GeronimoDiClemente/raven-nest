@@ -42,7 +42,7 @@ const DOCTOR: DatosDeDoctor = {
   problemas: 0, avisos: 1,
 }
 
-function fuenteFalsa(opts: { memorias?: ObservationSummary[] } = {}) {
+function fuenteFalsa(opts: { memorias?: ObservationSummary[]; contenido?: string } = {}) {
   const memorias = opts.memorias ?? MEMORIAS
   const llamadas: string[] = []
   const fuente: FuenteDeLaTui = {
@@ -55,7 +55,7 @@ function fuenteFalsa(opts: { memorias?: ObservationSummary[] } = {}) {
     obtener: async (id): Promise<DetalleDeMemoria | null> => {
       llamadas.push(`obtener:${id}`)
       const m = memorias.find((x) => x.syncId === id)
-      return m ? { item: { ...m, content: `The full body of ${m.title}.` }, resolvedLinks: [], pendingLinks: [] } : null
+      return m ? { item: { ...m, content: opts.contenido ?? `The full body of ${m.title}.` }, resolvedLinks: [], pendingLinks: [] } : null
     },
     guardar: async () => {},
     actualizar: async () => {},
@@ -201,6 +201,85 @@ describe('pantallas de la TUI', () => {
     r.stdin.write('n')
     await hasta(() => !!r.lastFrame()?.includes('Saved'))
     expect(pedidos).toEqual([{ tipo: 'editar', syncId: null }])
+    r.unmount()
+  })
+})
+
+describe('pantallas de la TUI — bordes', () => {
+  it('un párrafo largo se parte en filas: el cuadro no pasa la terminal y el scroll llega al final', async () => {
+    const contenido = `${'lorem ipsum dolor '.repeat(70)}THE-END`
+    expect(contenido.length).toBeGreaterThan(200)
+    const { fuente } = fuenteFalsa({ contenido })
+    const r = render(<App fuente={fuente} ancho={60} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('Link codes'))
+    r.stdin.write('\r')
+    await hasta(() => !!r.lastFrame()?.includes('lorem'))
+    // 24 filas: el alto por defecto cuando stdout no dice `rows`.
+    expect(r.lastFrame()!.split('\n').length).toBeLessThanOrEqual(24)
+    expect(r.lastFrame()).not.toContain('THE-END')
+    for (let i = 0; i < 40; i++) { r.stdin.write('j'); await tic() }
+    const f = r.lastFrame()!
+    expect(f).toContain('THE-END')
+    expect(f.split('\n').length).toBeLessThanOrEqual(24)
+    // La barra sigue siendo la última fila, sin texto del contenido mezclado.
+    expect(f.split('\n').at(-1)).toContain('esc back')
+    r.unmount()
+  })
+
+  for (const [nombre, tecla] of [['Esc', ESC], ['Tab', '\t']] as const) {
+    it(`${nombre} en Search cancela la búsqueda pendiente`, async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      const { fuente, llamadas } = fuenteFalsa()
+      fuente.buscar = async (q) => { llamadas.push(`buscar:${q}`); throw new Error('search exploded') }
+      const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)
+      await hasta(() => !!r.lastFrame()?.includes('Link codes'))
+      r.stdin.write('/')
+      await tic()
+      r.stdin.write('e')
+      await tic()
+      r.stdin.write(tecla)
+      await tic()
+      await vi.advanceTimersByTimeAsync(500)
+      await tic()
+      expect(llamadas.filter((l) => l.startsWith('buscar'))).toEqual([])
+      expect(r.lastFrame()).not.toContain('search exploded')
+      r.unmount()
+    })
+  }
+
+  it('con 45 columnas el encabezado y las pestañas ocupan una fila cada uno', async () => {
+    const { fuente } = fuenteFalsa()
+    const r = render(<App fuente={fuente} ancho={45} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('synced'))
+    const filas = r.lastFrame()!.split('\n')
+    expect(filas[0]).toContain('Nest Memory · raven-nest')
+    expect(filas[1]).toContain('4 Doctor')
+    expect(filas[2]!.trim().startsWith('─')).toBe(true)
+    expect(filas.length).toBeLessThanOrEqual(24)
+    r.unmount()
+  })
+
+  it('un throw sincrónico de la fuente termina en un aviso, no en un rechazo suelto', async () => {
+    const { fuente } = fuenteFalsa()
+    fuente.recientes = () => { throw new Error('database is locked') }
+    const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('database is locked'))
+    // En la barra, con la TUI viva: no en la pantalla de error de Ink.
+    const filas = r.lastFrame()!.split('\n')
+    expect(filas[0]).toContain('Nest Memory · raven-nest')
+    expect(filas.at(-1)).toContain('database is locked')
+    r.unmount()
+  })
+
+  it('el tipo architecture entra entero y la columna de títulos queda alineada', async () => {
+    const { fuente } = fuenteFalsa({ memorias: [mem('z', 'Layers of the daemon', 'architecture', 'x', 1), MEMORIAS[0]!] })
+    const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('Layers'))
+    const f = r.lastFrame()!.split('\n')
+    const a = f.find((l) => l.includes('Layers'))!
+    const d = f.find((l) => l.includes('Encryption is'))!
+    expect(a).toContain('architecture')
+    expect(a.indexOf('Layers')).toBe(d.indexOf('Encryption is'))
     r.unmount()
   })
 })

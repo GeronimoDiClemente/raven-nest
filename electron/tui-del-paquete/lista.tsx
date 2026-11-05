@@ -3,8 +3,10 @@ import type { EstadoDeLaTui } from './estado'
 import { ink } from './ink'
 import { COLOR_DE_GRUPO, pintar } from './colores'
 import { grupoDeTipo, hace, recortar } from '../estilo-del-paquete'
+import { TIPOS } from '../memory-protocol'
 
-const ANCHO_DE_TIPO = 10
+/** El tipo más largo (`architecture`) entra entero. */
+const ANCHO_DE_TIPO = Math.max(...TIPOS.map((t) => t.length))
 const ANCHO_DE_FECHA = 8
 
 export const BIENVENIDA = 'No memories yet. Agents save them through the MCP, or press n.'
