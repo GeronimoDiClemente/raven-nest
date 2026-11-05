@@ -126,8 +126,50 @@ describe('Search', () => {
   })
 
   it('⏎ abre el resultado seleccionado', () => {
-    const e = paso(enSearch(), { tipo: 'lista-cargada', lista: [obs('x')] }, tecla('', { return: true }))
+    const e = paso(enSearch(), { tipo: 'lista-cargada', lista: [obs('x')], de: { pestana: 'search', consulta: '' } }, tecla('', { return: true }))
     expect(e.efectos).toEqual([{ tipo: 'abrir', syncId: 'x' }])
+  })
+})
+
+describe('resultados tardíos', () => {
+  const buscando = (...cs: string[]) => paso(conLista(), tecla('/'), ...cs.map((c) => tecla(c))).estado
+  const deSearch = (consulta: string, ...ids: string[]): Accion =>
+    ({ tipo: 'lista-cargada', lista: ids.map((i) => obs(i)), de: { pestana: 'search', consulta } })
+
+  it('un resultado de búsqueda que llega después de Esc no llena Search', () => {
+    const e = paso(buscando('a', 'b'), tecla('', { escape: true }), deSearch('ab', 'x')).estado
+    expect(e.lista).toEqual([])
+  })
+
+  it('un resultado de recientes que llega tras pasar a Search se ignora', () => {
+    const e = paso(conLista(), tecla('/'), { tipo: 'lista-cargada', lista: [obs('r')], de: { pestana: 'recent', todos: false } }).estado
+    expect(e.lista).toEqual([])
+  })
+
+  it('el resultado de una consulta vieja, después de una nueva, se ignora', () => {
+    const e = paso(buscando('a', 'b'), deSearch('ab', 'nuevo'), deSearch('a', 'viejo')).estado
+    expect(e.lista.map((x) => x.syncId)).toEqual(['nuevo'])
+  })
+
+  it('recientes de otro alcance (g) se ignora', () => {
+    const e = paso(conLista(), tecla('g'), { tipo: 'lista-cargada', lista: [obs('r')], de: { pestana: 'recent', todos: false } }).estado
+    expect(e.lista.map((x) => x.syncId)).toEqual(['s1', 's2', 's3'])
+  })
+})
+
+describe('detalle inexistente', () => {
+  it('detalle null saca la vista, avisa y apaga cargando', () => {
+    const e = paso(conLista(), tecla('', { return: true }), { tipo: 'detalle-cargado', detalle: null }).estado
+    expect(e.pila).toEqual([])
+    expect(e.cargando).toBe(false)
+    expect(e.aviso?.texto).toBe('This memory no longer exists')
+  })
+  it('con una vista previa, vuelve a abrirla', () => {
+    const links = [{ name: 'B', syncId: 's9' }]
+    const r = paso(conLista(), tecla('', { return: true }), { tipo: 'detalle-cargado', detalle: detalleDe('s1', links) },
+      tecla('', { tab: true }), tecla('', { return: true }), { tipo: 'detalle-cargado', detalle: null })
+    expect(r.estado.pila.map((v) => v.syncId)).toEqual(['s1'])
+    expect(r.efectos).toEqual([{ tipo: 'abrir', syncId: 's1' }])
   })
 })
 

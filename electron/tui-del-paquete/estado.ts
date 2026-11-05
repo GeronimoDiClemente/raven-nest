@@ -55,7 +55,8 @@ export interface Tecla {
 
 export type Accion =
   | { tipo: 'tecla'; input: string; key: Tecla }
-  | { tipo: 'lista-cargada'; lista: ObservationSummary[] }
+  /** `de` dice qué pedido responde: un resultado que no coincide con lo que se ve se descarta. */
+  | { tipo: 'lista-cargada'; lista: ObservationSummary[]; de: { pestana: 'recent'; todos: boolean } | { pestana: 'search'; consulta: string } }
   | { tipo: 'detalle-cargado'; detalle: DetalleDeMemoria | null }
   /** Se guardó (nueva o editada): refresca lo que se ve. */
   | { tipo: 'escrito'; syncId: string | null }
@@ -251,12 +252,26 @@ export function reducir(e: EstadoDeLaTui, a: Accion): Resultado {
   switch (a.tipo) {
     case 'tecla':
       return alApretar(e, a.input, a.key)
-    case 'lista-cargada':
+    case 'lista-cargada': {
+      // Un resultado tardío (búsqueda vieja, recientes tras cambiar de pestaña) no pisa la lista.
+      const vigente = a.de.pestana === 'recent'
+        ? e.pestana === 'recent' && e.todosLosProyectos === a.de.todos
+        : e.pestana === 'search' && e.consulta === a.de.consulta
+      if (!vigente) return sin(e)
       return sin({ ...e, lista: a.lista, cursor: Math.min(e.cursor, Math.max(0, a.lista.length - 1)), cargando: false })
+    }
     case 'detalle-cargado': {
       const tope = e.pila[e.pila.length - 1]
       // Un detalle que llega tarde, de una memoria que ya no es la del tope, se descarta.
-      if (!tope || !a.detalle || a.detalle.item.syncId !== tope.syncId) return sin({ ...e, cargando: tope ? e.cargando : false })
+      if (!tope) return sin({ ...e, cargando: false })
+      if (!a.detalle) {
+        // La memoria ya no existe (la borraron en otro lado): se saca esa vista.
+        const pila = e.pila.slice(0, -1)
+        const previa = pila[pila.length - 1]
+        const estado = { ...e, pila, detalle: null, cargando: !!previa, aviso: { texto: 'This memory no longer exists', tipo: 'error' as const } }
+        return sin(estado, previa ? [{ tipo: 'abrir', syncId: previa.syncId }] : [])
+      }
+      if (a.detalle.item.syncId !== tope.syncId) return sin(e)
       return sin({ ...e, detalle: a.detalle, cargando: false })
     }
     case 'escrito': {
