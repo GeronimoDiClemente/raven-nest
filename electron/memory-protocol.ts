@@ -12,19 +12,23 @@
 // the shim to the AI CLI (stdio, JSON-RPC 2.0) is a separate, outer layer implemented
 // in electron/memory-mcp/index.ts.
 
-export type ObservationType =
-  | 'decision'
-  | 'bugfix'
-  | 'architecture'
-  | 'discovery'
-  | 'pattern'
-  | 'config'
-  | 'preference'
-  | 'session'
+// La lista es la fuente de verdad y el tipo se deriva de ella: no pueden divergir.
+export const TIPOS = [
+  'decision',
+  'bugfix',
+  'architecture',
+  'discovery',
+  'pattern',
+  'config',
+  'preference',
+  'session',
   // El resumen que un agente deja en .nest/handoff.md, guardado ADEMÁS como observación
   // para que "retomar en otra máquina" funcione aunque el worktree local no tenga el
   // archivo — ver electron/main.ts's handoff:write/handoff:read.
-  | 'handoff'
+  'handoff',
+] as const
+
+export type ObservationType = (typeof TIPOS)[number]
 
 export type ObservationSource = 'mcp' | 'hook' | 'pty' | 'import' | 'ui'
 
