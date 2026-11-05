@@ -135,3 +135,15 @@ export function reabrirEnEditor(archivo: string, editor: string[], lanzar: Lanza
 export function descartar(archivo: string): void {
   borrar(archivo)
 }
+
+/**
+ * Deja `texto` en un temporal para Reopen, cuando lo que el editor devolvió no se pudo
+ * escribir (o el editor de Reopen se cayó): el texto del usuario no se pierde. Se borra lo
+ * que hubiera con ese nombre y se crea con `wx` y 0600 de entrada, sin ventana con otro modo.
+ */
+export function conservarEnTemporal(texto: string, id: string): string {
+  const archivo = join(tmpdir(), `memory-${id}.md`)
+  borrar(archivo)
+  writeFileSync(archivo, texto, { mode: 0o600, flag: 'wx' })
+  return archivo
+}

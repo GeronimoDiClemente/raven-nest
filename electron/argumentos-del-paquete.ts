@@ -13,6 +13,8 @@ import { crearEstilo, marca, type Estilo } from './estilo-del-paquete'
 
 export type ComandoDelPaquete =
   | { comando: 'ayuda' }
+  /** Sin argumentos: la vista interactiva (o la ayuda, si no hay terminal para ella). */
+  | { comando: 'tui' }
   | { comando: 'setup'; soloEditores: string[] | null; deshacer: boolean; simulado: boolean }
   | { comando: 'login' }
   | { comando: 'status' }
@@ -96,8 +98,10 @@ function parsearSetup(resto: string[]): ComandoDelPaquete {
 export function parsearArgumentos(argv: string[]): ComandoDelPaquete {
   const [primero, ...resto] = argv
   // Sin argumentos no es un error: alguien que corre `npx @nestmux/memory` a ver qué hace no se
-  // equivocó en nada, y contestarle con un error lo manda a buscar qué hizo mal.
-  if (!primero || primero === '--help' || primero === '-h') return { comando: 'ayuda' }
+  // equivocó en nada, y contestarle con un error lo manda a buscar qué hizo mal. Se abre la
+  // TUI; el CLI cae a la ayuda si no hay una terminal donde dibujarla.
+  if (!primero) return { comando: 'tui' }
+  if (primero === '--help' || primero === '-h') return { comando: 'ayuda' }
 
   if (primero === 'setup') return parsearSetup(resto)
 

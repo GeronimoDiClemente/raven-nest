@@ -4,9 +4,10 @@ import { parsearArgumentos, AYUDA } from '../argumentos-del-paquete'
 const p = (...args: string[]) => parsearArgumentos(args)
 
 describe('parsearArgumentos', () => {
-  it('sin argumentos muestra la ayuda, no un error', () => {
-    // Alguien que corre `npx nest-memory` a ver qué hace no se equivocó en nada.
-    expect(p()).toEqual({ comando: 'ayuda' })
+  it('sin argumentos abre la TUI, no un error', () => {
+    // Alguien que corre `npx nest-memory` a ver qué hace no se equivocó en nada. Si no hay
+    // terminal para la TUI, el CLI cae a la ayuda (`decidirArranque`).
+    expect(p()).toEqual({ comando: 'tui' })
   })
 
   it('--help y -h también', () => {

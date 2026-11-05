@@ -51,6 +51,7 @@ import { enrolarDesdeLogin } from './enrolamiento-desde-login'
 import { mensajeDeEnrolamiento, type ResultadoDeEnrolamiento } from './enrolamiento-del-paquete'
 import { comando, NOMBRE_DEL_PAQUETE } from './nombre-del-paquete'
 import { webDelPaquete, abrirNavegador, iniciarVinculacion } from './vinculacion-web-del-paquete'
+import { decidirArranque } from './tui-del-paquete/decidir-arranque'
 
 /**
  * El motor: `node:sqlite`, que viene adentro de Node y no compila nada.
@@ -505,6 +506,31 @@ function leerUnaLinea(): Promise<string> {
 }
 
 /**
+ * Sin argumentos: la TUI, si hay una terminal de verdad en las dos puntas.
+ *
+ * Ink y React se cargan RECIÉN acá, con `import()`: `mcp` (lo que los editores lanzan en cada
+ * sesión) y el resto de los comandos no los tocan. `paquete-carga-diferida.test.ts` lo cuida.
+ */
+async function comandoTui(): Promise<void> {
+  const decision = decidirArranque({
+    stdinTTY: process.stdin.isTTY === true,
+    stdoutTTY: process.stdout.isTTY === true,
+    tieneSetRawMode: typeof process.stdin.setRawMode === 'function',
+  })
+  if (decision === 'ayuda') {
+    console.log(textoDeAyuda(e, versionDelPaquete()))
+    return
+  }
+  if (decision === 'sin-modo-crudo') {
+    console.error("This terminal can't run the interactive view. Use `nestmux-memory search` or open Nest.")
+    salir(1)
+  }
+  const { arrancarTui } = await import('./tui-del-paquete/arrancar')
+  const { crearFuenteReal } = await import('./tui-del-paquete/fuente-del-paquete')
+  await arrancarTui(await crearFuenteReal(process.cwd()))
+}
+
+/**
  * Un comando asincrónico que falla tiene que DECIRLO, no volcar un stack de Node.
  *
  * Sin esto, `void comandoLogin()` descarta la promesa: un servicio inalcanzable termina en
@@ -522,6 +548,7 @@ export function correr(argv: string[]): void {
   const cmd = parsearArgumentos(argv)
   switch (cmd.comando) {
     case 'ayuda': console.log(textoDeAyuda(e, versionDelPaquete())); return
+    case 'tui': correrAsync(comandoTui()); return
     case 'setup': comandoSetup(cmd); return
     case 'status': correrAsync(comandoStatus()); return
     case 'search': correrAsync(comandoSearch(cmd.consulta)); return

@@ -1,0 +1,284 @@
+// El arranque de la TUI: cuándo abrir, la pantalla alternativa, y el ida y vuelta con el
+// editor (desmontar Ink, editar, volver a montar con el mismo estado, escribir por la fuente).
+import { describe, it, expect, beforeAll, afterEach } from 'vitest'
+import { EventEmitter } from 'node:events'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { cargarInk } from '../tui-del-paquete/ink'
+import { arrancarTui, decidirArranque, restaurarTerminal } from '../tui-del-paquete/arrancar'
+import { ErrorDeEscritura, type FuenteDeLaTui } from '../tui-del-paquete/fuente'
+import { serializarMemoria, type MemoriaEscrita } from '../tui-del-paquete/frontmatter'
+import type { ObservationSummary } from '../memory-protocol'
+import type { DatosDeStatus } from '../status-del-paquete'
+
+const FALSO = fileURLToPath(new URL('./fixtures/editor-falso.mjs', import.meta.url))
+const EDITOR = `"${process.execPath}" "${FALSO}"`
+
+const ENTRAR = '\x1b[?1049h'
+const SALIR = '\x1b[?1049l'
+
+describe('decidirArranque', () => {
+  it('con las dos puntas en una terminal y modo crudo, abre', () => {
+    expect(decidirArranque({ stdinTTY: true, stdoutTTY: true, tieneSetRawMode: true })).toBe('abrir')
+  })
+  it('sin terminal (un pipe de cualquier lado) imprime la ayuda', () => {
+    expect(decidirArranque({ stdinTTY: false, stdoutTTY: true, tieneSetRawMode: false })).toBe('ayuda')
+    expect(decidirArranque({ stdinTTY: true, stdoutTTY: false, tieneSetRawMode: true })).toBe('ayuda')
+  })
+  it('una terminal sin modo crudo no puede con la vista interactiva', () => {
+    expect(decidirArranque({ stdinTTY: true, stdoutTTY: true, tieneSetRawMode: false })).toBe('sin-modo-crudo')
+  })
+})
+
+describe('restaurarTerminal', () => {
+  it('sale de la pantalla alternativa, muestra el cursor y apaga el modo crudo', () => {
+    const escrito: string[] = []
+    const crudo: boolean[] = []
+    const stdout = { write: (s: string) => { escrito.push(s); return true } } as unknown as NodeJS.WriteStream
+    const stdin = { isTTY: true, setRawMode: (b: boolean) => { crudo.push(b) } } as unknown as NodeJS.ReadStream
+    restaurarTerminal(stdout, stdin)
+    expect(escrito.join('')).toBe(`${SALIR}\x1b[?25h`)
+    expect(crudo).toEqual([false])
+  })
+})
+
+// --- El ida y vuelta, con stdin/stdout falsos como los de ink-testing-library ---
+
+class Stdout extends EventEmitter {
+  isTTY = true
+  columns = 100
+  rows = 30
+  escrito: string[] = []
+  write = (s: string) => { this.escrito.push(s); return true }
+  /** El último frame que pintó Ink (sin las secuencias de la pantalla alternativa). */
+  ultimo = () => [...this.escrito].reverse().find((s) => s !== ENTRAR && !s.startsWith(SALIR)) ?? ''
+  veces = (s: string) => this.escrito.filter((x) => x.includes(s)).length
+}
+
+class Stdin extends EventEmitter {
+  isTTY = true
+  data: string | null = null
+  escribir = (d: string) => { this.data = d; this.emit('readable'); this.emit('data', d) }
+  setEncoding() {}
+  setRawMode() {}
+  resume() {}
+  pause() {}
+  ref() {}
+  unref() {}
+  read = () => { const d = this.data; this.data = null; return d }
+}
+
+const ahora = Date.now()
+const MEMORIA: ObservationSummary = {
+  syncId: 'a', title: 'Encryption is mandatory on connect', type: 'decision',
+  content: 'Short…', topicKey: null, tags: ['sync'], updatedAt: ahora, originAi: null, gitBranch: null,
+}
+const CUERPO_ENTERO = 'The whole body, much longer than the list shows.'
+
+const STATUS: DatosDeStatus = {
+  modo: 'propia', vacia: false, total: 1, porGrupo: {}, personal: 1, deEquipo: 0,
+  guardadaEn: '~/.nest/memory.db', servicio: null, filas: [], ilegiblesDeEquipo: 0, recientes: [], resumen: 'synced',
+}
+
+function fuenteFalsa(o: { fallaAlGuardar?: () => Error | null } = {}) {
+  const guardadas: MemoriaEscrita[] = []
+  const actualizadas: Array<[string, MemoriaEscrita]> = []
+  let cerrada = false
+  const fuente: FuenteDeLaTui = {
+    proyecto: () => 'raven-nest',
+    recientes: async () => [MEMORIA],
+    buscar: async () => [],
+    obtener: async (id) => (id === 'a' ? { item: { ...MEMORIA, content: CUERPO_ENTERO }, resolvedLinks: [], pendingLinks: [] } : null),
+    guardar: async (m) => {
+      const err = o.fallaAlGuardar?.()
+      if (err) throw err
+      guardadas.push(m)
+    },
+    actualizar: async (id, m) => { actualizadas.push([id, m]) },
+    borrar: async () => {},
+    status: async () => STATUS,
+    doctor: async () => ({ filas: [], homeDeNest: false, bloqueadas: [], problemas: 0, avisos: 0 }),
+    cerrar: () => { cerrada = true },
+  }
+  return { fuente, guardadas, actualizadas, cerrada: () => cerrada }
+}
+
+const tic = () => new Promise<void>((r) => setImmediate(r))
+async function hasta(cond: () => boolean, que: string): Promise<void> {
+  for (let i = 0; i < 200 && !cond(); i++) await tic()
+  if (!cond()) throw new Error(`nunca pasó: ${que}`)
+}
+
+/**
+ * Los temporales de memorias NUEVAS que hay ahora en tmpdir (`memory-new-<uuid>.md`). Sólo ésos:
+ * `tui-editor-externo` corre en paralelo y deja los suyos (`memory-sc1.md`, `memory-new-x.md`).
+ */
+const temporales = () => new Set(readdirSync(tmpdir()).filter((f) => /^memory-new-[0-9a-f-]{36}\.md$/.test(f)))
+
+function arrancar(fuente: FuenteDeLaTui) {
+  const stdout = new Stdout()
+  const stdin = new Stdin()
+  const listo = arrancarTui(fuente, {
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    env: { EDITOR },
+    plataforma: process.platform,
+    // Frames enteros en cada render: el modo normal de Ink no escribe nada con CI=true.
+    opcionesDeInk: { debug: true, patchConsole: false },
+  })
+  return { stdout, stdin, listo }
+}
+
+function modo(m: string, texto?: string): void {
+  process.env.EDITOR_FALSO_MODO = m
+  if (texto !== undefined) process.env.EDITOR_FALSO_TEXTO = texto
+  else delete process.env.EDITOR_FALSO_TEXTO
+}
+
+beforeAll(() => cargarInk((m) => import(m)))
+afterEach(() => {
+  delete process.env.EDITOR_FALSO_MODO
+  delete process.env.EDITOR_FALSO_TEXTO
+})
+
+describe('el ida y vuelta con el editor falso', () => {
+  it('entra a la pantalla alternativa y q la deja como estaba, sin listeners colgados', async () => {
+    const contar = () => ['exit', 'SIGINT', 'SIGTERM'].map((s) => process.listenerCount(s))
+    const una = async () => {
+      const f = fuenteFalsa()
+      const { stdout, stdin, listo } = arrancar(f.fuente)
+      await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+      expect(stdout.escrito[0]).toBe(ENTRAR)
+      stdin.escribir('q')
+      await listo
+      expect(stdout.escrito.at(-1)).toBe(`${SALIR}\x1b[?25h`)
+      expect(f.cerrada()).toBe(true)
+    }
+    // La primera corrida deja el `restore-cursor` de Ink (uno por proceso, a propósito); de
+    // ahí en más, cada corrida tiene que sacar lo que puso.
+    await una()
+    const despuesDeUna = contar()
+    await una()
+    expect(contar()).toEqual(despuesDeUna)
+  })
+
+  it('Ctrl+C también sale por el reducer (exitOnCtrlC apagado)', async () => {
+    const f = fuenteFalsa()
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('\x03')
+    await listo
+    expect(stdout.escrito.at(-1)).toBe(`${SALIR}\x1b[?25h`)
+  })
+
+  it('valido: n guarda lo que escribió el editor, y vuelve con el mismo estado', async () => {
+    const texto = serializarMemoria({ title: 'Written in the editor', type: 'bugfix', tags: ['x'], content: 'body' })
+    modo('valido', texto)
+    const f = fuenteFalsa()
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('g') // estado que tiene que sobrevivir al re-montaje
+    await hasta(() => stdout.ultimo().includes('· all'), 'all projects')
+    stdin.escribir('n')
+    await hasta(() => f.guardadas.length === 1, 'guardar')
+    expect(f.guardadas[0]).toEqual({ title: 'Written in the editor', type: 'bugfix', tags: ['x'], content: 'body' })
+    // Soltó la terminal para el editor y la volvió a tomar.
+    expect(stdout.veces(ENTRAR)).toBe(2)
+    expect(stdout.escrito.filter((s) => s.startsWith(SALIR)).length).toBe(1)
+    await hasta(() => stdout.ultimo().includes('Saved'), 'Saved')
+    expect(stdout.ultimo()).toContain('· all')
+    stdin.escribir('q')
+    await listo
+  })
+
+  it('igual: no escribe nada', async () => {
+    modo('igual')
+    const f = fuenteFalsa()
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('n')
+    await hasta(() => stdout.veces(ENTRAR) === 2, 'volver del editor')
+    for (let i = 0; i < 10; i++) await tic()
+    expect(f.guardadas).toEqual([])
+    expect(f.actualizadas).toEqual([])
+    stdin.escribir('q')
+    await listo
+  })
+
+  it('e en una memoria parte del texto ENTERO de obtener, no del recortado de la lista', async () => {
+    modo('anexar')
+    const f = fuenteFalsa()
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('e')
+    await hasta(() => f.actualizadas.length === 1, 'actualizar')
+    const [id, m] = f.actualizadas[0]!
+    expect(id).toBe('a')
+    expect(m).toEqual({
+      title: MEMORIA.title, type: 'decision', tags: ['sync'],
+      content: `${CUERPO_ENTERO}\nappended by the editor`,
+    })
+    stdin.escribir('q')
+    await listo
+  })
+
+  it('invalido: muestra el error con Reopen; Discard borra el temporal', async () => {
+    modo('invalido')
+    const antes = temporales()
+    const f = fuenteFalsa()
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('n')
+    await hasta(() => stdout.ultimo().includes('Missing frontmatter'), 'el error')
+    expect(stdout.ultimo()).toMatch(/r reopen/i)
+    expect(stdout.ultimo()).toMatch(/d discard/i)
+    const nuevos = [...temporales()].filter((t) => !antes.has(t))
+    expect(nuevos).toHaveLength(1)
+    stdin.escribir('d')
+    await hasta(() => !stdout.ultimo().includes('Missing frontmatter'), 'descartado')
+    expect(existsSync(join(tmpdir(), nuevos[0]!))).toBe(false)
+    expect(f.guardadas).toEqual([])
+    stdin.escribir('q')
+    await listo
+  })
+
+  it('si la fuente no puede escribir, el texto se conserva y Reopen lo vuelve a intentar', async () => {
+    const texto = serializarMemoria({ title: 'Kept on failure', type: 'decision', tags: [], content: 'keep me' })
+    modo('valido', texto)
+    let falla = true
+    const antes = temporales()
+    const f = fuenteFalsa({ fallaAlGuardar: () => (falla ? new ErrorDeEscritura('Memory is locked by another process') : null) })
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('n')
+    await hasta(() => stdout.ultimo().includes('Memory is locked'), 'el error de escritura')
+    expect(stdout.ultimo()).toMatch(/r reopen/i)
+    const nuevos = [...temporales()].filter((t) => !antes.has(t))
+    expect(nuevos).toHaveLength(1)
+    expect(readFileSync(join(tmpdir(), nuevos[0]!), 'utf8')).toBe(texto)
+
+    falla = false
+    modo('igual') // Reopen sin tocar nada: el texto conservado ya es válido
+    stdin.escribir('r')
+    await hasta(() => f.guardadas.length === 1, 'guardar al reabrir')
+    expect(f.guardadas[0]).toEqual({ title: 'Kept on failure', type: 'decision', tags: [], content: 'keep me' })
+    expect(existsSync(join(tmpdir(), nuevos[0]!))).toBe(false)
+    stdin.escribir('q')
+    await listo
+  })
+
+  it('salir con un error de editor pendiente no deja el temporal', async () => {
+    modo('invalido')
+    const antes = temporales()
+    const f = fuenteFalsa()
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('n')
+    await hasta(() => stdout.ultimo().includes('Missing frontmatter'), 'el error')
+    stdin.escribir('\x03')
+    await listo
+    expect([...temporales()].filter((t) => !antes.has(t))).toEqual([])
+  })
+})
