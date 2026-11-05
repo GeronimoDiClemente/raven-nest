@@ -18,17 +18,27 @@ describe('comandoDeLaTui', () => {
     )
   })
 
-  it('powershell: se setea, se corre con & y se borra', () => {
+  it('powershell: Start-Process que espera, literales simples y el script entre comillas dobles', () => {
     expect(comandoDeLaTui(EXEC_WIN, SCRIPT_WIN, 'powershell')).toBe(
-      `$env:ELECTRON_RUN_AS_NODE='1'; & "C:\\Program Files\\My ""Nest""\\Nest.exe" `
-      + `"C:\\Program Files\\My ""Nest""\\resources\\app.asar\\dist-electron\\memory-tui.js"; `
-      + 'Remove-Item Env:ELECTRON_RUN_AS_NODE',
+      `$env:ELECTRON_RUN_AS_NODE='1'; try { Start-Process -NoNewWindow -Wait `
+      + `-FilePath 'C:\\Program Files\\My "Nest"\\Nest.exe' `
+      + `-ArgumentList '"C:\\Program Files\\My \\"Nest\\"\\resources\\app.asar\\dist-electron\\memory-tui.js"' } `
+      + 'finally { Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }',
     )
   })
 
-  it('cmd: set antes, y set vacío después pase lo que pase', () => {
+  it('powershell: `$`, backtick y comilla simple no se interpolan ni cortan el literal', () => {
+    expect(comandoDeLaTui("C:\\$env:X`n\\O'Neil\\Nest.exe", "C:\\$HOME`t\\O'Neil\\memory-tui.js", 'powershell')).toBe(
+      `$env:ELECTRON_RUN_AS_NODE='1'; try { Start-Process -NoNewWindow -Wait `
+      + `-FilePath 'C:\\$env:X\`n\\O''Neil\\Nest.exe' `
+      + `-ArgumentList '"C:\\$HOME\`t\\O''Neil\\memory-tui.js"' } `
+      + 'finally { Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }',
+    )
+  })
+
+  it('cmd: start /b /wait, y set vacío después pase lo que pase', () => {
     expect(comandoDeLaTui(EXEC_WIN, SCRIPT_WIN, 'cmd')).toBe(
-      'set "ELECTRON_RUN_AS_NODE=1" && "C:\\Program Files\\My ""Nest""\\Nest.exe" '
+      'set "ELECTRON_RUN_AS_NODE=1" && start "" /b /wait "C:\\Program Files\\My ""Nest""\\Nest.exe" '
       + '"C:\\Program Files\\My ""Nest""\\resources\\app.asar\\dist-electron\\memory-tui.js" '
       + '& set "ELECTRON_RUN_AS_NODE="',
     )

@@ -147,7 +147,11 @@ La TUI no tiene fuente de verdad propia: usa **el mismo cliente que el MCP del p
     pane en `memoryPanes` ni provisiona nada (no es un pane de AI);
   - escribe el comando de `comando-de-la-tui.ts`, con `ELECTRON_RUN_AS_NODE` acotado a ese
     comando según la familia del shell (posix: `ELECTRON_RUN_AS_NODE=1 "<exec>" "<script>"`;
-    PowerShell: se setea y se borra con `Remove-Item`; cmd: `set` antes y `set` vacío después).
+    PowerShell: se setea, `Start-Process -NoNewWindow -Wait` y se borra en un `finally`; cmd:
+    `set` antes, `start "" /b /wait` y `set` vacío después). Las variantes de Windows esperan
+    porque el `.exe` de Electron es de subsistema GUI y ni PowerShell interactivo ni cmd esperan
+    a un programa GUI: el prompt volvería enseguida y el shell y la TUI se pelearían la entrada.
+    **No están verificadas en una máquina Windows real.**
     El shell del pane queda sin la variable, así que un `code` lanzado después desde ahí no
     arranca en modo Node;
   - sin `tui` en la integración de memoria, devuelve `Memory is not available in this build`.

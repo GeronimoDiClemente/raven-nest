@@ -29,17 +29,31 @@ export function familiaDeShell(bin: string): FamiliaDeShell {
   return 'posix'
 }
 
+/** Un string literal de PowerShell entre comillas simples: no interpola `$` ni el backtick. */
+const literalDePowerShell = (v: string) => `'${v.replace(/'/g, "''")}'`
+
+/**
+ * Las variantes de Windows ESPERAN a que la TUI termine: el `.exe` de Electron es de subsistema
+ * GUI, y PowerShell interactivo (`& "exe"`) y cmd no esperan a un programa GUI. Sin esperar, el
+ * prompt vuelve enseguida y el shell y la TUI se pelean la entrada de la consola.
+ * `Start-Process -NoNewWindow -Wait` y `start "" /b /wait` esperan sea GUI o consola, así que
+ * nunca son peores. Ojo: NO están verificadas en una máquina Windows real.
+ */
 export function comandoDeLaTui(execPath: string, script: string, familia: FamiliaDeShell): string {
-  const win = familia !== 'posix'
-  const exec = quoteShellArg(execPath, win)
-  const js = quoteShellArg(script, win)
   switch (familia) {
     case 'posix':
-      return `ELECTRON_RUN_AS_NODE=1 ${exec} ${js}`
-    case 'powershell':
-      return `$env:ELECTRON_RUN_AS_NODE='1'; & ${exec} ${js}; Remove-Item Env:ELECTRON_RUN_AS_NODE`
+      return `ELECTRON_RUN_AS_NODE=1 ${quoteShellArg(execPath, false)} ${quoteShellArg(script, false)}`
+    case 'powershell': {
+      // El script va entre comillas dobles ADENTRO del ArgumentList, para que un path con
+      // espacios siga siendo un solo argumento; una `"` adentro se escapa como `\"`. Sin
+      // -RedirectStandard* ni `| Out-Null`: el hijo se queda con el TTY de la consola.
+      const argumentos = literalDePowerShell(`"${script.replace(/"/g, '\\"')}"`)
+      return `$env:ELECTRON_RUN_AS_NODE='1'; try { Start-Process -NoNewWindow -Wait -FilePath ${literalDePowerShell(execPath)} `
+        + `-ArgumentList ${argumentos} } finally { Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }`
+    }
     case 'cmd':
       // `&` y no `&&` al final: la variable se borra aunque la TUI salga con error.
-      return `set "ELECTRON_RUN_AS_NODE=1" && ${exec} ${js} & set "ELECTRON_RUN_AS_NODE="`
+      return `set "ELECTRON_RUN_AS_NODE=1" && start "" /b /wait ${quoteShellArg(execPath, true)} ${quoteShellArg(script, true)} `
+        + '& set "ELECTRON_RUN_AS_NODE="'
   }
 }
