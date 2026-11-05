@@ -50,11 +50,22 @@ describe('leerDoctorDelPaquete', () => {
     w.prepare('INSERT INTO mutation_log (sync_id, op, payload, created_at, pushed_at, blocked_reason) VALUES (?, ?, ?, ?, ?, ?)')
       .run('obs_3', 'upsert', JSON.stringify({ title: 'ya subida' }), 3, 9, 'team_key_missing')
     w.close()
-    const r = await leerDoctorDelPaquete(deps({ base: { modo: 'nest', path: dbPath } }))
+    const r = await leerDoctorDelPaquete(deps({ base: { modo: 'nest', path: dbPath }, hayPunteroDeNest: false }))
     expect(r.bloqueadas).toEqual([
       { syncId: 'obs_1', titulo: 'X', motivo: 'team_key_missing' },
       { syncId: 'obs_2', titulo: '(untitled)', motivo: 'project_limit_reached' },
     ])
+    expect(r.avisos).toBe(1)
+  })
+
+  it('doctor sin nada bloqueado no suma avisos', async () => {
+    const home = makeTmpDir('nest-doctor-')
+    dirs.push(home)
+    const dbPath = join(home, 'memory.db')
+    new MemoryStore(dbPath).close()
+    const r = await leerDoctorDelPaquete(deps({ base: { modo: 'nest', path: dbPath }, hayPunteroDeNest: false }))
+    expect(r.bloqueadas).toEqual([])
+    expect(r.avisos).toBe(0)
   })
 
   it('en modo daemon no abre ninguna base', async () => {

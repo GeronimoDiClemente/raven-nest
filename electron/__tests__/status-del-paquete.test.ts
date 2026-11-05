@@ -46,6 +46,14 @@ describe('leerStatusDelPaquete', () => {
     expect(r.recientes).toHaveLength(2)
   })
 
+  it('lee la credencial una sola vez', async () => {
+    const { dbPath, store, home } = baseTemporal()
+    store.close()
+    let lecturas = 0
+    await leerStatusDelPaquete(deps(home, dbPath, { credencial: () => { lecturas++; return { baseUrl: 'https://s' } } }))
+    expect(lecturas).toBeLessThanOrEqual(1)
+  })
+
   it('status en modo daemon', async () => {
     const r = await leerStatusDelPaquete(deps('/h', '/x', { base: { modo: 'daemon', socket: 's', token: 't' } }))
     expect(r.filas).toEqual([{ marca: 'ok', etiqueta: 'Nest', detalle: 'open here — it owns this memory and syncs it live' }])

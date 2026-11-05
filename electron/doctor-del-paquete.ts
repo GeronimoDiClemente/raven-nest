@@ -95,12 +95,16 @@ export async function leerDoctorDelPaquete(d: DependenciasDeDoctor): Promise<Dat
   if (d.llaveroDisponible) ok('Keyring', 'available')
   else aviso('Keyring', 'not available — encrypted cloud memory stays closed')
 
+  const bloqueadas = leerBloqueadas(d)
+  // Lo bloqueado es un aviso: con filas retenidas el resumen no puede decir «All good.».
+  if (bloqueadas.length > 0) avisos++
+
   return {
     filas,
     // Adentro de un panel de Nest el HOME está redirigido a la carpeta de la cuenta: el paquete
     // busca la base donde no está y parece que no hubiera memoria.
     homeDeNest: !d.hayPunteroDeNest && d.home.includes('.raven-nest'),
-    bloqueadas: leerBloqueadas(d),
+    bloqueadas,
     problemas, avisos,
   }
 }

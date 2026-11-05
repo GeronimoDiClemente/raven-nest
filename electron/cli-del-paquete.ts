@@ -159,13 +159,16 @@ function comandoSetup(opts: { soloEditores: string[] | null; deshacer: boolean; 
 async function comandoStatus(): Promise<void> {
   const base = await dondeEstaLaBase()
   const llavero = cifradoDelSistema()
+  // Una sola lectura: en macOS `security` puede pedir el secreto en cada una.
+  let credencialLeida: ReturnType<typeof leerCredencial> | undefined
+  const credencial = () => (credencialLeida ??= leerCredencial(homedir(), llavero))
   const datos = await leerStatusDelPaquete({
     home: homedir(),
     homes: [homedir(), userInfo().homedir],
     base,
     abrirSoloLectura: abrirBaseSoloLectura,
     llaveroDisponible: llavero.isEncryptionAvailable(),
-    credencial: () => leerCredencial(homedir(), llavero),
+    credencial,
     tieneMaestra: () => Boolean(loadKeyMaterial(homedir(), null, llavero)?.master),
     urlDelServicio,
     urlUpgrade: urlDeUpgradeDelPaquete(),
@@ -192,7 +195,7 @@ async function comandoStatus(): Promise<void> {
   console.log(`  ${e.tenue('STORED'.padEnd(9))}${datos.guardadaEn}${datos.modo === 'nest' ? e.tenue("  (this machine's Nest)") : ''}`)
   if (datos.servicio !== null) {
     console.log(`  ${e.tenue('SERVICE'.padEnd(9))}${datos.servicio}`)
-    avisarSiElServicioNoCoincide(leerCredencial(homedir(), llavero))
+    avisarSiElServicioNoCoincide(credencial())
   }
   console.log('')
   pintarFilas(datos.filas)
