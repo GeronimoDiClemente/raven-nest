@@ -19,30 +19,30 @@
 // Primero que todo: el aviso de `node:sqlite` se emite al cargarlo — ver el archivo.
 import './silenciar-aviso-sqlite'
 import { homedir, hostname, userInfo } from 'os'
-import { existsSync, readFileSync } from 'fs'
+import { readFileSync } from 'fs'
 import { join } from 'path'
 import { parsearArgumentos, textoDeAyuda } from './argumentos-del-paquete'
 import {
   crearEstilo, decidirColor, marca, marcas, fila, acortarHome, recortar, hace,
-  grupoDeTipo, etiquetaDeTipo, barraDeGrupos, type GrupoDeTipo,
+  grupoDeTipo, etiquetaDeTipo, barraDeGrupos,
 } from './estilo-del-paquete'
 import { destinosDeSetup, planDeSetup, planDeDeshacer, comoLanzarElServidor } from './setup-del-paquete'
 import { aplicarPlan, sondasDeDisco } from './aplicar-setup'
-import { decidirBase, pathDeBasePropia } from './base-para-el-paquete'
+import { dondeEstaLaBase } from './donde-esta-la-base'
+import { leerStatusDelPaquete, type FilaDeEstado } from './status-del-paquete'
+import { leerDoctorDelPaquete } from './doctor-del-paquete'
 import { usarAbridorPorDefecto } from './sqlite-motor'
 import { abrirBase, abrirBaseSoloLectura } from './sqlite-sin-compilar'
-import { searchObservations, contextObservations } from './memory-reads'
+import { searchObservations } from './memory-reads'
 import { GLOBAL_PROJECT_KEY } from './memory-project-key'
 import { readActivePointer } from './memory-active-store'
 import { llaveroPorPlataforma, correrComando } from './llavero-del-sistema'
 import { usarAbridorDeLecturaPorDefecto } from './sqlite-motor'
 import { MemoryLocalClient } from './memory-mcp/local'
 import { MemoryDaemonClient } from './memory-mcp/client'
-import { buscarNestVivo } from './nest-vivo-del-paquete'
 import { ravenHome } from './raven-home'
-import { lineaDeSync, lineaDeEquipoRetenido, lineaDeUpgradeDeStatus, avisadorDeUpgradeDelMcp } from './estado-de-sync-del-paquete'
+import { avisadorDeUpgradeDelMcp } from './estado-de-sync-del-paquete'
 import { armarDaemonDelPaquete } from './daemon-del-paquete'
-import { TEAM_KEY_HOLD_REASONS } from './memory-daemon'
 import { SyncDelMcp } from './sync-del-mcp'
 import { resolveGitInfoForCwd } from './git-info'
 import { runMcpServer } from './memory-mcp/servidor'
@@ -156,123 +156,62 @@ function comandoSetup(opts: { soloEditores: string[] | null; deshacer: boolean; 
   if (r.fallados.length > 0) salir(1)
 }
 
-/**
- * Dónde está la base y qué se puede hacer con ella, sin tocar la red.
- *
- * Lo de Nest se busca bajo `ravenHome()` y no bajo `homedir()`: adentro de una terminal de
- * Nest el HOME está redirigido a la carpeta de la cuenta (`~/.raven-nest/accounts/...`), y
- * con `homedir()` el paquete no encontraría ni el puntero ni el pipe — parecería no haber
- * Nest justo en la máquina donde está abierto.
- */
-async function dondeEstaLaBase() {
-  const raven = ravenHome()
-  return decidirBase({
-    home: homedir(),
-    existe: (p) => existsSync(p),
-    nestVivo: await buscarNestVivo(process.env, raven, process.platform === 'win32'),
-    // El mismo puntero que Nest escribe, y no una heurística nuestra: adivinar cuál base es
-    // la buena cuando hay varias cuentas es exactamente la clase de cosa que un día devuelve
-    // las memorias de otra persona.
-    punteroDeNest: () => readActivePointer(raven)?.storePath ?? null,
-  })
-}
-
 async function comandoStatus(): Promise<void> {
   const base = await dondeEstaLaBase()
+  const llavero = cifradoDelSistema()
+  const datos = await leerStatusDelPaquete({
+    home: homedir(),
+    homes: [homedir(), userInfo().homedir],
+    base,
+    abrirSoloLectura: abrirBaseSoloLectura,
+    llaveroDisponible: llavero.isEncryptionAvailable(),
+    credencial: () => leerCredencial(homedir(), llavero),
+    tieneMaestra: () => Boolean(loadKeyMaterial(homedir(), null, llavero)?.master),
+    urlDelServicio,
+    urlUpgrade: urlDeUpgradeDelPaquete(),
+  })
   console.log('')
   console.log(`  ${marca(e, 'status')}`)
   console.log('')
-  if (base.modo === 'daemon') {
-    console.log(fila(marcas.ok(e), 'Nest', 'open here — it owns this memory and syncs it live'))
+  if (datos.modo === 'daemon') {
+    pintarFilas(datos.filas)
     console.log('')
     return
   }
-  if (base.modo === 'propia' && base.nueva) {
-    console.log(`  No memory on this machine yet. It will live at ${e.tenue(corto(pathDeBasePropia(homedir())))}`)
+  if (datos.vacia) {
+    console.log(`  No memory on this machine yet. It will live at ${e.tenue(datos.guardadaEn ?? '')}`)
     console.log(`  ${e.tenue('Start with:')} ${comando('setup')}`)
     console.log('')
     return
   }
-  const db = abrirBaseSoloLectura(base.path)
-  try {
-    const filas = db.prepare(
-      'SELECT type, scope, COUNT(*) AS c FROM observations WHERE deleted = 0 AND superseded_by IS NULL GROUP BY type, scope'
-    ).all() as Array<{ type: string; scope: string; c: number }>
-    const total = filas.reduce((n, f) => n + f.c, 0)
-    const porGrupo: Partial<Record<GrupoDeTipo, number>> = {}
-    let deEquipo = 0
-    for (const f of filas) {
-      const g = grupoDeTipo(f.type)
-      porGrupo[g] = (porGrupo[g] ?? 0) + f.c
-      if (f.scope === 'team') deEquipo += f.c
-    }
-
-    console.log(`  ${e.negrita(String(total))} ${total === 1 ? 'memory' : 'memories'} ready for your next session`)
-    for (const linea of barraDeGrupos(e, porGrupo)) console.log(linea)
-    console.log('')
-    console.log(`  ${e.tenue('SCOPE'.padEnd(9))}personal ${total - deEquipo}${deEquipo > 0 ? `  ${e.tenue('·')}  team ${deEquipo}` : ''}`)
-    console.log(`  ${e.tenue('STORED'.padEnd(9))}${corto(base.path)}${base.modo === 'nest' ? e.tenue("  (this machine's Nest)") : ''}`)
-
-    // La cola, con número y no con un ícono (P-R5 del spec): lo que el usuario necesita saber
-    // es si lo que escribió en esta máquina ya está en la nube o todavía no.
-    const enCola = (db.prepare(
-      'SELECT COUNT(*) AS c FROM mutation_log WHERE pushed_at IS NULL AND blocked_reason IS NULL'
-    ).get() as { c: number }).c
-    const safe = cifradoDelSistema()
-    const credencial = base.modo === 'propia' && safe.isEncryptionAvailable() ? leerCredencial(homedir(), safe) : null
-    const hayCredencial = credencial !== null
-    // Con la base de Nest la sube Nest, con su credencial: el servicio sólo importa con la propia.
-    if (base.modo === 'propia' && hayCredencial) {
-      console.log(`  ${e.tenue('SERVICE'.padEnd(9))}${urlDelServicio(credencial)}`)
-      avisarSiElServicioNoCoincide(credencial)
-    }
-    console.log('')
-
-    // La época que el daemon vio en el último status: el mismo dato que arma el gate
-    // fail-closed del push.
-    let epocaConocida = 0
-    try {
-      epocaConocida = Number((db.prepare("SELECT value FROM meta WHERE key = 'known_key_epoch'").get() as { value?: string } | undefined)?.value ?? 0)
-    } catch { /* una base sin `meta` todavía no vio ningún status */ }
-    const tieneMaestra = Boolean(loadKeyMaterial(homedir(), null, safe)?.master)
-    const esperandoAutorizacion = hayCredencial && epocaConocida > 0 && !tieneMaestra
-    // Época 0 y sin maestra: el daemon no sube (`needs_encryption_setup`) hasta que `login` active.
-    const necesitaActivarCifrado = hayCredencial && epocaConocida === 0 && !tieneMaestra
-    const marcaDeSync = !hayCredencial && base.modo === 'propia' ? marcas.nada(e)
-      : esperandoAutorizacion || necesitaActivarCifrado ? marcas.aviso(e)
-      : enCola > 0 ? marcas.pendiente(e)
-      : marcas.ok(e)
-    console.log(fila(marcaDeSync, 'Sync', lineaDeSync({ modo: base.modo, enCola, hayCredencial, esperandoAutorizacion, necesitaActivarCifrado })))
-    const upgrade = lineaDeUpgradeDeStatus({ modo: base.modo, hayCredencial, db, urlUpgrade: urlDeUpgradeDelPaquete() })
-    if (upgrade) console.log(fila(marcas.aviso(e), 'Upgrade', upgrade))
-    if (base.modo === 'propia' && hayCredencial && epocaConocida > 0) {
-      console.log(fila(tieneMaestra ? marcas.ok(e) : marcas.aviso(e), 'Encrypted',
-        tieneMaestra ? 'end to end — this machine holds the key' : 'end to end — this machine is not authorized yet'))
-    }
-    // Lo que el gate retuvo por falta de clave de equipo: `enCola` no lo cuenta.
-    const retenidas = (db.prepare(
-      `SELECT payload FROM mutation_log WHERE pushed_at IS NULL
-         AND blocked_reason IN (${TEAM_KEY_HOLD_REASONS.map(() => '?').join(',')})`
-    ).all(...TEAM_KEY_HOLD_REASONS) as Array<{ payload: string }>).filter(({ payload }) => {
-      try { return (JSON.parse(payload) as { scope?: unknown }).scope === 'team' } catch { return false }
-    }).length
-    const retenidoDeEquipo = lineaDeEquipoRetenido({ modo: base.modo, retenidas })
-    if (retenidoDeEquipo) console.log(fila(marcas.aviso(e), 'Team', retenidoDeEquipo))
-
-    const recientes = contextObservations(db, null, GLOBAL_PROJECT_KEY, 3)
-    if (recientes.length > 0) {
-      console.log('')
-      console.log(`  ${e.tenue('LATELY')}`)
-      const ahora = Date.now()
-      for (const m of recientes) {
-        const origen = [hace(m.updatedAt, ahora), m.originAi].filter(Boolean).join(' · ')
-        console.log(`  ${etiquetaDeTipo(e, m.type)}  ${recortar(m.title, 50).padEnd(50)}  ${e.tenue(origen)}`)
-      }
-    }
-    console.log('')
-  } finally {
-    db.close()
+  const { total, deEquipo } = datos
+  console.log(`  ${e.negrita(String(total))} ${total === 1 ? 'memory' : 'memories'} ready for your next session`)
+  for (const linea of barraDeGrupos(e, datos.porGrupo)) console.log(linea)
+  console.log('')
+  console.log(`  ${e.tenue('SCOPE'.padEnd(9))}personal ${datos.personal}${deEquipo > 0 ? `  ${e.tenue('·')}  team ${deEquipo}` : ''}`)
+  console.log(`  ${e.tenue('STORED'.padEnd(9))}${datos.guardadaEn}${datos.modo === 'nest' ? e.tenue("  (this machine's Nest)") : ''}`)
+  if (datos.servicio !== null) {
+    console.log(`  ${e.tenue('SERVICE'.padEnd(9))}${datos.servicio}`)
+    avisarSiElServicioNoCoincide(leerCredencial(homedir(), llavero))
   }
+  console.log('')
+  pintarFilas(datos.filas)
+
+  if (datos.recientes.length > 0) {
+    console.log('')
+    console.log(`  ${e.tenue('LATELY')}`)
+    const ahora = Date.now()
+    for (const m of datos.recientes) {
+      const origen = [hace(m.updatedAt, ahora), m.originAi].filter(Boolean).join(' · ')
+      console.log(`  ${etiquetaDeTipo(e, m.type)}  ${recortar(m.title, 50).padEnd(50)}  ${e.tenue(origen)}`)
+    }
+  }
+  console.log('')
+}
+
+/** El mapa de `Marca` (dato) a la marca pintada del CLI. */
+function pintarFilas(filas: FilaDeEstado[]): void {
+  for (const f of filas) console.log(fila(marcas[f.marca](e), f.etiqueta, f.detalle))
 }
 
 interface Resultado {
@@ -333,55 +272,48 @@ async function comandoSearch(consulta: string): Promise<void> {
  */
 async function comandoDoctor(): Promise<void> {
   const base = await dondeEstaLaBase()
+  const datos = await leerDoctorDelPaquete({
+    home: homedir(),
+    homeReal: userInfo().homedir,
+    homes: [homedir(), userInfo().homedir],
+    versionDeNode: process.version,
+    base,
+    hayPunteroDeNest: readActivePointer(ravenHome()) !== null,
+    llaveroDisponible: llaveroPorPlataforma(process.platform, correrComando).disponible(),
+    abrirSoloLectura: abrirBaseSoloLectura,
+  })
   console.log('')
   console.log(`  ${marca(e, 'doctor')}`)
   console.log('')
 
-  let problemas = 0
-  let avisos = 0
-  const ok = () => marcas.ok(e)
-  const aviso = () => { avisos++; return marcas.aviso(e) }
-  const falla = () => { problemas++; return marcas.falla(e) }
+  for (const f of datos.filas) {
+    // Lo que es información y no estado va atenuado; el resto de los detalles, tal cual.
+    const detalle = f.marca !== 'nada' ? f.detalle
+      : f.etiqueta === 'Memory' ? f.detalle.replace('(created on first use)', e.tenue('(created on first use)'))
+      : e.tenue(f.detalle)
+    console.log(fila(marcas[f.marca](e), f.etiqueta, detalle))
+  }
 
-  console.log(NODE_MINIMO_OK
-    ? fila(ok(), 'Node', process.version)
-    : fila(falla(), 'Node', `${process.version} — needs ${NODE_MINIMO} or newer (node:sqlite)`))
-  console.log(fila(marcas.nada(e), 'Home', e.tenue(acortarHome(homedir(), [userInfo().homedir]))))
-
-  const puntero = readActivePointer(ravenHome())
-  if (base.modo === 'daemon') console.log(fila(ok(), 'Nest', 'open — memory goes through it'))
-  else if (puntero) console.log(fila(aviso(), 'Nest', 'closed — changes wait until it opens'))
-  else console.log(fila(marcas.nada(e), 'Nest', e.tenue('not installed for this user')))
-
-  if (base.modo === 'daemon') console.log(fila(ok(), 'Memory', "through Nest's socket"))
-  else if (base.modo === 'propia' && base.nueva) console.log(fila(marcas.nada(e), 'Memory', `${corto(base.path)} ${e.tenue('(created on first use)')}`))
-  else console.log(fila(ok(), 'Memory', corto(base.path)))
-
-  const llavero = llaveroPorPlataforma(process.platform, correrComando)
-  console.log(llavero.disponible()
-    ? fila(ok(), 'Keyring', 'available')
-    : fila(aviso(), 'Keyring', 'not available — encrypted cloud memory stays closed'))
-
-  // Adentro de un panel de Nest el HOME está redirigido a la carpeta de la cuenta: el paquete
-  // busca la base donde no está y parece que no hubiera memoria.
-  if (!puntero && homedir().includes('.raven-nest')) {
+  if (datos.homeDeNest) {
     console.log('')
     console.log(`  ${e.aviso('This HOME looks like a Nest account folder.')} Nest redirects HOME inside its`)
     console.log('  panes, so the memory you are looking for probably lives under your real home.')
   }
 
+  // Lo que el push retiene y por qué: sin esto «changes waiting» no dice qué ni cuánto.
+  if (datos.bloqueadas.length > 0) {
+    console.log('')
+    console.log(`  ${e.tenue('BLOCKED')}`)
+    for (const b of datos.bloqueadas) console.log(fila(marcas.aviso(e), recortar(b.titulo, 40), b.motivo))
+  }
+
   console.log('')
+  const { problemas, avisos } = datos
   const resumen = [problemas && `${problemas} ${problemas === 1 ? 'problem' : 'problems'}`, avisos && `${avisos} ${avisos === 1 ? 'warning' : 'warnings'}`].filter(Boolean).join(', ')
   console.log(`  ${resumen ? e.negrita(`${resumen}.`) : e.acento('All good.')}`)
   console.log('')
   if (problemas > 0) salir(1)
 }
-
-const NODE_MINIMO = '22.5.0'
-const NODE_MINIMO_OK = (() => {
-  const [may, men] = process.versions.node.split('.').map(Number)
-  return (may ?? 0) > 22 || ((may ?? 0) === 22 && (men ?? 0) >= 5)
-})()
 
 /**
  * `mcp`: el servidor que lanzan los editores, no una persona.
