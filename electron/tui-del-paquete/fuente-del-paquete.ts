@@ -44,10 +44,32 @@ export interface DependenciasDeFuente {
    */
   baseSinNest: () => BaseLocal
   crearDaemon: (d: DondeHablarle) => Llamador
-  /** Recibe la base decidida en ese momento: con la propia engancha el sync, con la de Nest no. */
-  crearLocal: (base: BaseLocal) => Llamador & { close: () => void }
+  /**
+   * Recibe la base decidida en ese momento: con la propia engancha el sync, con la de Nest no.
+   * `esperarSync` resuelve cuando la fila de sync de esa base se vació.
+   */
+  crearLocal: (base: BaseLocal) => Local
   leerStatus: (base: DecisionDeBase) => Promise<DatosDeStatus>
   leerDoctor: (base: DecisionDeBase) => Promise<DatosDeDoctor>
+  /** Cuánto espera `cerrar` al sync en vuelo antes de cerrar igual. Default 5 s. */
+  topeDeSyncAlCerrarMs?: number
+}
+
+type Local = Llamador & { close: () => void; esperarSync?: () => Promise<void> }
+
+const TOPE_DE_SYNC_AL_CERRAR_MS = 5_000
+
+/** `p`, o `ms` milisegundos, lo que llegue antes. Nunca rechaza y no deja el timer vivo. */
+async function conTope(p: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      p.catch(() => {}),
+      new Promise<void>((r) => { timer = setTimeout(r, ms); timer.unref?.() }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 const CODIGOS_DE_CONEXION = new Set(['ECONNREFUSED', 'ENOENT', 'EPIPE'])
@@ -68,7 +90,7 @@ type Destino = { tipo: 'daemon'; d: DondeHablarle } | { tipo: 'local'; base: Bas
 
 export function crearFuenteDelPaquete(deps: DependenciasDeFuente): FuenteDeLaTui {
   const { base, cwd } = deps
-  const locales = new Map<string, Llamador & { close: () => void }>()
+  const locales = new Map<string, Local>()
   let destino: Destino = base.modo === 'daemon'
     ? { tipo: 'daemon', d: { socket: base.socket, token: base.token } }
     : { tipo: 'local', base }
@@ -128,7 +150,18 @@ export function crearFuenteDelPaquete(deps: DependenciasDeFuente): FuenteDeLaTui
     borrar: async (id) => { await escribir('memory.delete', { cwd, syncId: id }) },
     status: () => deps.leerStatus(base),
     doctor: () => deps.leerDoctor(base),
-    cerrar: () => { for (const c of locales.values()) { try { c.close() } catch { /* ya cerrada */ } } locales.clear() },
+    // Un push encolado tras la última escritura (guardar y salir enseguida) se espera: cerrar la
+    // base debajo lo haría fallar con "database is not open", con el error impreso en la
+    // terminal ya restaurada y la memoria sin subir hasta la próxima sesión.
+    cerrar: async () => {
+      const abiertos = [...locales.values()]
+      locales.clear()
+      await conTope(
+        Promise.all(abiertos.map((c) => c.esperarSync?.())),
+        deps.topeDeSyncAlCerrarMs ?? TOPE_DE_SYNC_AL_CERRAR_MS,
+      )
+      for (const c of abiertos) { try { c.close() } catch { /* ya cerrada */ } }
+    },
   }
 }
 
@@ -149,7 +182,11 @@ export async function crearFuenteReal(cwd: string): Promise<FuenteDeLaTui> {
     }) as BaseLocal,
     crearDaemon: (d) => new MemoryDaemonClient(d.socket, d.token),
     // El sync se arma con la base decidida AHORA, no con la de arranque.
-    crearLocal: (b) => new MemoryLocalClient(b.path, resolveGitInfoForCwd, alAbrirConSync(b)),
+    crearLocal: (b) => {
+      const alAbrir = alAbrirConSync(b)
+      const c = new MemoryLocalClient(b.path, resolveGitInfoForCwd, alAbrir)
+      return { call: (m, p) => c.call(m, p), close: () => c.close(), esperarSync: () => alAbrir.enCurso() }
+    },
     leerStatus: (b) => leerStatusDelPaquete(dependenciasDeStatus(b)),
     leerDoctor: (b) => leerDoctorDelPaquete(dependenciasDeDoctor(b)),
   })

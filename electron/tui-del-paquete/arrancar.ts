@@ -11,7 +11,6 @@
  *
  * Este módulo arrastra React e Ink: el CLI lo carga con `import()` sólo para el caso `tui`.
  */
-import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { App } from './app'
@@ -45,17 +44,20 @@ export interface EntradaSalida {
   plataforma: NodeJS.Platform
   /** Sólo para los tests: frames enteros (`debug`) y sin tocar la consola. */
   opcionesDeInk?: { debug?: boolean; patchConsole?: boolean }
+  /** Sólo para los tests: dónde van los temporales (default, tmpdir). */
+  dirTemporal?: string
 }
 
 type Instancia = ReturnType<Ink['render']>
 
 const mensajeDe = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-/** El id del temporal: el syncId al editar; una nueva no tiene, se inventa uno. */
-const idDeTemporal = (syncId: string | null) => syncId ?? `new-${randomUUID()}`
+// Los temporales tienen siempre un nombre al azar (`editor-externo.ts`): el syncId es un dato
+// remoto y en un nombre de archivo sería un path traversal. Qué memoria va con cada uno lo
+// lleva `pendientes`.
 
 export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Promise<void> {
-  const { stdin, stdout, env, plataforma, opcionesDeInk } = io ?? {
+  const { stdin, stdout, env, plataforma, opcionesDeInk, dirTemporal } = io ?? {
     stdin: process.stdin, stdout: process.stdout, env: process.env, plataforma: process.platform,
   }
   const { render } = await cargarInk()
@@ -143,7 +145,7 @@ export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Pr
           if (cerrando) return null
           // Lo normal es un `ErrorDeEscritura` (candado, sólo lectura, cambió en otro lado),
           // pero el texto del usuario se conserva ante CUALQUIER fallo: perderlo no tiene arreglo.
-          const archivo = conservarEnTemporal(serializarMemoria(r.memoria), idDeTemporal(syncId))
+          const archivo = conservarEnTemporal(serializarMemoria(r.memoria), dirTemporal)
           pendientes.set(archivo, syncId)
           return { tipo: 'error-de-editor', mensaje: mensajeDe(err), archivo }
         }
@@ -169,8 +171,7 @@ export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Pr
         const { title, type, tags, content } = d.item
         inicial = serializarMemoria({ title, type, tags, content })
       }
-      const id = idDeTemporal(syncId)
-      return resolver(enPausa(() => editarEnEditor({ inicial, id, editor })), syncId)
+      return resolver(enPausa(() => editarEnEditor({ inicial, editor, dir: dirTemporal })), syncId)
     }
 
     // Reopen sobre el temporal que quedó de una edición inválida o de una escritura fallida.
@@ -185,7 +186,7 @@ export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Pr
       // vacío sin saber a qué memoria iba.
       if (previo === null) return { tipo: 'edicion-perdida', mensaje: r.error }
       // El editor no arrancó y `reabrirEnEditor` borró el temporal: el texto vuelve a quedar.
-      const nuevo = conservarEnTemporal(previo, idDeTemporal(syncId))
+      const nuevo = conservarEnTemporal(previo, dirTemporal)
       pendientes.set(nuevo, syncId)
       return { tipo: 'error-de-editor', mensaje: r.error, archivo: nuevo }
     }
@@ -231,7 +232,8 @@ export async function arrancarTui(fuente: FuenteDeLaTui, io?: EntradaSalida): Pr
     dejarDeMirar()
     runner.detener()
     descartarPendientes()
-    fuente.cerrar()
+    // La fuente espera (con tope) el push que haya quedado en la fila antes de cerrar la base.
+    try { await fuente.cerrar() } catch { /* cerrar no puede tapar cómo terminó la TUI */ }
     process.off('exit', alSalirDelProceso)
     process.off('SIGINT', alInterrumpir)
     process.off('SIGTERM', alTerminar)

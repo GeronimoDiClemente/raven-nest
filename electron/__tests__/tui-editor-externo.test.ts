@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, lstatSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -10,6 +10,12 @@ import {
   editarEnEditor,
   reabrirEnEditor,
   descartar,
+  conservarEnTemporal,
+  escribirTemporalNuevo,
+  nombreDeTemporal,
+  crearLanzar,
+  citarParaCmd,
+  type Spawn,
 } from '../tui-del-paquete/editor-externo'
 import { serializarMemoria, plantillaDeNueva } from '../tui-del-paquete/frontmatter'
 
@@ -38,7 +44,6 @@ describe('editarEnEditor', () => {
     let archivo = ''
     const r = editarEnEditor({
       inicial: original,
-      id: 'sc1',
       editor: editorFalso,
       lanzar: (bin, args) => {
         archivo = args[args.length - 1]
@@ -53,7 +58,6 @@ describe('editarEnEditor', () => {
   it('un editor que guarda sin cambiar el contenido cuenta como sin cambios', () => {
     const r = editarEnEditor({
       inicial: original,
-      id: 'sc2',
       editor: ['x'],
       lanzar: (_b, args) => {
         writeFileSync(args[args.length - 1], original)
@@ -65,7 +69,7 @@ describe('editarEnEditor', () => {
 
   it('la plantilla de nueva sin tocar es sin cambios', () => {
     conModo('igual')
-    const r = editarEnEditor({ inicial: plantillaDeNueva(), id: 'new-x', editor: editorFalso })
+    const r = editarEnEditor({ inicial: plantillaDeNueva(), editor: editorFalso })
     expect(r).toEqual({ tipo: 'sin-cambios' })
   })
 
@@ -74,7 +78,6 @@ describe('editarEnEditor', () => {
     let archivo = ''
     const r = editarEnEditor({
       inicial: original,
-      id: 'ok1',
       editor: editorFalso,
       lanzar: (bin, args) => {
         archivo = args[args.length - 1]
@@ -90,7 +93,7 @@ describe('editarEnEditor', () => {
 
   it('frontmatter inválido conserva el archivo; reabrir con el editor válido lo resuelve y lo borra', () => {
     conModo('invalido')
-    const r = editarEnEditor({ inicial: original, id: 'inv1', editor: editorFalso })
+    const r = editarEnEditor({ inicial: original, editor: editorFalso })
     expect(r.tipo).toBe('invalida')
     if (r.tipo !== 'invalida') return
     aBorrar.push(r.archivo)
@@ -106,7 +109,7 @@ describe('editarEnEditor', () => {
 
   it('reabrir sin arreglar sigue inválido y conserva el archivo', () => {
     conModo('invalido')
-    const r = editarEnEditor({ inicial: original, id: 'inv2', editor: editorFalso })
+    const r = editarEnEditor({ inicial: original, editor: editorFalso })
     if (r.tipo !== 'invalida') throw new Error('esperaba invalida')
     aBorrar.push(r.archivo)
     const r2 = reabrirEnEditor(r.archivo, editorFalso)
@@ -119,7 +122,6 @@ describe('editarEnEditor', () => {
     let archivo = ''
     const r = editarEnEditor({
       inicial: original,
-      id: 'f3',
       editor: editorFalso,
       lanzar: (bin, args) => {
         archivo = args[args.length - 1]
@@ -134,7 +136,6 @@ describe('editarEnEditor', () => {
     let archivo = ''
     const r = editarEnEditor({
       inicial: original,
-      id: 'enoent',
       editor: ['no-existe-este-editor-jamas'],
       lanzar: (bin, args) => {
         archivo = args[args.length - 1]
@@ -149,7 +150,6 @@ describe('editarEnEditor', () => {
     let archivo = ''
     const r = editarEnEditor({
       inicial: original,
-      id: 'throw',
       editor: ['x'],
       lanzar: (_b, args) => {
         archivo = args[args.length - 1]
@@ -164,7 +164,6 @@ describe('editarEnEditor', () => {
     let visto: string[] = []
     editarEnEditor({
       inicial: original,
-      id: 'args',
       editor: ['code', '--wait'],
       lanzar: (bin, args) => {
         visto = [bin, ...args]
@@ -172,14 +171,13 @@ describe('editarEnEditor', () => {
       },
     })
     expect(visto.slice(0, 2)).toEqual(['code', '--wait'])
-    expect(visto[2]).toMatch(/memory-args\.md$/)
+    expect(basename(visto[2]!)).toMatch(NOMBRE_AL_AZAR)
   })
 
   it.skipIf(process.platform === 'win32')('el temporal se crea con modo 0600', () => {
     let modo = 0
     editarEnEditor({
       inicial: original,
-      id: 'modo1',
       editor: ['x'],
       lanzar: (_b, args) => {
         modo = statSync(args[args.length - 1]).mode & 0o777
@@ -189,20 +187,113 @@ describe('editarEnEditor', () => {
     expect(modo).toBe(0o600)
   })
 
-  it.skipIf(process.platform === 'win32')('un temporal preexistente con otro modo queda en 0600', () => {
-    let modo = 0
-    const previo = join(tmpdir(), 'memory-modo2.md')
-    writeFileSync(previo, 'viejo', { mode: 0o644 })
+  it('el editor que escribe el archivo y sale con 3 conserva el texto y ofrece Reopen', () => {
+    conModo('valido-y-falla', editada)
+    const r = editarEnEditor({ inicial: original, editor: editorFalso })
+    expect(r).toMatchObject({ tipo: 'invalida', error: 'The editor exited with code 3 — your text is kept' })
+    if (r.tipo !== 'invalida') return
+    aBorrar.push(r.archivo)
+    expect(readFileSync(r.archivo, 'utf8')).toBe(editada)
+    // Reopen con un editor que sale bien: lo conservado se escribe.
+    conModo('igual')
+    expect(reabrirEnEditor(r.archivo, editorFalso)).toMatchObject({ tipo: 'lista', memoria: { title: 'Dos' } })
+  })
+
+  it('en Reopen, un editor que cambia el archivo y sale con 3 también lo conserva', () => {
+    conModo('invalido')
+    const r = editarEnEditor({ inicial: original, editor: editorFalso })
+    if (r.tipo !== 'invalida') throw new Error('esperaba invalida')
+    aBorrar.push(r.archivo)
+    conModo('valido-y-falla', editada)
+    const r2 = reabrirEnEditor(r.archivo, editorFalso)
+    expect(r2).toEqual({ tipo: 'invalida', error: 'The editor exited with code 3 — your text is kept', archivo: r.archivo })
+    expect(readFileSync(r.archivo, 'utf8')).toBe(editada)
+  })
+})
+
+/** `memory-<uuid>.md`: nada del syncId. */
+const NOMBRE_AL_AZAR = /^memory-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.md$/
+
+describe('los temporales', () => {
+  it('editarEnEditor crea el temporal directo en tmpdir, con un nombre al azar', () => {
+    let archivo = ''
     editarEnEditor({
       inicial: original,
-      id: 'modo2',
       editor: ['x'],
-      lanzar: (_b, args) => {
-        modo = statSync(args[args.length - 1]).mode & 0o777
-        return { status: 0 }
-      },
+      lanzar: (_b, args) => { archivo = args[args.length - 1]!; return { status: 0 } },
     })
-    expect(modo).toBe(0o600)
+    expect(dirname(archivo)).toBe(tmpdir())
+    expect(basename(archivo)).toMatch(NOMBRE_AL_AZAR)
+  })
+
+  it('conservarEnTemporal también, y cada llamada da un nombre distinto', () => {
+    const a = conservarEnTemporal('uno')
+    const b = conservarEnTemporal('dos')
+    aBorrar.push(a, b)
+    expect(dirname(a)).toBe(tmpdir())
+    expect(basename(a)).toMatch(NOMBRE_AL_AZAR)
+    expect(a).not.toBe(b)
+    expect(readFileSync(a, 'utf8')).toBe('uno')
+  })
+
+  it('nombreDeTemporal nunca sale del directorio', () => {
+    for (let i = 0; i < 20; i++) expect(dirname(nombreDeTemporal('/d/x'))).toBe('/d/x')
+  })
+
+  describe.skipIf(process.platform === 'win32')('escribirTemporalNuevo', () => {
+    let dir = ''
+    afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); dir = '' })
+
+    it('un symlink plantado con ese nombre no lleva la escritura a su destino', () => {
+      dir = mkdtempSync(join(tmpdir(), 'tui-symlink-'))
+      const victima = join(dir, 'victima.md')
+      writeFileSync(victima, 'original')
+      const archivo = join(dir, 'memory-plantado.md')
+      symlinkSync(victima, archivo)
+      escribirTemporalNuevo(archivo, 'del usuario')
+      expect(readFileSync(victima, 'utf8')).toBe('original')
+      expect(lstatSync(archivo).isSymbolicLink()).toBe(false)
+      expect(readFileSync(archivo, 'utf8')).toBe('del usuario')
+      expect(statSync(archivo).mode & 0o777).toBe(0o600)
+    })
+
+    it('un archivo preexistente con otro modo se reemplaza y queda en 0600', () => {
+      dir = mkdtempSync(join(tmpdir(), 'tui-modo-'))
+      const archivo = join(dir, 'memory-previo.md')
+      writeFileSync(archivo, 'viejo', { mode: 0o644 })
+      escribirTemporalNuevo(archivo, 'nuevo')
+      expect(statSync(archivo).mode & 0o777).toBe(0o600)
+      expect(readFileSync(archivo, 'utf8')).toBe('nuevo')
+    })
+  })
+})
+
+describe('crearLanzar', () => {
+  function espia() {
+    const vistas: Array<{ bin: string; args: string[]; o: Parameters<Spawn>[2] }> = []
+    const spawn: Spawn = (bin, args, o) => { vistas.push({ bin, args, o }); return { status: 0 } }
+    return { vistas, spawn }
+  }
+
+  it('en posix lanza el editor directo, sin shell', () => {
+    const { vistas, spawn } = espia()
+    expect(crearLanzar('darwin', spawn)('code', ['--wait', '/tmp/memory-1.md'])).toEqual({ status: 0, error: undefined })
+    expect(vistas).toEqual([{ bin: 'code', args: ['--wait', '/tmp/memory-1.md'], o: { stdio: 'inherit', shell: false } }])
+  })
+
+  it('en win32 pasa por cmd.exe /d /s /c con cada argumento entre comillas (los shims .cmd)', () => {
+    const { vistas, spawn } = espia()
+    crearLanzar('win32', spawn)('code', ['--wait', 'C:\\Users\\Ana (Work)\\Temp\\memory-1.md'])
+    expect(vistas).toEqual([{
+      bin: 'cmd.exe',
+      args: ['/d', '/s', '/c', '""code" "--wait" "C:\\Users\\Ana (Work)\\Temp\\memory-1.md""'],
+      o: { stdio: 'inherit', shell: false, windowsVerbatimArguments: true },
+    }])
+  })
+
+  it('citarParaCmd dobla las comillas internas', () => {
+    expect(citarParaCmd('a"b')).toBe('"a""b"')
+    expect(citarParaCmd('')).toBe('""')
   })
 })
 

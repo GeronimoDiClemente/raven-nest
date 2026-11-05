@@ -1,9 +1,12 @@
 // Las fuentes de datos de la TUI, con clientes falsos que registran las llamadas.
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { crearFuenteDelPaquete, type DependenciasDeFuente } from '../tui-del-paquete/fuente-del-paquete'
 import { crearFuenteDelDaemon } from '../tui-del-paquete/fuente-del-daemon'
 import { ErrorDeEscritura } from '../tui-del-paquete/fuente'
 import type { DecisionDeBase } from '../base-para-el-paquete'
+import { SyncDelMcp } from '../sync-del-mcp'
+import { alAbrirConSync } from '../sync-del-paquete-tras-escribir'
+import { leerDetalle } from '../tui-del-paquete/fuente-comun'
 
 interface Llamada { donde: 'daemon' | 'local'; method: string; params: any }
 
@@ -13,6 +16,9 @@ function armar(opts: {
   responder?: (donde: 'daemon' | 'local', method: string, n: number) => unknown
   existe?: boolean
   sinNest?: { modo: 'nest'; path: string } | { modo: 'propia'; path: string; nueva: boolean }
+  /** Reemplaza el cliente local falso (para probar el sync al cerrar). */
+  local?: DependenciasDeFuente['crearLocal']
+  tope?: number
 }) {
   const llamadas: Llamada[] = []
   let creadosLocal = 0
@@ -32,7 +38,8 @@ function armar(opts: {
         return r ?? { ok: true }
       },
     }),
-    crearLocal: (b: { path: string }) => {
+    ...(opts.tope !== undefined ? { topeDeSyncAlCerrarMs: opts.tope } : {}),
+    crearLocal: opts.local ?? ((b: { path: string }) => {
       creadosLocal++
       basesLocales.push(b.path)
       return {
@@ -44,7 +51,7 @@ function armar(opts: {
         },
         close: () => {},
       }
-    },
+    }),
     leerStatus: async () => { throw new Error('no usado') },
     leerDoctor: async () => { throw new Error('no usado') },
   }
@@ -192,6 +199,99 @@ describe('fuente del paquete: seguir a Nest en los dos sentidos', () => {
     })
     await fuente.guardar(memoria)
     expect(llamadas.map((l) => l.donde)).toEqual(['daemon', 'local'])
+  })
+})
+
+describe('cerrar la fuente del paquete con un push en la fila', () => {
+  /**
+   * Un local como el de verdad: cada `memory.save` encola un push en un `SyncDelMcp` real
+   * (el `onMutation`), y `close` cierra la "base": un push que llega después falla como el de
+   * verdad, con "database is not open".
+   */
+  function localConSync(push: () => Promise<void>) {
+    const eventos: string[] = []
+    let abierta = true
+    const sync = new SyncDelMcp({
+      pull: async () => {},
+      push: async () => {
+        if (!abierta) throw new Error('The database connection is not open')
+        await push()
+        if (!abierta) throw new Error('The database connection is not open')
+        eventos.push('push')
+      },
+      stop: () => {},
+    }, true)
+    const crear: DependenciasDeFuente['crearLocal'] = () => ({
+      call: async (method: string) => { if (method === 'memory.save') sync.trasEscribir(); return { ok: true } },
+      close: () => { abierta = false; eventos.push('close') },
+      esperarSync: () => sync.enCurso(),
+    })
+    return { crear, eventos }
+  }
+
+  it('crear una memoria y salir enseguida: el push termina antes de cerrar la base', async () => {
+    let soltar: () => void = () => {}
+    const { crear, eventos } = localConSync(() => new Promise<void>((r) => { soltar = r }))
+    const { fuente } = armar({ base: propia, nest: [null], local: crear })
+    await fuente.guardar(memoria)
+    const cerrando = fuente.cerrar()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(eventos).toEqual([]) // la base sigue abierta mientras el push vuela
+    soltar()
+    await cerrando
+    expect(eventos).toEqual(['push', 'close'])
+  })
+
+  it('un push que nunca termina no cuelga la salida: se cierra al tope', async () => {
+    const { crear, eventos } = localConSync(() => new Promise<void>(() => {}))
+    const { fuente } = armar({ base: propia, nest: [null], local: crear, tope: 50 })
+    await fuente.guardar(memoria)
+    const t0 = Date.now()
+    await fuente.cerrar()
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(45)
+    expect(eventos).toEqual(['close'])
+  })
+
+  it('el tope por defecto es de 5 segundos', async () => {
+    vi.useFakeTimers()
+    try {
+      const { crear, eventos } = localConSync(() => new Promise<void>(() => {}))
+      const { fuente } = armar({ base: propia, nest: [null], local: crear })
+      await fuente.guardar(memoria)
+      let cerro = false
+      void Promise.resolve(fuente.cerrar()).then(() => { cerro = true })
+      await vi.advanceTimersByTimeAsync(4_900)
+      expect(cerro).toBe(false)
+      await vi.advanceTimersByTimeAsync(200)
+      expect(cerro).toBe(true)
+      expect(eventos).toEqual(['close'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sin nada en la fila, cerrar no espera', async () => {
+    const { crear, eventos } = localConSync(async () => {})
+    const { fuente } = armar({ base: propia, nest: [null], local: crear, tope: 10_000 })
+    await fuente.recientes({ todos: false, limite: 5 }).catch(() => {})
+    const t0 = Date.now()
+    await fuente.cerrar()
+    expect(Date.now() - t0).toBeLessThan(1_000)
+    expect(eventos).toEqual(['close'])
+  })
+
+  it('alAbrirConSync sobre una base que no es la propia: enCurso resuelve enseguida', async () => {
+    const a = alAbrirConSync({ modo: 'nest', path: '/x/nest.db' })
+    expect(a({} as never)).toBeUndefined()
+    await expect(a.enCurso()).resolves.toBeUndefined()
+  })
+})
+
+describe('leerDetalle contra un daemon de un Nest más viejo', () => {
+  it('sin resolvedLinks ni pendingLinks devuelve listas vacías', async () => {
+    const item = { syncId: 'a', title: 'T', type: 'decision', content: 'see [[Other]]', topicKey: null, tags: [], updatedAt: 1, originAi: null, gitBranch: null }
+    const d = await leerDetalle({ call: async () => ({ item }) }, '/tmp/r', 'a')
+    expect(d).toEqual({ item, resolvedLinks: [], pendingLinks: [] })
   })
 })
 

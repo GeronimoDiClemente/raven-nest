@@ -24,7 +24,8 @@ export interface FuenteDeLaTui {
   borrar(syncId: string): Promise<void>
   status(): Promise<DatosDeStatus>
   doctor(): Promise<DatosDeDoctor>
-  cerrar(): void
+  /** Puede esperar (con tope) a que salga el sync en vuelo antes de cerrar la base. */
+  cerrar(): void | Promise<void>
 }
 
 /** El mensaje es el motivo tal cual se muestra en la barra de la TUI. */

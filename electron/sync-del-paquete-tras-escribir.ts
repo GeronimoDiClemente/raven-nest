@@ -60,6 +60,16 @@ const REALES: DependenciasDeSync = {
   imprimir: (linea) => console.error(linea),
 }
 
+/** El `alAbrir` de `MemoryLocalClient`, con una forma de esperar al sync que haya en vuelo. */
+export type AlAbrirConSync = ((store: MemoryStore) => (() => void) | void) & {
+  /**
+   * Resuelve cuando la fila de sync (pull del arranque, pushes de después de escribir) se
+   * vació; enseguida si no hay sync. La TUI lo espera antes de cerrar la base: cerrarla con
+   * un push encolado lo hace fallar. El MCP no lo usa.
+   */
+  enCurso: () => Promise<void>
+}
+
 /**
  * El `alAbrir` de `MemoryLocalClient`. Recibe la base decidida: si no es la propia, no
  * engancha nada (devuelve `undefined` en vez de la función de después-de-escribir).
@@ -67,9 +77,11 @@ const REALES: DependenciasDeSync = {
 export function alAbrirConSync(
   base: { modo: 'daemon' | 'nest' | 'propia'; path?: string },
   deps: Partial<DependenciasDeSync> = {},
-): (store: MemoryStore) => (() => void) | void {
+): AlAbrirConSync {
   const d = { ...REALES, ...deps }
-  return (store) => {
+  /** El de la última apertura: si la base se cierra y se reabre, ése es el que importa. */
+  let actual: SyncDelMcp | null = null
+  const alAbrir = (store: MemoryStore): (() => void) | void => {
     if (base.modo !== 'propia' || !base.path) return
     const home = d.home || homedir()
     const safe = d.cifrado()
@@ -82,7 +94,9 @@ export function alAbrirConSync(
     const sync = new SyncDelMcp(daemon, hayCuenta, avisadorDeUpgradeDelMcp({
       daemon, store, urlUpgrade: urlDeUpgradeDelPaquete(), imprimir: d.imprimir,
     }))
+    actual = sync
     sync.alArrancar()
     return () => sync.trasEscribir()
   }
+  return Object.assign(alAbrir, { enCurso: () => actual?.enCurso() ?? Promise.resolve() })
 }

@@ -1,10 +1,10 @@
 // El arranque de la TUI: cuándo abrir, la pantalla alternativa, y el ida y vuelta con el
 // editor (desmontar Ink, editar, volver a montar con el mismo estado, escribir por la fuente).
-import { describe, it, expect, beforeAll, afterEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { existsSync, readdirSync, readFileSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cargarInk } from '../tui-del-paquete/ink'
 import { arrancarTui, decidirArranque, restaurarTerminal } from '../tui-del-paquete/arrancar'
@@ -85,8 +85,20 @@ const STATUS: DatosDeStatus = {
 
 type Retenida = { resolver: () => void; rechazar: (e: Error) => void }
 
-/** `retener`: guardar/actualizar quedan colgados hasta que el test los suelte (`retenidas`). */
-function fuenteFalsa(o: { fallaAlGuardar?: () => Error | null; retener?: boolean } = {}) {
+/**
+ * `retener`: guardar/actualizar quedan colgados hasta que el test los suelte (`retenidas`).
+ * `idDeMemoria`: el syncId de la memoria de la lista (default `a`). `cerrar`: lo que hace
+ * cerrar la fuente (para probar que la TUI lo espera).
+ */
+function fuenteFalsa(o: {
+  fallaAlGuardar?: () => Error | null
+  fallaAlActualizar?: () => Error | null
+  retener?: boolean
+  idDeMemoria?: string
+  cerrar?: () => Promise<void>
+} = {}) {
+  const id0 = o.idDeMemoria ?? 'a'
+  const memoria = { ...MEMORIA, syncId: id0 }
   const guardadas: MemoriaEscrita[] = []
   const actualizadas: Array<[string, MemoriaEscrita]> = []
   const retenidas: Retenida[] = []
@@ -96,20 +108,25 @@ function fuenteFalsa(o: { fallaAlGuardar?: () => Error | null; retener?: boolean
   let cerrada = false
   const fuente: FuenteDeLaTui = {
     proyecto: () => 'raven-nest',
-    recientes: async () => [MEMORIA],
+    recientes: async () => [memoria],
     buscar: async () => [],
-    obtener: async (id) => (id === 'a' ? { item: { ...MEMORIA, content: CUERPO_ENTERO }, resolvedLinks: [], pendingLinks: [] } : null),
+    obtener: async (id) => (id === id0 ? { item: { ...memoria, content: CUERPO_ENTERO }, resolvedLinks: [], pendingLinks: [] } : null),
     guardar: async (m) => {
       const err = o.fallaAlGuardar?.()
       if (err) throw err
       guardadas.push(m)
       await quizasRetener()
     },
-    actualizar: async (id, m) => { actualizadas.push([id, m]); await quizasRetener() },
+    actualizar: async (id, m) => {
+      const err = o.fallaAlActualizar?.()
+      if (err) throw err
+      actualizadas.push([id, m])
+      await quizasRetener()
+    },
     borrar: async () => {},
     status: async () => STATUS,
     doctor: async () => ({ filas: [], homeDeNest: false, bloqueadas: [], problemas: 0, avisos: 0 }),
-    cerrar: () => { cerrada = true },
+    cerrar: async () => { await o.cerrar?.(); cerrada = true },
   }
   return { fuente, guardadas, actualizadas, retenidas, cerrada: () => cerrada }
 }
@@ -122,12 +139,14 @@ async function hasta(cond: () => boolean, que: string): Promise<void> {
 }
 
 /**
- * Los temporales de memorias NUEVAS que hay ahora en tmpdir (`memory-new-<uuid>.md`). Sólo ésos:
- * `tui-editor-externo` corre en paralelo y deja los suyos (`memory-sc1.md`, `memory-new-x.md`).
+ * Los temporales de la TUI van a un directorio propio de este archivo (`dirTemporal`):
+ * `tui-editor-externo` corre en paralelo y deja los suyos en tmpdir con el mismo formato.
  */
-const temporales = () => new Set(readdirSync(tmpdir()).filter((f) => /^memory-new-[0-9a-f-]{36}\.md$/.test(f)))
+let DIR = ''
+const temporales = () => new Set(readdirSync(DIR).filter((f) => /^memory-[0-9a-f-]{36}\.md$/.test(f)))
 
-function arrancar(fuente: FuenteDeLaTui) {
+/** `dir: null` deja el default de verdad (tmpdir). */
+function arrancar(fuente: FuenteDeLaTui, dir: string | null = DIR) {
   const stdout = new Stdout()
   const stdin = new Stdin()
   const listo = arrancarTui(fuente, {
@@ -135,6 +154,7 @@ function arrancar(fuente: FuenteDeLaTui) {
     stdout: stdout as unknown as NodeJS.WriteStream,
     env: { EDITOR },
     plataforma: process.platform,
+    ...(dir === null ? {} : { dirTemporal: dir }),
     // Frames enteros en cada render: el modo normal de Ink no escribe nada con CI=true.
     opcionesDeInk: { debug: true, patchConsole: false },
   })
@@ -147,10 +167,15 @@ function modo(m: string, texto?: string): void {
   else delete process.env.EDITOR_FALSO_TEXTO
 }
 
-beforeAll(() => cargarInk((m) => import(m)))
+beforeAll(async () => {
+  DIR = mkdtempSync(join(tmpdir(), 'tui-arrancar-'))
+  await cargarInk((m) => import(m))
+})
+afterAll(() => rmSync(DIR, { recursive: true, force: true }))
 afterEach(() => {
   delete process.env.EDITOR_FALSO_MODO
   delete process.env.EDITOR_FALSO_TEXTO
+  delete process.env.EDITOR_FALSO_REGISTRO
 })
 
 describe('el ida y vuelta con el editor falso', () => {
@@ -248,7 +273,7 @@ describe('el ida y vuelta con el editor falso', () => {
     expect(nuevos).toHaveLength(1)
     stdin.escribir('d')
     await hasta(() => !stdout.ultimo().includes('Missing frontmatter'), 'descartado')
-    expect(existsSync(join(tmpdir(), nuevos[0]!))).toBe(false)
+    expect(existsSync(join(DIR, nuevos[0]!))).toBe(false)
     expect(f.guardadas).toEqual([])
     stdin.escribir('q')
     await listo
@@ -267,14 +292,14 @@ describe('el ida y vuelta con el editor falso', () => {
     expect(stdout.ultimo()).toMatch(/r reopen/i)
     const nuevos = [...temporales()].filter((t) => !antes.has(t))
     expect(nuevos).toHaveLength(1)
-    expect(readFileSync(join(tmpdir(), nuevos[0]!), 'utf8')).toBe(texto)
+    expect(readFileSync(join(DIR, nuevos[0]!), 'utf8')).toBe(texto)
 
     falla = false
     modo('igual') // Reopen sin tocar nada: el texto conservado ya es válido
     stdin.escribir('r')
     await hasta(() => f.guardadas.length === 1, 'guardar al reabrir')
     expect(f.guardadas[0]).toEqual({ title: 'Kept on failure', type: 'decision', tags: [], content: 'keep me' })
-    expect(existsSync(join(tmpdir(), nuevos[0]!))).toBe(false)
+    expect(existsSync(join(DIR, nuevos[0]!))).toBe(false)
     stdin.escribir('q')
     await listo
   })
@@ -360,7 +385,7 @@ describe('el ida y vuelta con el editor falso', () => {
     stdin.escribir('n')
     await hasta(() => stdout.ultimo().includes('Missing frontmatter'), 'el error')
     const [nuevo] = [...temporales()].filter((t) => !antes.has(t))
-    unlinkSync(join(tmpdir(), nuevo!))
+    unlinkSync(join(DIR, nuevo!))
     modo('falla')
     stdin.escribir('r')
     await hasta(() => stdout.ultimo().includes('Editor exited with code 3'), 'el fallo del editor')
@@ -371,5 +396,83 @@ describe('el ida y vuelta con el editor falso', () => {
     expect(stdout.veces(ENTRAR)).toBe(entradas)
     stdin.escribir('q')
     await listo
+  })
+
+  it('un syncId con ../ no saca el temporal de tmpdir: ni lo escribe ni lo borra afuera', async () => {
+    // La víctima vive en un hermano de tmpdir: con `memory-${syncId}.md`, el syncId
+    // `x/../<hermano>/CLAUDE` la habría pisado y después borrado.
+    const hermano = mkdtempSync(join(tmpdir(), 'tui-victima-'))
+    const victima = join(hermano, 'CLAUDE.md')
+    writeFileSync(victima, 'original')
+    const registro = join(hermano, 'registro.txt')
+    try {
+      const malo = `x/../${basename(hermano)}/CLAUDE`
+      // 1) e y el editor sale: el editor recibe un archivo directo en tmpdir.
+      process.env.EDITOR_FALSO_REGISTRO = registro
+      modo('anexar')
+      const f = fuenteFalsa({ idDeMemoria: malo, fallaAlActualizar: () => new ErrorDeEscritura('Memory is locked') })
+      const { stdout, stdin, listo } = arrancar(f.fuente, null)
+      await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+      stdin.escribir('e')
+      // 2) la escritura falla: `conservarEnTemporal` tampoco usa el syncId.
+      await hasta(() => stdout.ultimo().includes('Memory is locked'), 'el error de escritura')
+      const recibidos = readFileSync(registro, 'utf8').trim().split('\n')
+      expect(recibidos).toHaveLength(1)
+      expect(dirname(recibidos[0]!)).toBe(tmpdir())
+      expect(basename(recibidos[0]!)).toMatch(/^memory-[0-9a-f-]{36}\.md$/)
+      // 3) Reopen con un editor que no toca nada, y la escritura vuelve a fallar; después Discard.
+      modo('igual')
+      stdin.escribir('r')
+      await hasta(() => readFileSync(registro, 'utf8').trim().split('\n').length === 2, 'reabrir')
+      const reabierto = readFileSync(registro, 'utf8').trim().split('\n')[1]!
+      expect(dirname(reabierto)).toBe(tmpdir())
+      await hasta(() => stdout.ultimo().includes('Memory is locked'), 'el error otra vez')
+      stdin.escribir('d')
+      await hasta(() => !stdout.ultimo().includes('Memory is locked'), 'descartado')
+      stdin.escribir('q')
+      await listo
+      expect(readFileSync(victima, 'utf8')).toBe('original')
+      expect(readdirSync(hermano).sort()).toEqual(['CLAUDE.md', 'registro.txt'])
+      for (const r of [recibidos[0]!, reabierto]) expect(existsSync(r)).toBe(false)
+    } finally {
+      rmSync(hermano, { recursive: true, force: true })
+    }
+  })
+
+  it('un editor que escribe y sale con 3 conserva el texto y ofrece Reopen', async () => {
+    const texto = serializarMemoria({ title: 'Saved before the error', type: 'decision', tags: [], content: 'kept' })
+    modo('valido-y-falla', texto)
+    const antes = temporales()
+    const f = fuenteFalsa()
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('n')
+    await hasta(() => stdout.ultimo().includes('your text is kept'), 'el aviso')
+    expect(stdout.ultimo()).toMatch(/r reopen/i)
+    const nuevos = [...temporales()].filter((t) => !antes.has(t))
+    expect(nuevos).toHaveLength(1)
+    expect(readFileSync(join(DIR, nuevos[0]!), 'utf8')).toBe(texto)
+    expect(f.guardadas).toEqual([])
+    modo('igual')
+    stdin.escribir('r')
+    await hasta(() => f.guardadas.length === 1, 'guardar al reabrir')
+    expect(f.guardadas[0]).toEqual({ title: 'Saved before the error', type: 'decision', tags: [], content: 'kept' })
+    stdin.escribir('q')
+    await listo
+  })
+
+  it('q espera a que la fuente termine de cerrar (el sync en vuelo) antes de volver', async () => {
+    let soltar: () => void = () => {}
+    const f = fuenteFalsa({ cerrar: () => new Promise<void>((r) => { soltar = r }) })
+    const { stdout, stdin, listo } = arrancar(f.fuente)
+    await hasta(() => stdout.ultimo().includes('Encryption is mandatory'), 'Recent')
+    stdin.escribir('q')
+    let termino = false
+    void listo.then(() => { termino = true })
+    await tics(20)
+    expect(termino).toBe(false)
+    soltar()
+    await listo
+    expect(f.cerrada()).toBe(true)
   })
 })
