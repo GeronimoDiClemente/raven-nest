@@ -12,7 +12,7 @@
   },
   "files": ["dist"],
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.5"
   },
   "dependencies": {
     "ink": "5.2.1",

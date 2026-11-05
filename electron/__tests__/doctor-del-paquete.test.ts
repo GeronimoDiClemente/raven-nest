@@ -10,7 +10,7 @@ afterEach(() => { while (dirs.length) cleanupTmp(dirs.pop()!) })
 
 function deps(extra: Partial<DependenciasDeDoctor> = {}): DependenciasDeDoctor {
   return {
-    home: '/h', homeReal: '/h', homes: ['/h'], versionDeNode: 'v22.12.0',
+    home: '/h', homeReal: '/h', homes: ['/h'], versionDeNode: 'v22.5.0',
     base: { modo: 'daemon', socket: 's', token: 't' },
     hayPunteroDeNest: true, llaveroDisponible: true,
     abrirSoloLectura: abrirSoloLecturaConBetterSqlite3,
@@ -19,19 +19,17 @@ function deps(extra: Partial<DependenciasDeDoctor> = {}): DependenciasDeDoctor {
 }
 
 describe('leerDoctorDelPaquete', () => {
-  it('doctor con Node 22.11 es un problema que nombra 22.12', async () => {
-    const r = await leerDoctorDelPaquete(deps({ versionDeNode: 'v22.11.0' }))
+  it('doctor con Node 22.4 es un problema que nombra 22.5', async () => {
+    const r = await leerDoctorDelPaquete(deps({ versionDeNode: 'v22.4.0' }))
     expect(r.filas[0]).toMatchObject({ marca: 'falla', etiqueta: 'Node' })
-    expect(r.filas[0].detalle).toBe('v22.11.0 — needs 22.12.0 or newer')
-    // El piso 22.12 no es por node:sqlite: el motivo no lo nombra.
-    expect(r.filas[0].detalle).not.toContain('sqlite')
+    expect(r.filas[0].detalle).toBe('v22.4.0 — needs 22.5.0 or newer')
     expect(r.problemas).toBe(1)
   })
 
-  it('doctor con Node 22.12 está bien', async () => {
+  it('doctor con Node 22.5 está bien', async () => {
     const r = await leerDoctorDelPaquete(deps())
     expect(r.filas.map((f) => f.etiqueta)).toEqual(['Node', 'Home', 'Nest', 'Memory', 'Keyring'])
-    expect(r.filas[0]).toMatchObject({ marca: 'ok', detalle: 'v22.12.0' })
+    expect(r.filas[0]).toMatchObject({ marca: 'ok', detalle: 'v22.5.0' })
     expect(r.problemas).toBe(0)
     expect(r.avisos).toBe(0)
   })

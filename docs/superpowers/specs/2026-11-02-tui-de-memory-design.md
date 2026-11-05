@@ -115,9 +115,8 @@ La TUI no tiene fuente de verdad propia: usa **el mismo cliente que el MCP del p
 
 - El paquete compila a CommonJS y Ink 5 es sólo ESM. Se carga con `import()` dinámico **sólo**
   en el camino de la TUI; `mcp`, `login`, `status` y los hooks no cargan React.
-- `engines.node` pasa de `>=22.5` a **`>=22.12`** (desde 22.12 Node carga ESM desde CommonJS sin
-  flags, y lo necesitan los imports transitivos de Ink). `doctor` y el texto de error de
-  arranque nombran el piso nuevo.
+- `engines.node` sigue en `>=22.5`. Este spec lo subía a `>=22.12` por el `require` de ESM, pero
+  Ink se carga con un `import()` nativo, que no lo necesita; el 2026-11-05 se volvió a 22.5.
 - Dependencias nuevas del paquete: `ink`, `react`. De desarrollo: `ink-testing-library`.
   Nada más (sin `ink-text-input`: el único input de una línea es el de Search y se escribe a
   mano con `useInput`).
@@ -188,7 +187,7 @@ La TUI no tiene fuente de verdad propia: usa **el mismo cliente que el MCP del p
   Reopen conserva el texto; el temporal se borra en todos los casos, incluido el error del editor.
 - **Carga diferida:** un test fija que `mcp`/`status` no cargan `ink` ni `react`.
 - **Paquete:** `paquete-sin-nativas` y el build del paquete siguen en verde con las
-  dependencias nuevas; `engines` dice `>=22.12`.
+  dependencias nuevas; `engines` dice `>=22.5`.
 - **e2e** (headless, contra `dist/`): desde Nest, "Open Memory in terminal" abre un pane con la
   TUI; con un `EDITOR` falso se crea una memoria y aparece en Recent y en el store.
 

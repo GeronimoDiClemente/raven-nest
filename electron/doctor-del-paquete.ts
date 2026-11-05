@@ -5,12 +5,12 @@ import type { BaseSqlite } from './sqlite-forma'
 import type { FilaDeEstado } from './status-del-paquete'
 import { acortarHome } from './estilo-del-paquete'
 
-export const NODE_MINIMO = '22.12.0'
+export const NODE_MINIMO = '22.5.0'
 
-/** ¿Alcanza esta versión de Node (`22.12.0`, con o sin `v`)? Piso: 22.12. */
+/** ¿Alcanza esta versión de Node (`22.5.0`, con o sin `v`)? Piso: 22.5, el de `node:sqlite`. */
 export function nodeAlcanza(version: string): boolean {
   const [may, men] = version.replace(/^v/, '').split('.').map(Number)
-  return (may ?? 0) > 22 || ((may ?? 0) === 22 && (men ?? 0) >= 12)
+  return (may ?? 0) > 22 || ((may ?? 0) === 22 && (men ?? 0) >= 5)
 }
 
 export interface Bloqueada { syncId: string | null; titulo: string; motivo: string }
