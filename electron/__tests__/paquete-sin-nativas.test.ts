@@ -49,3 +49,17 @@ describe('el paquete portátil no llega a ninguna dependencia nativa', () => {
     expect(cadenasProhibidas('sqlite-better.ts').length).toBeGreaterThan(0)
   })
 })
+
+// El entry de la TUI adentro de Nest (`dist-electron/memory-tui.js`) corre con el Electron de
+// Nest en modo Node: Node 20, que no tiene `node:sqlite`. Sólo puede hablarle al daemon.
+describe('el entry de la TUI de Nest sólo le habla al daemon', () => {
+  const DE_NEST = ['node:sqlite', 'better-sqlite3', 'electron']
+
+  it('tui-de-nest no llega a node:sqlite', () => {
+    expect(cadenasHasta('tui-de-nest.ts', DE_NEST)).toEqual([])
+  })
+
+  it('el guard sabe encontrar node:sqlite cuando la hay', () => {
+    expect(cadenasHasta('cli-del-paquete.ts', DE_NEST).some((c) => c.endsWith('node:sqlite'))).toBe(true)
+  })
+})

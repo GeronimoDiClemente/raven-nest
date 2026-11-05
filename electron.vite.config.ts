@@ -22,7 +22,12 @@ export default defineConfig({
           // ELECTRON_RUN_AS_NODE=1 (see docs/nest-memory-architecture.md §1.1). Built as
           // its own entry so it ships as a small, independently invokable script rather
           // than being bundled into main.js.
-          'memory-mcp': resolve(__dirname, 'electron/memory-mcp/index.ts')
+          'memory-mcp': resolve(__dirname, 'electron/memory-mcp/index.ts'),
+          // La TUI de memoria adentro de Nest, con el mismo ELECTRON_RUN_AS_NODE=1. Sólo le
+          // habla al daemon (el Node 20 de Electron no tiene node:sqlite). `ink` queda externo
+          // (está en `dependencies`, externalizeDepsPlugin lo deja afuera) y se carga con el
+          // import() real de tui-del-paquete/ink.ts.
+          'memory-tui': resolve(__dirname, 'electron/tui-de-nest.ts')
         }
       }
     }

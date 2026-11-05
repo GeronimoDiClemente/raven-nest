@@ -659,6 +659,8 @@ try {
       const result = adapterForBin(bin)?.provision(accountDir, memoryProvisionerPaths(), process.platform === 'win32') ?? {}
       return { args: result.args ?? [], env: result.env ?? {} }
     },
+    // dist-electron/memory-tui.js, entry hermano de main.js (electron.vite.config.ts).
+    tui: { execPath: process.execPath, scriptPath: pathJoin(__dirname, 'memory-tui.js') },
   })
 
   memory = { store, daemon, ipcServer, currentStorePath: initialStorePath }

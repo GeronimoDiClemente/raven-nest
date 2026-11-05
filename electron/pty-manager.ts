@@ -6,6 +6,8 @@ import * as pty from 'node-pty'
 import { SHELL, SHELL_ARGS, isWin, isMac } from './platform'
 import { ravenHome, userHome } from './raven-home'
 import type { PaneWithMemory } from './memory-sessions'
+import { comandoDeLaTui, familiaDeShell, quoteShellArg } from './comando-de-la-tui'
+import { NEST_MEMORY_TUI_CMD } from '../src/types'
 
 async function cwdReachable(p: string): Promise<boolean> {
   try {
@@ -46,21 +48,18 @@ export interface PtyMemoryIntegration {
    * unrecognized `bin` simply comes back as `{args: [], env: {}}`, a no-op.
    */
   ensureProvisioned: (bin: string, accountDir: string) => { args: string[]; env: Record<string, string> }
+  /**
+   * La TUI de memoria (`NEST_MEMORY_TUI_CMD`): el Electron de Nest y el entry
+   * `dist-electron/memory-tui.js`. Sin esto, el centinela no tiene qué correr.
+   */
+  tui?: { execPath: string; scriptPath: string }
 }
 
 const BUFFER_MAX_LINES = 10_000
 
-/**
- * `launchCmd` is typed literally into the shell via `ptyProcess.write()`
- * (see below), so a `--settings <path>` argument must be safely quoted for the
- * platform's shell — a path or account name containing a literal `"` would otherwise
- * break out of the quoted argument. PowerShell escapes an embedded `"` inside a
- * double-quoted string as `""`; POSIX shells (bash/zsh) escape it as `\"`.
- */
-export function quoteShellArg(value: string, isWinShell: boolean): string {
-  const escaped = isWinShell ? value.replace(/"/g, '""') : value.replace(/(["\\$`])/g, '\\$1')
-  return `"${escaped}"`
-}
+// `quoteShellArg` vive en comando-de-la-tui.ts (para que ese módulo no arrastre node-pty); se
+// re-exporta acá para quien ya la importaba de este archivo.
+export { quoteShellArg }
 
 /**
  * accountDir is always `{ravenHome}/.raven-nest/accounts/{aiType}/{accountName}` (see
@@ -145,6 +144,11 @@ export class PtyManager extends EventEmitter {
   async create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): Promise<{ ok: true } | { ok: false; error: string }> {
     if (this.ptys.has(paneId)) return { ok: true }  // already running, don't recreate
 
+    // El centinela de la TUI de memoria no es un pane de AI: sólo necesita hablarle al daemon.
+    const esTui = cmd === NEST_MEMORY_TUI_CMD
+    const tui = esTui ? this.memory?.tui : undefined
+    if (esTui && !tui) return { ok: false, error: 'Memory is not available in this build' }
+
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
       TERM: 'xterm-256color',
@@ -170,9 +174,28 @@ export class PtyManager extends EventEmitter {
 
     let launchCmd = cmd
 
+    if (tui && this.memory) {
+      // Sólo el socket y el token: no hay bridge que esperar (no se registra en
+      // `memoryPanes`), ni cuenta, ni provisioning. `ELECTRON_RUN_AS_NODE` va en el comando,
+      // no acá, para que el shell del pane no quede en modo Node. Tampoco se redirige HOME: el
+      // `$EDITOR` del usuario tiene que encontrar su configuración.
+      // Lo que venga heredado (un Nest de desarrollo lanzado desde un pane de otro Nest) se
+      // borra: este pane no es de ninguna cuenta ni de ningún AI.
+      for (const k of Object.keys(env)) {
+        if (k.startsWith('NEST_MEMORY_') || k === 'ELECTRON_RUN_AS_NODE') delete env[k]
+      }
+      env.NEST_MEMORY_SOCKET = this.memory.socketPath
+      env.NEST_MEMORY_TOKEN = this.memory.authToken
+      // El shell por defecto de la plataforma, ignorando el que llegue: WSL no puede correr el
+      // `.exe` de Windows con su path.
+      launchCmd = comandoDeLaTui(tui.execPath, tui.scriptPath, familiaDeShell(SHELL))
+    }
+
     // Only redirect HOME for AI agent panes — plain terminals keep the real HOME
     // so system credentials (gh, git, ssh, etc.) work without reconfiguration.
-    if (accountDir && cmd) {
+    if (esTui) {
+      // Ver arriba: el pane de la TUI no toca HOME ni el accountDir.
+    } else if (accountDir && cmd) {
       mkdirSync(accountDir, { recursive: true })
       env.HOME = accountDir
       if (isWin) {
@@ -221,7 +244,7 @@ export class PtyManager extends EventEmitter {
     // §3.2: this deliberately sits OUTSIDE the `accountDir` branch above. Memory is
     // not a consequence of the HOME redirection — a headless graph node runs with the
     // real HOME and an empty accountDir, and still gets memory.
-    if (cmd && this.memory) {
+    if (cmd && this.memory && !esTui) {
       // §3.1: match the BINARY, not the whole command. The graph orchestrator
       // launches nodes with `claude --model <x>` (graph-tick.ts `launchCommand`), and a
       // plain `cmd === 'claude'` comparison would miss exactly those.
@@ -273,8 +296,9 @@ export class PtyManager extends EventEmitter {
       }
     }
 
-    const spawnBin = shell?.bin ?? SHELL
-    const spawnArgs = shell?.args ?? SHELL_ARGS
+    // El pane de la TUI usa siempre el shell por defecto (ver arriba).
+    const spawnBin = esTui ? SHELL : shell?.bin ?? SHELL
+    const spawnArgs = esTui ? SHELL_ARGS : shell?.args ?? SHELL_ARGS
 
     // Resolve cwd with existence check. CreateProcess on Windows fails with
     // ERROR_DIRECTORY (code 267) if cwd is missing — common when a tab persists

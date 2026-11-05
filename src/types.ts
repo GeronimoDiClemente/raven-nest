@@ -18,6 +18,12 @@ export type LayoutId =
 
 export const MAX_PANES = 12
 
+/**
+ * El `cmd` centinela de un pane que corre la TUI de memoria: PtyManager no lo escribe tal cual,
+ * lo cambia por el Electron de Nest en modo Node con `dist-electron/memory-tui.js`.
+ */
+export const NEST_MEMORY_TUI_CMD = 'nest-memory-tui'
+
 /** Una máquina de la cuenta de sync. `lastSeenAt` en ms. */
 export interface MaquinaDeLaCuenta {
   id: string

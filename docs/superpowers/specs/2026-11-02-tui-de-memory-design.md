@@ -129,9 +129,30 @@ La TUI no tiene fuente de verdad propia: usa **el mismo cliente que el MCP del p
 - Comando en la paleta **"Open Memory in terminal"** y un botón con el mismo texto en el
   encabezado de la vista Memories.
 - Abre un pane nuevo en el proyecto actual que corre la TUI con el Electron de Nest en modo
-  Node (`ELECTRON_RUN_AS_NODE=1` + el `cli-del-paquete.js` que viaja dentro de la app), así anda
-  aunque el plugin no esté instalado por npm. El pane recibe las variables de memoria como
-  cualquier otro, así que la TUI habla con el daemon de esa Nest.
+  Node, así anda aunque el plugin no esté instalado por npm.
+- **Corrección (Gero, 2026-11-05): el pane NO corre `cli-del-paquete.js`.** Tres razones:
+  Electron 33 trae Node 20.18, que no tiene `node:sqlite` (el CLI lo carga al arrancar); Node 20
+  no puede hacer `require` de un ESM con top-level await (Ink); y el CLI no viaja en la app
+  (electron-builder empaqueta sólo `dist/` y `dist-electron/`). Lo que corre es un entry propio
+  de electron-vite, **`dist-electron/memory-tui.js`** (`electron/tui-de-nest.ts`), que sólo le
+  habla al daemon (`crearFuenteDelDaemon`) y nunca abre la base. Un test de grafo de imports
+  (`paquete-sin-nativas.test.ts`) fija que desde ahí no se llega a `node:sqlite`,
+  `better-sqlite3` ni `electron`. `ink` queda externo en el build y se carga con el `import()`
+  real de `tui-del-paquete/ink.ts`.
+- El pane se pide con el `cmd` centinela `NEST_MEMORY_TUI_CMD` (`'nest-memory-tui'`,
+  `src/types.ts`). `PtyManager.create` lo reconoce y:
+  - usa siempre el shell por defecto de la plataforma, aunque llegue otro (WSL no puede correr
+    el `.exe` de Windows con su path);
+  - inyecta sólo `NEST_MEMORY_SOCKET` y `NEST_MEMORY_TOKEN`; no redirige HOME, no registra el
+    pane en `memoryPanes` ni provisiona nada (no es un pane de AI);
+  - escribe el comando de `comando-de-la-tui.ts`, con `ELECTRON_RUN_AS_NODE` acotado a ese
+    comando según la familia del shell (posix: `ELECTRON_RUN_AS_NODE=1 "<exec>" "<script>"`;
+    PowerShell: se setea y se borra con `Remove-Item`; cmd: `set` antes y `set` vacío después).
+    El shell del pane queda sin la variable, así que un `code` lanzado después desde ahí no
+    arranca en modo Node;
+  - sin `tui` en la integración de memoria, devuelve `Memory is not available in this build`.
+- Sin las variables (por ejemplo, alguien corre `memory-tui.js` a mano), el entry imprime
+  "Open this from Nest — the pane didn't get Nest's memory variables." y sale con 1.
 - Al salir de la TUI (`q`) el pane queda en el shell, como cualquier comando.
 
 ## Errores y bordes
@@ -144,9 +165,11 @@ La TUI no tiene fuente de verdad propia: usa **el mismo cliente que el MCP del p
 - **Escritura rechazada** (candado tomado por otro proceso, base de solo lectura): mensaje en la
   barra inferior con el motivo; la memoria editada se conserva en el temporal y se ofrece
   **Reopen** para no perder lo escrito.
-- **Memoria de equipo cifrada sin clave en este device:** se lista con el título que el store
-  pueda mostrar y el detalle dice "Encrypted for your team — this machine doesn't have the team
-  key yet"; `e`/`d` deshabilitados.
+- **Memoria de equipo cifrada sin clave en este device** (corregido 2026-11-05): una fila
+  ilegible nunca llega a `observations` (`memory-store.ts`: "una fila ilegible no se aplica"),
+  así que no hay título que listar ni detalle que abrir. Lo que la TUI muestra es el conteo, en
+  Status (`contarIlegiblesDeEquipo`, con la base del paquete). En el pane de Nest, Status no lo
+  trae: la fuente del daemon no expone ese conteo.
 - **Memoria editada por otra máquina mientras estaba en el editor:** gana LWW como en todo el
   sistema; la TUI no intenta mezclar.
 
