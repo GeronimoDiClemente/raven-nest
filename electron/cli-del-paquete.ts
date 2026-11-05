@@ -41,9 +41,8 @@ import { usarAbridorDeLecturaPorDefecto } from './sqlite-motor'
 import { MemoryLocalClient } from './memory-mcp/local'
 import { MemoryDaemonClient } from './memory-mcp/client'
 import { ravenHome } from './raven-home'
-import { avisadorDeUpgradeDelMcp } from './estado-de-sync-del-paquete'
-import { armarDaemonDelPaquete } from './daemon-del-paquete'
-import { SyncDelMcp } from './sync-del-mcp'
+import { dependenciasDeStatus, dependenciasDeDoctor } from './dependencias-de-lectura-del-paquete'
+import { alAbrirConSync, cifradoDelSistema, urlDelServicio, urlDeUpgradeDelPaquete, avisarSiElServicioNoCoincide } from './sync-del-paquete-tras-escribir'
 import { resolveGitInfoForCwd } from './git-info'
 import { runMcpServer } from './memory-mcp/servidor'
 import { cifradoDeLlavero } from './llavero-del-sistema'
@@ -158,21 +157,9 @@ function comandoSetup(opts: { soloEditores: string[] | null; deshacer: boolean; 
 
 async function comandoStatus(): Promise<void> {
   const base = await dondeEstaLaBase()
-  const llavero = cifradoDelSistema()
-  // Una sola lectura: en macOS `security` puede pedir el secreto en cada una.
-  let credencialLeida: ReturnType<typeof leerCredencial> | undefined
-  const credencial = () => (credencialLeida ??= leerCredencial(homedir(), llavero))
-  const datos = await leerStatusDelPaquete({
-    home: homedir(),
-    homes: [homedir(), userInfo().homedir],
-    base,
-    abrirSoloLectura: abrirBaseSoloLectura,
-    llaveroDisponible: llavero.isEncryptionAvailable(),
-    credencial,
-    tieneMaestra: () => Boolean(loadKeyMaterial(homedir(), null, llavero)?.master),
-    urlDelServicio,
-    urlUpgrade: urlDeUpgradeDelPaquete(),
-  })
+  const deps = dependenciasDeStatus(base)
+  const credencial = deps.credencial
+  const datos = await leerStatusDelPaquete(deps)
   console.log('')
   console.log(`  ${marca(e, 'status')}`)
   console.log('')
@@ -275,16 +262,7 @@ async function comandoSearch(consulta: string): Promise<void> {
  */
 async function comandoDoctor(): Promise<void> {
   const base = await dondeEstaLaBase()
-  const datos = await leerDoctorDelPaquete({
-    home: homedir(),
-    homeReal: userInfo().homedir,
-    homes: [homedir(), userInfo().homedir],
-    versionDeNode: process.version,
-    base,
-    hayPunteroDeNest: readActivePointer(ravenHome()) !== null,
-    llaveroDisponible: llaveroPorPlataforma(process.platform, correrComando).disponible(),
-    abrirSoloLectura: abrirBaseSoloLectura,
-  })
+  const datos = await leerDoctorDelPaquete(dependenciasDeDoctor(base))
   console.log('')
   console.log(`  ${marca(e, 'doctor')}`)
   console.log('')
@@ -345,52 +323,8 @@ async function comandoMcp(): Promise<void> {
     await runMcpServer(new MemoryDaemonClient(base.socket, base.token), process.cwd())
     return
   }
-  const sincronizar = base.modo === 'propia'
-  const cliente = new MemoryLocalClient(base.path, resolveGitInfoForCwd, (store) => {
-    if (!sincronizar) return
-    const credencial = leerCredencial(homedir(), cifradoDelSistema())
-    avisarSiElServicioNoCoincide(credencial)
-    const { daemon, hayCuenta } = armarDaemonDelPaquete({
-      store, dbPath: base.path, home: homedir(),
-      baseUrl: urlDelServicio(credencial), safe: cifradoDelSistema(),
-    })
-    // Por stderr: stdout es el protocolo.
-    const sync = new SyncDelMcp(daemon, hayCuenta, avisadorDeUpgradeDelMcp({
-      daemon, store, urlUpgrade: urlDeUpgradeDelPaquete(), imprimir: (linea) => console.error(linea),
-    }))
-    sync.alArrancar()
-    return () => sync.trasEscribir()
-  })
+  const cliente = new MemoryLocalClient(base.path, resolveGitInfoForCwd, alAbrirConSync(base))
   await runMcpServer(cliente, process.cwd())
-}
-
-/** `nestmux.com/upgrade`, o la del `NEST_MEMORY_WEB_URL` si está seteado. */
-function urlDeUpgradeDelPaquete(): string {
-  return urlDeUpgrade(webDelPaquete(process.env.NEST_MEMORY_WEB_URL))
-}
-
-/**
- * A qué servicio hablarle: la variable de entorno, si no el del `login`, si no el default de
- * Nest. Ver `servicio-del-paquete.ts`.
- */
-function urlDelServicio(credencial: { baseUrl?: string } | null): string {
-  return servicioDelPaquete({ env: process.env.NEST_MEMORY_SYNC_URL, guardada: credencial?.baseUrl })
-}
-
-/**
- * Si el env difiere de contra qué se hizo `login`, lo avisa — SIEMPRE por stderr: en modo
- * `mcp` stdout es el protocolo (ver su doc comment más abajo) y un aviso ahí rompe la sesión
- * del editor con un error de parseo; en los demás comandos no hay razón para mezclarlo con
- * la salida normal tampoco.
- */
-function avisarSiElServicioNoCoincide(credencial: { baseUrl?: string } | null): void {
-  const aviso = avisoDeServicioDistinto({ env: process.env.NEST_MEMORY_SYNC_URL, guardada: credencial?.baseUrl })
-  if (aviso) console.error(`Warning: ${aviso}`)
-}
-
-/** El cifrado en reposo de esta máquina: el llavero del sistema. */
-function cifradoDelSistema() {
-  return cifradoDeLlavero(llaveroPorPlataforma(process.platform, correrComando))
 }
 
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms))
