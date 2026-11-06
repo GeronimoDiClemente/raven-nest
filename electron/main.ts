@@ -125,6 +125,7 @@ import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPids
 // @ts-ignore
 import pidtree from 'pidtree'
 import { matarArbol } from './matar-arbol'
+import { autorizarRemitente, respuestaSinPermiso, CREDENCIAL_DEL_DUENO } from './integrations/slack-remitente'
 import { esLaPaginaDeLaApp } from './navegacion-de-la-ventana'
 import { pathToFileURL } from 'url'
 import { buscarHuerfanos, matarHuerfano } from './barrido-de-huerfanos'
@@ -5386,13 +5387,24 @@ if (slackAppToken) {
   const slackSocket = new SlackSocket({
     appToken: slackAppToken,
     fetch,
+    // Sólo el dueño maneja Nest desde Slack (electron/integrations/slack-remitente.ts).
     onAppMention: (m) => {
+      const remitente = autorizarRemitente(m.user, pluginCreds.getToken(CREDENCIAL_DEL_DUENO))
+      if (!remitente.ok) {
+        console.warn('[nest-bot] ignored mention:', remitente.motivo, m.user)
+        void postToSlackThread(m.channel, m.threadTs, respuestaSinPermiso(remitente.motivo))
+        return
+      }
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send('slack:mention', m)
       void handleMention(m, nestBotDeps())
         .then((res) => postToSlackThread(m.channel, m.threadTs, res.reply))
         .catch((err) => console.warn('[nest-bot] handleMention failed', err))
     },
-    onBlockAction: (a) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('slack:action', a) },
+    onBlockAction: (a) => {
+      const remitente = autorizarRemitente(a.user, pluginCreds.getToken(CREDENCIAL_DEL_DUENO))
+      if (!remitente.ok) { console.warn('[nest-bot] ignored action:', remitente.motivo, a.user); return }
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('slack:action', a)
+    },
   })
   void slackSocket.connect().catch((e) => console.warn('[slack-socket] connect failed', e))
 }
@@ -5768,11 +5780,13 @@ ipcMain.handle('slack:exchange-code', async (_e, code: string) => {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
     })
-    const json = (await res.json()) as { ok: boolean; access_token?: string; error?: string }
+    const json = (await res.json()) as { ok: boolean; access_token?: string; authed_user?: { id?: string }; error?: string }
     if (!json.ok || !json.access_token) {
       return { ok: false, error: json.error ?? 'slack_error' }
     }
     pluginCreds.setToken('slack', json.access_token)
+    // Quien instaló la app es el único al que el bot le hace caso (slack-remitente.ts).
+    if (json.authed_user?.id) pluginCreds.setToken(CREDENCIAL_DEL_DUENO, json.authed_user.id)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'error' }
