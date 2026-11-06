@@ -4905,7 +4905,7 @@ function newOAuthState(): string {
   return randomBytes(16).toString('hex')
 }
 
-// Handle OAuth deep link: nest://auth/callback#access_token=...
+// Handle OAuth deep link: nest://auth/callback?code=... (PKCE, see src/lib/auth-deeplink.ts)
 function handleDeepLink(url: string) {
   if (url.startsWith('nest://oauth/github')) {
     const urlObj = new URL(url)
@@ -4940,6 +4940,12 @@ function handleDeepLink(url: string) {
     expectedOAuthState.slack = null
     const win = BrowserWindow.getAllWindows()[0]
     if (win) win.webContents.send('slack-oauth-code', code)
+    return
+  }
+  // Sólo el callback de login de Supabase llega al renderer. Cualquier otro nest:// se descarta:
+  // antes pasaba todo, y el renderer instalaba la sesión que trajera el link (auditoría 2026-11-05).
+  if (!url.startsWith('nest://auth/callback')) {
+    console.warn('[deeplink] ignored: not a known nest:// route')
     return
   }
   // Buffer URL — renderer will pull it via deeplink:consume once ready
