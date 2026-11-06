@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import { randomUUID } from 'node:crypto'
 import { getPool, migrate } from '../src/db'
 import { registerDevice } from '../src/devices'
+import { aplicarMembresias } from '../src/membership-sync'
 
 const pool = getPool()
 
@@ -175,5 +176,56 @@ describe('registerDevice — sincronización de team_memberships', () => {
     expect(await membresiasDe(userId)).toEqual([
       { team_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', team_name: 'Equipo Uno', role: 'owner', status: 'active' },
     ])
+  })
+})
+
+// Auditoría 2026-11-05: el registro lee Supabase sin lock y reemplazaba el espejo después. Un
+// aviso de `/internal/memberships` aplicado en el medio quedaba pisado, y el registro
+// estampaba `memberships_as_of` con el reloj de acá, así que el aviso siguiente se ignoraba.
+describe('registerDevice — carrera con el aviso de membresías', () => {
+  const EQUIPO = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+
+  function supabaseQueDuranteElFetch(antesDeResponder: () => Promise<unknown>) {
+    const impl = vi.fn(async (url: string) => {
+      if (!String(url).includes('/rest/v1/team_members')) {
+        return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      await antesDeResponder()
+      // Lo que Supabase devolvió ANTES de sacarlo: todavía en el equipo.
+      return new Response(JSON.stringify([{ team_id: EQUIPO, role: 'member', teams: { name: 'Equipo Uno' } }]), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })
+    })
+    global.fetch = impl as unknown as typeof fetch
+  }
+
+  it('(A) lo sacan mientras el registro espera a Supabase: el registro no lo resucita', async () => {
+    const userId = await seedUsuarioPermitido()
+    await pool.query(
+      `insert into team_memberships (user_id, team_id, team_name, role, status, synced_at) values ($1, $2, 'Equipo Uno', 'member', 'active', now())`,
+      [userId, EQUIPO]
+    )
+    process.env.SUPABASE_URL = 'https://qkqlsytxtshgjxwmafpw.supabase.co'
+    process.env.SUPABASE_ANON_KEY = 'anon-key-de-prueba'
+    supabaseQueDuranteElFetch(() => aplicarMembresias(pool, { userId, asOf: Date.now(), memberships: [] }))
+
+    const r = await registerDevice(pool, { userId, email: null }, { name: 'Mac' }, 'jwt')
+
+    expect(r.ok).toBe(true)
+    expect(await membresiasDe(userId)).toEqual([])
+  })
+
+  it('(B) el aviso que llega DESPUÉS del registro se aplica, aunque Supabase lo haya calculado antes', async () => {
+    const userId = await seedUsuarioPermitido()
+    process.env.SUPABASE_URL = 'https://qkqlsytxtshgjxwmafpw.supabase.co'
+    process.env.SUPABASE_ANON_KEY = 'anon-key-de-prueba'
+    supabaseQueDuranteElFetch(async () => {})
+    const sacadoEn = Date.now() - 1000 // el reloj de Supabase, un poco atrás del de acá
+
+    await registerDevice(pool, { userId, email: null }, { name: 'Mac' }, 'jwt')
+    expect(await membresiasDe(userId)).toHaveLength(1)
+
+    expect(await aplicarMembresias(pool, { userId, asOf: sacadoEn, memberships: [] })).toBe(true)
+    expect(await membresiasDe(userId)).toEqual([])
   })
 })

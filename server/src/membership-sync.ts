@@ -68,7 +68,12 @@ export async function aplicarMembresias(pool: Pool, aviso: AvisoDeMembresias): P
         [aviso.userId, m.teamId, m.teamName, m.role]
       )
     }
-    await client.query('update users set memberships_as_of = $2 where id = $1', [aviso.userId, aviso.asOf])
+    // La versión sube para que un registro de máquina que leyó Supabase ANTES no pise esto
+    // (`syncTeamMemberships` en devices.ts).
+    await client.query(
+      'update users set memberships_as_of = $2, memberships_version = memberships_version + 1 where id = $1',
+      [aviso.userId, aviso.asOf]
+    )
     await client.query('commit')
     return true
   } catch (err) {

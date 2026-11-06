@@ -1,0 +1,11 @@
+-- Carrera del espejo de membresías (auditoría 2026-11-05). El registro de una máquina lee las
+-- membresías de Supabase SIN lock y después reemplazaba el espejo: si en el medio llegaba el
+-- aviso que sacaba al usuario de un equipo, el registro lo volvía a meter. Y estampaba
+-- `memberships_as_of` con el reloj del sync, así que el aviso que llegaba después se ignoraba
+-- por "viejo" aunque fuera la verdad.
+--
+-- `memberships_version` sube con cada escritura del espejo. El registro la lee ANTES de pedir
+-- el set a Supabase y sólo escribe si sigue igual: si un aviso se aplicó mientras tanto, gana
+-- el aviso. `memberships_as_of` queda sólo para ordenar avisos entre sí, con el reloj de
+-- Supabase.
+alter table users add column if not exists memberships_version bigint not null default 0;

@@ -488,15 +488,28 @@ export async function elegibilidadDeMaquinaNueva(
  * Reemplaza (delete + insert) las filas de `team_memberships` de un usuario, en una sola
  * transacción — nunca un insert incremental: la respuesta de Supabase es el set completo de
  * membresías activas de ESTE momento, así que lo que ya no viene ahí ya no es cierto.
+ *
+ * Sólo si `memberships_version` sigue en `versionLeida`, la que había ANTES de pedirle el set
+ * a Supabase. Si cambió, un aviso de `/internal/memberships` se aplicó mientras tanto y es al
+ * menos tan nuevo como este set: escribir encima resucitaba a un miembro recién sacado
+ * (auditoría 2026-11-05). No toca `memberships_as_of`: esa marca es del reloj de Supabase y
+ * ordena los avisos entre sí; estamparla con el reloj de acá hacía que el aviso siguiente se
+ * descartara por "viejo". `false` = no escribió.
  */
-async function replaceTeamMemberships(
+export async function replaceTeamMemberships(
   pool: Pool,
   userId: string,
-  memberships: TeamMembership[]
-): Promise<void> {
+  memberships: TeamMembership[],
+  versionLeida: number
+): Promise<boolean> {
   const client = await pool.connect()
   try {
     await client.query('begin')
+    const { rows } = await client.query('select memberships_version from users where id = $1 for update', [userId])
+    if (rows.length === 0 || Number(rows[0].memberships_version) !== versionLeida) {
+      await client.query('rollback')
+      return false
+    }
     await client.query('delete from team_memberships where user_id = $1', [userId])
     for (const m of memberships) {
       await client.query(
@@ -505,20 +518,21 @@ async function replaceTeamMemberships(
         [userId, m.teamId, m.teamName, m.role]
       )
     }
-    // Esto también es la verdad de Supabase en este momento: un aviso de `/internal/memberships`
-    // calculado ANTES y llegado después no lo puede pisar (`aplicarMembresias` compara contra
-    // esta marca). Sólo sube.
-    await client.query(
-      'update users set memberships_as_of = greatest(coalesce(memberships_as_of, 0), $2) where id = $1',
-      [userId, Date.now()]
-    )
+    await client.query('update users set memberships_version = memberships_version + 1 where id = $1', [userId])
     await client.query('commit')
+    return true
   } catch (err) {
     await client.query('rollback').catch(() => { /* la conexión ya puede estar rota */ })
     throw err
   } finally {
     client.release()
   }
+}
+
+/** La versión del espejo de un usuario (ver `replaceTeamMemberships`). */
+export async function versionDeMembresias(pool: Pool, userId: string): Promise<number> {
+  const { rows } = await pool.query('select memberships_version from users where id = $1', [userId])
+  return rows.length === 0 ? 0 : Number(rows[0].memberships_version)
 }
 
 /**
@@ -542,8 +556,12 @@ export async function syncTeamMemberships(
   if (!supabaseUrl || !anonKey || !supabaseJwt) return
 
   try {
+    // La versión se lee ANTES del fetch: lo que se aplique durante el fetch gana.
+    const version = await versionDeMembresias(pool, userId)
     const memberships = await fetchActiveTeamMemberships(supabaseUrl, anonKey, userId, supabaseJwt)
-    await replaceTeamMemberships(pool, userId, memberships)
+    if (!(await replaceTeamMemberships(pool, userId, memberships, version))) {
+      console.warn('[devices] team_memberships: un aviso llegó durante el registro, se queda el aviso')
+    }
   } catch (err) {
     console.warn('[devices] no se pudo sincronizar team_memberships', err)
   }
