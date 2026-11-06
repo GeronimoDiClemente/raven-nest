@@ -52,6 +52,8 @@ import { mensajeDeEnrolamiento, type ResultadoDeEnrolamiento } from './enrolamie
 import { comando, NOMBRE_DEL_PAQUETE } from './nombre-del-paquete'
 import { webDelPaquete, abrirNavegador, iniciarVinculacion } from './vinculacion-web-del-paquete'
 import { decidirArranque } from './tui-del-paquete/decidir-arranque'
+import { leerStatusDeNest } from './tui-del-paquete/status-de-nest'
+import { completarDoctorConNest } from './tui-del-paquete/doctor-de-nest'
 
 /**
  * El motor: `node:sqlite`, que viene adentro de Node y no compila nada.
@@ -155,11 +157,14 @@ async function comandoStatus(): Promise<void> {
   const base = await dondeEstaLaBase()
   const deps = dependenciasDeStatus(base)
   const credencial = deps.credencial
-  const datos = await leerStatusDelPaquete(deps)
+  // Con Nest abierto, los conteos y el sync se le piden a él (como la TUI).
+  const datos = base.modo === 'daemon'
+    ? await leerStatusDeNest(new MemoryDaemonClient(base.socket, base.token))
+    : await leerStatusDelPaquete(deps)
   console.log('')
   console.log(`  ${marca(e, 'status')}`)
   console.log('')
-  if (datos.modo === 'daemon') {
+  if (datos.sinConteos) {
     pintarFilas(datos.filas)
     console.log('')
     return
@@ -175,7 +180,7 @@ async function comandoStatus(): Promise<void> {
   for (const linea of barraDeGrupos(e, datos.porGrupo)) console.log(linea)
   console.log('')
   console.log(`  ${e.tenue('SCOPE'.padEnd(9))}personal ${datos.personal}${deEquipo > 0 ? `  ${e.tenue('·')}  team ${deEquipo}` : ''}`)
-  console.log(`  ${e.tenue('STORED'.padEnd(9))}${datos.guardadaEn}${datos.modo === 'nest' ? e.tenue("  (this machine's Nest)") : ''}`)
+  console.log(`  ${e.tenue('STORED'.padEnd(9))}${datos.modo === 'daemon' ? `in Nest${e.tenue('  (open — it owns this memory)')}` : `${datos.guardadaEn}${datos.modo === 'nest' ? e.tenue("  (this machine's Nest)") : ''}`}`)
   if (datos.servicio !== null) {
     console.log(`  ${e.tenue('SERVICE'.padEnd(9))}${datos.servicio}`)
     avisarSiElServicioNoCoincide(credencial())
@@ -258,7 +263,11 @@ async function comandoSearch(consulta: string): Promise<void> {
  */
 async function comandoDoctor(): Promise<void> {
   const base = await dondeEstaLaBase()
-  const datos = await leerDoctorDelPaquete(dependenciasDeDoctor(base))
+  const propio = await leerDoctorDelPaquete(dependenciasDeDoctor(base))
+  // Lo bloqueado lo sabe Nest cuando está abierto: el paquete no abre su base.
+  const datos = base.modo === 'daemon'
+    ? await completarDoctorConNest(new MemoryDaemonClient(base.socket, base.token), propio)
+    : propio
   console.log('')
   console.log(`  ${marca(e, 'doctor')}`)
   console.log('')

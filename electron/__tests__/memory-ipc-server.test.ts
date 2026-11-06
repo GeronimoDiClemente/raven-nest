@@ -11,6 +11,9 @@ import { MemoryIpcServer } from '../memory-ipc-server'
 import { MemoryStore as MemoryStoreReal } from '../memory-store'
 import type { MemoryStore, SaveInput } from '../memory-store'
 import type { MemoryRequest, MemoryResponse, ObservationSummary } from '../memory-protocol'
+import { MemoryDaemonClient } from '../memory-mcp/client'
+import { leerStatusDeNest } from '../tui-del-paquete/status-de-nest'
+import { completarDoctorConNest } from '../tui-del-paquete/doctor-de-nest'
 
 const TOKEN = 'a'.repeat(64)
 const isWin = platform() === 'win32'
@@ -838,6 +841,28 @@ describe('MemoryIpcServer — lo que necesita la TUI (store real)', () => {
       blocked: [{ syncId: a.syncId, title: 'retenida', reason: 'quota_exceeded' }],
       undecryptable: 0,
     })
+  })
+
+  it('la TUI y el CLI leen status y doctor por el socket de verdad', async () => {
+    const socketPath = uniqueSocketPath(dir)
+    const vivo = new MemoryIpcServer({
+      store, socketPath, authToken: TOKEN,
+      estadoDeNest: () => ({ sync: null, conflicts: 1, sessions: { writing: 0, silent: 0, disabled: 0 } }),
+    })
+    vivo.start()
+    await new Promise((r) => setTimeout(r, 20))
+    try {
+      await guardar('/tmp/repo-a', 'una', 'x', 'decision')
+      const cliente = new MemoryDaemonClient(socketPath, TOKEN)
+      const s = await leerStatusDeNest(cliente)
+      expect(s.sinConteos).toBeUndefined()
+      expect(s.total).toBe(1)
+      expect(s.filas.map((f) => f.etiqueta)).toEqual(['Sync', 'Conflicts', 'Sessions'])
+      const d = await completarDoctorConNest(cliente, { filas: [], homeDeNest: false, bloqueadas: [], problemas: 0, avisos: 0 })
+      expect(d.bloqueadas).toEqual([])
+    } finally {
+      vivo.stop()
+    }
   })
 
   it('memory.status suma lo que arma Nest', async () => {
