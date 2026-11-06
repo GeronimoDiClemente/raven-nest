@@ -1,0 +1,54 @@
+name: Rollout
+
+# Cambia qué porcentaje de las instalaciones recibe una release YA publicada, reescribiendo
+# `stagingPercentage` en sus `latest*.yml` (scripts/staging-del-feed.mjs).
+#
+#   gh workflow run rollout.yml -f version=1.6.0 -f porcentaje=0     # frenar una versión rota
+#   gh workflow run rollout.yml -f version=1.6.0 -f porcentaje=100   # liberarla a todos
+#
+# Frena a quien todavía no la bajó; quien ya actualizó no vuelve atrás (no hay downgrade).
+# Qué hacer en ese caso: docs/RUNBOOK-VERSION-ROTA.md.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión publicada, sin la v (ej. 1.6.0)'
+        required: true
+      porcentaje:
+        description: 'Porcentaje de instalaciones que la reciben (0 = frenada, 100 = todos)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  rollout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validar
+        env:
+          VERSION: ${{ inputs.version }}
+          PORCENTAJE: ${{ inputs.porcentaje }}
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::versión inválida: $VERSION (ej. 1.6.0, sin la v; las betas no van por acá)"; exit 1
+          fi
+          if ! [[ "$PORCENTAJE" =~ ^[0-9]+$ ]] || [ "$PORCENTAJE" -gt 100 ]; then
+            echo "::error::porcentaje inválido: $PORCENTAJE (entero de 0 a 100)"; exit 1
+          fi
+
+      - name: Reescribir el feed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          PORCENTAJE: ${{ inputs.porcentaje }}
+        run: |
+          set -euo pipefail
+          mkdir feed && cd feed
+          gh release download "v$VERSION" --pattern 'latest*.yml' --repo "$GITHUB_REPOSITORY"
+          ls latest*.yml
+          node ../scripts/staging-del-feed.mjs "$PORCENTAJE" latest*.yml
+          gh release upload "v$VERSION" latest*.yml --clobber --repo "$GITHUB_REPOSITORY"
+          for f in latest*.yml; do echo "== $f"; tail -n 2 "$f"; done
