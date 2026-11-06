@@ -2051,6 +2051,20 @@ export class MemoryStore {
     return { promoted: true }
   }
 
+  /** Las vivas por tipo y cuántas son de equipo, con el mismo filtro que `count()`. */
+  conteoPorTipo(): { porTipo: Record<string, number>; deEquipo: number } {
+    const filas = this.db
+      .prepare('SELECT type, scope, COUNT(*) AS c FROM observations WHERE deleted = 0 AND superseded_by IS NULL GROUP BY type, scope')
+      .all() as Array<{ type: string; scope: string; c: number }>
+    const porTipo: Record<string, number> = {}
+    let deEquipo = 0
+    for (const f of filas) {
+      porTipo[f.type] = (porTipo[f.type] ?? 0) + f.c
+      if (f.scope === 'team') deEquipo += f.c
+    }
+    return { porTipo, deEquipo }
+  }
+
   getBySourceRef(source: string, sourceRef: string): ObservationRow | null {
     return (
       (this.db

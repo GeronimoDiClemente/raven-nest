@@ -35,7 +35,8 @@ export interface Runner {
 }
 
 /** Cuántas memorias pide cada lista. */
-const LIMITE = 50
+/** Cuántas trae Recent o Search: la lista dice «50+» cuando llega al tope. */
+export const LIMITE = 50
 /** Cuánto queda un aviso en la barra antes de volver a las teclas. */
 const DURACION_DE_AVISO_MS = 4000
 

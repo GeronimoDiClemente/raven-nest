@@ -4,6 +4,7 @@ import { ink } from './ink'
 import { COLOR_DE_GRUPO, pintar } from './colores'
 import { grupoDeTipo, hace, recortar } from '../estilo-del-paquete'
 import { TIPOS } from '../memory-protocol'
+import { LIMITE } from './runner'
 
 /** El tipo más largo (`architecture`) entra entero. */
 const ANCHO_DE_TIPO = Math.max(...TIPOS.map((t) => t.length))
@@ -15,6 +16,14 @@ export const BIENVENIDA = 'No memories yet. Agents save them through the MCP, or
 export function haceCuanto(ms: number, ahora: number): string {
   const h = hace(ms, ahora)
   return h === 'now' ? h : `${h} ago`
+}
+
+/** «3 of 12 · this project»: dónde está el cursor y qué se está mirando. */
+export function posicionEnLista(e: Pick<EstadoDeLaTui, 'lista' | 'cursor' | 'pestana' | 'todosLosProyectos'>): string {
+  const n = e.lista.length
+  const total = `${n}${n >= LIMITE ? '+' : ''}`
+  const alcance = e.pestana === 'recent' ? (e.todosLosProyectos ? ' · all projects' : ' · this project') : ''
+  return `${e.cursor + 1} of ${total}${alcance}`
 }
 
 /** La ventana de filas que entra en `alto`, siguiendo al cursor. */
@@ -49,7 +58,8 @@ export function Lista(p: { estado: EstadoDeLaTui; ancho: number; conFecha: boole
   } else {
     // 2 del cursor, el tipo y su espacio, y la fecha si entra.
     const anchoDeTitulo = Math.max(8, p.ancho - 2 - (ANCHO_DE_TIPO + 1) - (conFecha ? ANCHO_DE_FECHA + 1 : 0))
-    const [desde, hasta] = ventana(e.lista.length, e.cursor, Math.max(1, p.alto - (enSearch ? 2 : 0)))
+    // La consulta se lleva 2 filas, y la posición de abajo otra.
+    const [desde, hasta] = ventana(e.lista.length, e.cursor, Math.max(1, p.alto - (enSearch ? 2 : 0) - 1))
     cuerpo = (
       <Box flexDirection="column">
         {e.lista.slice(desde, hasta).map((m, i) => {
@@ -63,6 +73,7 @@ export function Lista(p: { estado: EstadoDeLaTui; ancho: number; conFecha: boole
             </Box>
           )
         })}
+        <Text dimColor>{posicionEnLista(e)}</Text>
       </Box>
     )
   }

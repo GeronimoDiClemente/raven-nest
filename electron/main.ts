@@ -155,7 +155,7 @@ import { adapterForBin } from './memory-cli-adapters'
 import { ensureLocalAuthMaterial } from './memory-local-auth'
 import { runLocalMemoryImport } from './memory-local-import'
 import { resolveProjectKey, GLOBAL_PROJECT_KEY } from './memory-project-key'
-import type { ObservationType } from './memory-protocol'
+import type { ObservationType, StatusMemoryResult } from './memory-protocol'
 import { openReadonlyReader } from './integrations/memory-readonly-reader'
 import { planVault } from './integrations/vault-plan'
 import { applyVaultPlan, computeOnDiskHashes, readManifest } from './integrations/vault-apply'
@@ -648,6 +648,7 @@ try {
     // pull() on a local zero-result miss instead of waiting up to its ~5-minute interval
     // — see memory-ipc-server.ts's memory.search case for the full rationale.
     daemon,
+    estadoDeNest: () => estadoDeNestParaLaTui(),
   })
 
   accountStore.configureMemory({ paths: memoryProvisionerPaths(), isEnabled: () => memoryConnectionState.localEnabled })
@@ -4163,6 +4164,29 @@ ipcMain.handle('memory:sessions', () => {
   )
   return { ok: true, sessions, silentCount: sessions.filter((s) => s.health === 'silent').length }
 })
+
+/**
+ * Lo que `memory.status` (la TUI) suma a los conteos de la base: el mismo sync que
+ * `memory:status`, los conflictos de `memory:vault:health` y el cruce de `memory:sessions`.
+ */
+function estadoDeNestParaLaTui(): Pick<StatusMemoryResult, 'sync' | 'conflicts' | 'sessions'> {
+  if (!memory) return { sync: null, conflicts: null, sessions: null }
+  const userId = memory.store.getOwnerUserId()
+  const vault = loadVaultSettings(vaultSettingsPath(ravenHome(), userId))
+  const sesiones = reconcileSessions(ptyManager.panesWithMemory(), memory.store.listOpenSessions(), Date.now())
+  const cuantas = (h: string) => sesiones.filter((s) => s.health === h).length
+  return {
+    sync: memoryConnectionState.connected
+      ? {
+          status: memory.daemon.getStatus(),
+          detail: memory.daemon.getStatusDetail() ?? null,
+          plaintextPending: memory.daemon.getPlaintextPending() ?? null,
+        }
+      : null,
+    conflicts: vault.enabled ? readVaultHealth(resolveVaultRootDir(ravenHome(), userId, vault)).conflictCount : null,
+    sessions: { writing: cuantas('writing'), silent: cuantas('silent'), disabled: cuantas('disabled') },
+  }
+}
 
 // Spec §7.1: "if sync is blocked, fail loudly and visibly."
 ipcMain.handle('memory:doctor', () => {

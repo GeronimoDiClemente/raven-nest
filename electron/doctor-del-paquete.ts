@@ -41,7 +41,8 @@ export interface DependenciasDeDoctor {
   abrirSoloLectura: (path: string) => BaseSqlite
 }
 
-function tituloDelPayload(payload: string): string {
+/** El título de una mutación del log; `memory.doctor` del daemon lo lee igual. */
+export function tituloDelPayload(payload: string): string {
   try {
     const t = (JSON.parse(payload) as { title?: unknown }).title
     return typeof t === 'string' && t.trim() ? t : '(untitled)'

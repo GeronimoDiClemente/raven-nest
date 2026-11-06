@@ -9,8 +9,8 @@ import {
   nombreDelProyecto, leerRecientes, leerBusqueda, leerDetalle, pedidoDeGuardar,
   pedidoDeActualizar, verificarActualizacion, mensajeDe,
 } from './fuente-comun'
-import type { DatosDeStatus } from '../status-del-paquete'
-import type { DatosDeDoctor } from '../doctor-del-paquete'
+import { leerStatusDeNest } from './status-de-nest'
+import { completarDoctorConNest, ETIQUETA_DE_BLOQUEADAS } from './doctor-de-nest'
 
 export function crearFuenteDelDaemon(socket: string, token: string, cwd: string): FuenteDeLaTui {
   const c = new MemoryDaemonClient(socket, token)
@@ -31,23 +31,14 @@ export function crearFuenteDelDaemon(socket: string, token: string, cwd: string)
       verificarActualizacion(await escribir('memory.update', pedidoDeActualizar(cwd, id, m)))
     },
     borrar: async (id) => { await escribir('memory.delete', { cwd, syncId: id }) },
-    async status(): Promise<DatosDeStatus> {
-      return {
-        modo: 'daemon', vacia: false, total: 0, porGrupo: {}, personal: 0, deEquipo: 0,
-        guardadaEn: null, servicio: null, ilegiblesDeEquipo: 0, recientes: [],
-        filas: [{ marca: 'ok', etiqueta: 'Nest', detalle: 'open — memory goes through it' }],
-        resumen: 'Nest owns this memory',
-      }
-    },
-    async doctor(): Promise<DatosDeDoctor> {
-      return {
-        filas: [
-          { marca: 'ok', etiqueta: 'Nest', detalle: 'open — memory goes through it' },
-          { marca: 'nada', etiqueta: 'Blocked', detalle: 'see Memory settings in Nest' },
-        ],
-        homeDeNest: false, bloqueadas: [], problemas: 0, avisos: 0,
-      }
-    },
+    status: () => leerStatusDeNest(c),
+    doctor: () => completarDoctorConNest(c, {
+      filas: [
+        { marca: 'ok', etiqueta: 'Nest', detalle: 'open — memory goes through it' },
+        { marca: 'nada', etiqueta: ETIQUETA_DE_BLOQUEADAS, detalle: 'see Memory settings in Nest' },
+      ],
+      homeDeNest: false, bloqueadas: [], problemas: 0, avisos: 0,
+    }),
     cerrar: () => {},
   }
 }

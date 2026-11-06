@@ -208,6 +208,40 @@ export interface GetMemoryResult {
   resolvedLinks: WikilinkResuelto[]
 }
 
+/**
+ * `memory.status`: la pestaña Status de la TUI cuando Nest está abierto. Sin esto la TUI sólo
+ * podía decir "Nest owns this memory": los conflictos del vault y el cruce de sesiones los
+ * conoce sólo el proceso de Nest, no la base.
+ */
+export interface StatusMemoryResult {
+  total: number
+  /** Memorias vivas por `type`. */
+  byType: Record<string, number>
+  team: number
+  /** Cambios propios esperando subir. */
+  pending: number
+  /** `null`: sin nube conectada, la memoria es sólo local. */
+  sync: {
+    status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
+    /** El código del motivo (`offline`, `lock_held`, `needs_key`…), como `memory:status`. */
+    detail: string | null
+    /** Filas propias que siguen en claro en la nube; `null` hasta el primer status. */
+    plaintextPending: number | null
+  } | null
+  /** Notas en `_conflicts/` del vault; `null` con el vault apagado. */
+  conflicts: number | null
+  /** El cruce de `memory-sessions.ts` (§2.2): panes con memoria que escriben y que callan. */
+  sessions: { writing: number; silent: number; disabled: number } | null
+}
+
+/** `memory.doctor`: lo bloqueado con su motivo, para la pestaña Doctor de la TUI con Nest abierto. */
+export interface DoctorMemoryResult {
+  /** `mutation_log` con `blocked_reason` y sin subir: el mismo filtro que `nestmux-memory doctor`. */
+  blocked: Array<{ syncId: string | null; title: string; reason: string }>
+  /** Filas que llegaron cifradas y esta máquina no puede abrir. */
+  undecryptable: number
+}
+
 // MCP `memory_update` (docs/nest-memory-architecture.md §1.1) — corrige título/contenido/
 // tags de una memoria puntual ya guardada, sin pasar por el merge-por-topic_key de
 // memory_save. Envuelve MemoryStore.update(); ver su doc comment para el mecanismo de
@@ -244,6 +278,8 @@ export type MemoryMethod =
   // existe en la ventana de Nest, entonces es una funcion de la app y no de la memoria — y
   // quien se lleva el plugin a otro editor se queda sin ella.
   | 'memory.graph'
+  | 'memory.status'
+  | 'memory.doctor'
   | 'hook.sessionStart'
   | 'hook.stop'
   | 'hook.preCompact'

@@ -817,6 +817,43 @@ describe('MemoryIpcServer — lo que necesita la TUI (store real)', () => {
     expect(mutaciones()).toBe(antes + 1)
   })
 
+  it('memory.status cuenta las vivas por tipo, y sin estadoDeNest deja sync, vault y sesiones en null', async () => {
+    await guardar('/tmp/repo-a', 'uno', 'x', 'decision')
+    await guardar('/tmp/repo-a', 'dos', 'x', 'decision')
+    const { syncId } = await guardar('/tmp/repo-b', 'tres', 'x', 'bugfix')
+    await server.responder('memory.delete', { cwd: '/tmp/repo-b', syncId })
+    const r = await server.responder('memory.status', {})
+    expect(r).toMatchObject({ total: 2, byType: { decision: 2 }, team: 0, sync: null, conflicts: null, sessions: null })
+    expect((r as { pending: number }).pending).toBeGreaterThan(0)
+    expect(mutaciones()).toBe(4)
+  })
+
+  it('memory.doctor trae lo bloqueado sin subir, con su título, y lo ya subido no', async () => {
+    const a = await guardar('/tmp/repo-a', 'retenida')
+    const b = await guardar('/tmp/repo-a', 'rechazada')
+    const db = (store as unknown as { db: { prepare(s: string): { run(...a: unknown[]): void } } }).db
+    db.prepare("UPDATE mutation_log SET blocked_reason = 'quota_exceeded' WHERE sync_id = ?").run(a.syncId)
+    db.prepare("UPDATE mutation_log SET blocked_reason = 'observation_too_large', pushed_at = 1 WHERE sync_id = ?").run(b.syncId)
+    expect(await server.responder('memory.doctor', {})).toEqual({
+      blocked: [{ syncId: a.syncId, title: 'retenida', reason: 'quota_exceeded' }],
+      undecryptable: 0,
+    })
+  })
+
+  it('memory.status suma lo que arma Nest', async () => {
+    const conNest = new MemoryIpcServer({
+      store, socketPath: uniqueSocketPath(dir), authToken: TOKEN,
+      estadoDeNest: () => ({
+        sync: { status: 'idle', detail: null, plaintextPending: 0 },
+        conflicts: 3,
+        sessions: { writing: 1, silent: 1, disabled: 0 },
+      }),
+    })
+    expect(await conNest.responder('memory.status', {})).toMatchObject({
+      total: 0, conflicts: 3, sessions: { writing: 1, silent: 1, disabled: 0 }, sync: { status: 'idle' },
+    })
+  })
+
   it('memory.update con el mismo tipo y nada más es unchanged', async () => {
     const { syncId } = await guardar('/tmp/repo-a', 'T', 'c', 'discovery')
     const r = await server.responder('memory.update', { cwd: '/tmp/repo-a', syncId, type: 'discovery' })

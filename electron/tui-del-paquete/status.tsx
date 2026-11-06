@@ -28,7 +28,7 @@ export function Status(p: { datos: DatosDeStatus | null; color: boolean }) {
       {d.filas.map((f) => <FilaDeMarca key={f.etiqueta} fila={f} color={color} />)}
     </Box>
   )
-  if (d.modo === 'daemon') return filas
+  if (d.sinConteos) return filas
   if (d.vacia) {
     return (
       <Box flexDirection="column">

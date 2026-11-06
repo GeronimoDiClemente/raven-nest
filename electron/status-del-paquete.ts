@@ -18,6 +18,8 @@ export interface DatosDeStatus {
   modo: 'daemon' | 'nest' | 'propia'
   /** Base propia nueva: «No memory on this machine yet». */
   vacia: boolean
+  /** Sin conteos que mostrar (Nest abierto y no se le preguntó, o no supo contestar): sólo las filas. */
+  sinConteos?: boolean
   total: number
   porGrupo: Partial<Record<GrupoDeTipo, number>>
   personal: number
@@ -77,7 +79,7 @@ export async function leerStatusDelPaquete(d: DependenciasDeStatus): Promise<Dat
   const corto = (p: string) => acortarHome(p, d.homes)
   if (base.modo === 'daemon') {
     return {
-      ...VACIO, modo: 'daemon', resumen: 'Nest owns this memory',
+      ...VACIO, modo: 'daemon', sinConteos: true, resumen: 'Nest owns this memory',
       filas: [{ marca: 'ok', etiqueta: 'Nest', detalle: 'open here — it owns this memory and syncs it live' }],
     }
   }

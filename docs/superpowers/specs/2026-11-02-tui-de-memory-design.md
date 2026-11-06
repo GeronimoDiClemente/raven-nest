@@ -108,6 +108,12 @@ La TUI no tiene fuente de verdad propia: usa **el mismo cliente que el MCP del p
   de una pasada (`sync-del-paquete.ts`) si hay credencial, igual que el MCP local.
 - Las lecturas de Status y Doctor reusan las funciones que ya arman esas salidas
   (`estado-de-sync-del-paquete.ts`, el doctor del paquete), sin reimplementarlas.
+- Con Nest abierto, Status y Doctor se los pide al daemon (agregado el 2026-11-06):
+  `memory.status` trae los conteos, el sync (lo mismo que `memory:status`), los conflictos del
+  vault y el cruce de sesiones de `memory-sessions.ts`; `memory.doctor` trae lo bloqueado sin
+  subir y las ilegibles. Los textos son los de `CloudMemoryCard.tsx`
+  (`tui-del-paquete/status-de-nest.ts`, `doctor-de-nest.ts`). Un Nest viejo contesta
+  `Unknown method` y la TUI muestra la línea de antes ("Nest owns this memory").
 - Si en medio de la sesión Nest se abre o se cierra, la próxima escritura vuelve a elegir
   cliente (el mismo reintento que el MCP).
 
@@ -171,8 +177,8 @@ La TUI no tiene fuente de verdad propia: usa **el mismo cliente que el MCP del p
 - **Memoria de equipo cifrada sin clave en este device** (corregido 2026-11-05): una fila
   ilegible nunca llega a `observations` (`memory-store.ts`: "una fila ilegible no se aplica"),
   así que no hay título que listar ni detalle que abrir. Lo que la TUI muestra es el conteo, en
-  Status (`contarIlegiblesDeEquipo`, con la base del paquete). En el pane de Nest, Status no lo
-  trae: la fuente del daemon no expone ese conteo.
+  Status (`contarIlegiblesDeEquipo`, con la base del paquete). Con Nest abierto lo
+  trae Doctor, de `memory.doctor` (`undecryptable`).
 - **Memoria editada por otra máquina mientras estaba en el editor:** gana LWW como en todo el
   sistema; la TUI no intenta mezclar.
 

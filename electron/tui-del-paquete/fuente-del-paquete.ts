@@ -29,6 +29,8 @@ import {
   nombreDelProyecto, leerRecientes, leerBusqueda, leerDetalle, pedidoDeGuardar,
   pedidoDeActualizar, verificarActualizacion, mensajeDe, type Llamador,
 } from './fuente-comun'
+import { leerStatusDeNest } from './status-de-nest'
+import { completarDoctorConNest } from './doctor-de-nest'
 
 export type BaseLocal = Exclude<DecisionDeBase, { modo: 'daemon' }>
 
@@ -148,8 +150,13 @@ export function crearFuenteDelPaquete(deps: DependenciasDeFuente): FuenteDeLaTui
       verificarActualizacion(await escribir<UpdateMemoryResult>('memory.update', pedidoDeActualizar(cwd, id, m)))
     },
     borrar: async (id) => { await escribir('memory.delete', { cwd, syncId: id }) },
-    status: () => deps.leerStatus(base),
-    doctor: () => deps.leerDoctor(base),
+    // Con Nest abierto, los conteos y el sync se le piden a él; si no, a la base local.
+    status: () => (destino.tipo === 'daemon' ? leerStatusDeNest(deps.crearDaemon(destino.d)) : deps.leerStatus(destino.base)),
+    // Las filas de esta máquina (Node, Keyring…) salen del paquete; lo bloqueado, de Nest si está.
+    doctor: async () => {
+      const propio = await deps.leerDoctor(destino.tipo === 'daemon' ? base : destino.base)
+      return destino.tipo === 'daemon' ? completarDoctorConNest(deps.crearDaemon(destino.d), propio) : propio
+    },
     // Un push encolado tras la última escritura (guardar y salir enseguida) se espera: cerrar la
     // base debajo lo haría fallar con "database is not open", con el error impreso en la
     // terminal ya restaurada y la memoria sin subir hasta la próxima sesión.

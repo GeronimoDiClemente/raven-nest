@@ -18,6 +18,7 @@ import { buildSessionRollup } from './memory-rollup'
 import type {
   ContextMemoryParams,
   DeleteMemoryParams,
+  DoctorMemoryResult,
   GetMemoryParams,
   GetMemoryResult,
   HookPreCompactParams,
@@ -30,6 +31,7 @@ import type {
   SaveMemoryParams,
   SearchMemoryParams,
   SearchMemoryResult,
+  StatusMemoryResult,
   UpdateMemoryParams,
 } from './memory-protocol'
 import { generateSyncId } from './memory-store'
@@ -40,6 +42,7 @@ import { generateSyncId } from './memory-store'
 // needs, and it's what memory-ipc-server.test.ts's fakes implement.
 import type { MemoryDaemon } from './memory-daemon'
 import { renderMemoryGraphText } from './memory-graph-text'
+import { tituloDelPayload } from './doctor-del-paquete'
 
 type GitInfo = { remoteUrl?: string | null; branch?: string | null }
 
@@ -94,6 +97,11 @@ export interface MemoryIpcServerDeps {
   // this entirely) and tests that don't care about the fallback keep working. When absent,
   // memory.search answers from local data only, with no pull-through fallback.
   daemon?: MemoryIpcServerDaemon
+  /**
+   * Lo de `memory.status` que no está en la base: el sync, el vault y los panes. Lo arma
+   * main.ts; sin él (tests, un subsistema a medias) esas tres partes van en `null`.
+   */
+  estadoDeNest?: () => Pick<StatusMemoryResult, 'sync' | 'conflicts' | 'sessions'>
   /** Test-only override of DEFAULT_SEARCH_PULL_TIMEOUT_MS — see that constant. */
   searchPullTimeoutMs?: number
   /** Test-only override of DEFAULT_SUSPEND_DRAIN_TIMEOUT_MS — see that constant. */
@@ -492,6 +500,30 @@ export class MemoryIpcServer {
               ? params.projectKey
               : 'Todas las memorias'
           return { text: renderMemoryGraphText(conAristas, { encabezado }) }
+        }
+
+        // La pestaña Status de la TUI con Nest abierto. Lectura pura: sin onMutation.
+        case 'memory.status': {
+          const { porTipo, deEquipo } = store.conteoPorTipo()
+          const result: StatusMemoryResult = {
+            total: Object.values(porTipo).reduce((n, c) => n + c, 0),
+            byType: porTipo,
+            team: deEquipo,
+            pending: store.pendingMutationCount(),
+            ...(this.deps.estadoDeNest?.() ?? { sync: null, conflicts: null, sessions: null }),
+          }
+          return result
+        }
+
+        // La pestaña Doctor de la TUI con Nest abierto. Lectura pura: sin onMutation.
+        case 'memory.doctor': {
+          const result: DoctorMemoryResult = {
+            blocked: store.blockedMutations()
+              .filter((m) => m.pushed_at == null)
+              .map((m) => ({ syncId: m.sync_id ?? null, title: tituloDelPayload(m.payload), reason: m.blocked_reason! })),
+            undecryptable: store.undecryptableCount(),
+          }
+          return result
         }
 
         case 'hook.sessionStart': {

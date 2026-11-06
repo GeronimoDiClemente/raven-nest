@@ -13,6 +13,7 @@ import type { DatosDeStatus } from '../status-del-paquete'
 import type { DatosDeDoctor } from '../doctor-del-paquete'
 import type { DetalleDeMemoria } from '../tui-del-paquete/estado'
 import { leerDetalle } from '../tui-del-paquete/fuente-comun'
+import { statusDeNest } from '../tui-del-paquete/status-de-nest'
 
 const ahora = Date.now()
 const mem = (syncId: string, title: string, type: ObservationSummary['type'], content: string, horas: number): ObservationSummary => ({
@@ -198,6 +199,26 @@ describe('pantallas de la TUI', () => {
     expect(f).toContain('v22.12.0')
     expect(f).toContain('team_key_missing')
     expect(f).toContain('1 warning')
+    r.unmount()
+  })
+
+  it('Status con Nest abierto pinta los conteos, los conflictos y las sesiones', async () => {
+    const { fuente } = fuenteFalsa()
+    fuente.status = async () => statusDeNest({
+      total: 40, byType: { decision: 30, bugfix: 10 }, team: 5, pending: 0,
+      sync: { status: 'idle', detail: null, plaintextPending: 0 },
+      conflicts: 2, sessions: { writing: 1, silent: 1, disabled: 0 },
+    })
+    const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('40 items'))
+    r.stdin.write('3')
+    await hasta(() => !!r.lastFrame()?.includes('Conflicts'))
+    const f = r.lastFrame()!
+    expect(f).toContain('40 memories')
+    expect(f).toContain('personal 35 · team 5')
+    expect(f).toContain("2 in the vault's _conflicts")
+    expect(f).toContain('1 silent · 1 writing')
+    expect(f).not.toContain('STORED')
     r.unmount()
   })
 

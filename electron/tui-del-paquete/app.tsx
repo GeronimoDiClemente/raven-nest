@@ -12,6 +12,7 @@ import { Lista } from './lista'
 import { Detalle } from './detalle'
 import { Status } from './status'
 import { Doctor } from './doctor'
+import type { FilaDeEstado } from '../status-del-paquete'
 
 const PESTANAS = [
   { id: 'recent', nombre: 'Recent' },
@@ -44,11 +45,33 @@ export function teclasDe(e: EstadoDeLaTui): string {
   if (e.ayuda) return '? close help  esc close'
   if (e.pila.length > 0) return '↑↓ scroll  tab link  ⏎ follow  e edit  d delete  esc back  q quit'
   switch (e.pestana) {
-    case 'recent': return '↑↓ move  ⏎ open  n new  e edit  d delete  g all/this project  / search  ? help  q quit'
+    case 'recent': return '↑↓ move  ⏎ open  n new  e edit  d delete  g scope  / search  ? help  q quit'
     case 'search': return 'type to search  ↑↓ move  ⏎ open  esc clear  tab next tab'
     case 'status':
     case 'doctor': return '1-4 tabs  tab next  n new  / search  ? help  q quit'
   }
+}
+
+/**
+ * La barra en `ancho`: si no entra, se caen teclas del final, pero `? help` y `q quit` (las dos
+ * últimas) quedan siempre — con ellas se llega a todo lo demás.
+ */
+export function ajustarTeclas(texto: string, ancho: number): string {
+  const teclas = texto.split('  ')
+  const fijas = teclas.slice(-2)
+  const resto = teclas.slice(0, -2)
+  const unir = () => [...resto, ...fijas].join('  ')
+  while (resto.length > 0 && unir().length > ancho) resto.pop()
+  return unir()
+}
+
+/** El color del punto del encabezado: el de la peor fila de Status. */
+export function colorDelEstado(filas: FilaDeEstado[]): string {
+  const marcas = new Set(filas.map((f) => f.marca))
+  return marcas.has('falla') ? 'red'
+    : marcas.has('aviso') || marcas.has('pendiente') ? 'yellow'
+    : marcas.has('ok') ? 'green'
+    : 'gray'
 }
 
 /** Bajo este ancho el encabezado y las pestañas van compactos, para que sigan en una fila. */
@@ -57,17 +80,20 @@ const ANCHO_COMPACTO = 50
 function Encabezado(p: { proyecto: string; inst: Instantanea; ancho: number; compacto: boolean; color: boolean }) {
   const { Box, Text } = ink()
   const s = p.inst.status
-  const sincronizado = s?.resumen === 'synced'
-  const items = s && s.modo !== 'daemon' && !p.compacto
+  const titulo = `Nest Memory · ${p.proyecto}`
+  const conteo = s && !s.sinConteos && !p.compacto
     ? ` · ${s.total.toLocaleString('en-US')} ${s.total === 1 ? 'item' : 'items'}`
     : ''
+  // El conteo es lo primero que se cae: antes que recortar el nombre del proyecto.
+  const entra = s ? titulo.length + 1 + `● ${s.resumen}${conteo}`.length <= p.ancho : true
+  const items = entra ? conteo : ''
   return (
     <Box justifyContent="space-between" width={p.ancho}>
-      <Text bold wrap="truncate">Nest Memory · {p.proyecto}</Text>
+      <Text bold wrap="truncate">{titulo}</Text>
       {s && s.resumen ? (
         <Box flexShrink={0} marginLeft={1}>
           <Text wrap="truncate">
-            <Text color={pintar(p.color, sincronizado ? 'green' : 'yellow')}>●</Text>
+            <Text color={pintar(p.color, colorDelEstado(s.filas))}>●</Text>
             {` ${s.resumen}${items}`}
           </Text>
         </Box>
@@ -91,7 +117,7 @@ function Pestanas(p: { estado: EstadoDeLaTui; compacto: boolean }) {
   )
 }
 
-function Barra(p: { estado: EstadoDeLaTui; color: boolean }) {
+function Barra(p: { estado: EstadoDeLaTui; color: boolean; ancho: number }) {
   const { Text } = ink()
   const e = p.estado
   if (e.confirmando) return <Text color={pintar(p.color, 'red')} wrap="truncate">Delete "{e.confirmando.titulo}"? y/N</Text>
@@ -105,7 +131,7 @@ function Barra(p: { estado: EstadoDeLaTui; color: boolean }) {
     )
   }
   if (e.aviso) return <Text color={pintar(p.color, e.aviso.tipo === 'error' ? 'red' : 'green')} wrap="truncate">{e.aviso.texto}</Text>
-  return <Text dimColor wrap="truncate">{teclasDe(e)}</Text>
+  return <Text dimColor wrap="truncate">{ajustarTeclas(teclasDe(e), p.ancho)}</Text>
 }
 
 function Ayuda() {
@@ -186,7 +212,7 @@ export function App(p: {
         <Pantalla inst={inst} ancho={ancho} alto={Math.max(1, alto - FILAS_FIJAS)} color={color} proyecto={proyecto} />
       </Box>
       <Text dimColor>{linea}</Text>
-      <Barra estado={inst.estado} color={color} />
+      <Barra estado={inst.estado} color={color} ancho={ancho - 2} />
     </Box>
   )
 }
