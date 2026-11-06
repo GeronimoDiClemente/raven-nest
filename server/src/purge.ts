@@ -40,3 +40,31 @@ export async function purgeTombstones(
   )
   return rowCount ?? 0
 }
+
+/**
+ * Los recibos de push y los rechazos más viejos que la misma ventana de 90 días.
+ *
+ * `push_receipts` guarda una fila por cada mutación subida (cada re-upload vuelve a sumar la
+ * base entera) y `rejected_pushes` una por cada rechazo; nada los borraba, y crecían para
+ * siempre. Un recibo sirve para que un REINTENTO de la misma mutación no se aplique dos veces:
+ * el cliente reintenta en minutos u horas, no en meses. Si una máquina reintenta después de la
+ * ventana, la mutación se vuelve a evaluar y el guardia de LWW de `push.ts` la descarta si ya
+ * perdió contra lo guardado: el mismo costo que el de los tombstones, y la misma ventana.
+ *
+ * Los rechazos son observabilidad: lo que sirve es lo reciente.
+ */
+export async function purgeRegistrosDePush(
+  pool: Pool,
+  olderThanDays: number = DEFAULT_RETENTION_DAYS
+): Promise<{ recibos: number; rechazos: number }> {
+  const intervalo = [String(olderThanDays)]
+  const recibos = await pool.query(
+    `delete from push_receipts where created_at < now() - ($1 || ' days')::interval`,
+    intervalo
+  )
+  const rechazos = await pool.query(
+    `delete from rejected_pushes where created_at < now() - ($1 || ' days')::interval`,
+    intervalo
+  )
+  return { recibos: recibos.rowCount ?? 0, rechazos: rechazos.rowCount ?? 0 }
+}

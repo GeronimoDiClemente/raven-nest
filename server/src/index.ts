@@ -1,6 +1,6 @@
 import { getPool, migrate } from './db'
 import { createApp } from './http'
-import { purgeTombstones } from './purge'
+import { purgeTombstones, purgeRegistrosDePush } from './purge'
 import { backupDepsFromEnv, runBackup, shouldRunBackup } from './backup'
 
 const PORT = Number(process.env.PORT ?? 8080)
@@ -23,6 +23,8 @@ const PURGE_EVERY_MS = 24 * 60 * 60 * 1000
 const runPurge = () =>
   purgeTombstones(pool)
     .then((n) => n > 0 && console.log(`[purge] ${n} tombstones borrados`))
+    .then(() => purgeRegistrosDePush(pool))
+    .then((r) => (r.recibos > 0 || r.rechazos > 0) && console.log(`[purge] ${r.recibos} recibos y ${r.rechazos} rechazos de push borrados`))
     .catch((err) => console.error('[purge]', err))
 
 void runPurge()
