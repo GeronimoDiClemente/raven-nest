@@ -28,9 +28,16 @@ permissions:
   contents: write
 
 jobs:
+  # El CI entero (typecheck, tests de la app y del server, build) antes de cualquier otra cosa.
+  # Antes la release no esperaba a nada: un bump de versión en main se firmaba y publicaba con
+  # los tests en rojo, y las functions de Supabase salían a prod igual.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   # Se llama `decrypt` por historia: desencriptaba con git-crypt, que el repo ya no usa. Hoy
   # sólo empaqueta el source para los builds; el nombre se queda porque lo leen los `needs`.
   decrypt:
+    needs: ci
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -376,7 +383,9 @@ jobs:
           retention-days: 7
 
   deploy-functions:
-    needs: decrypt
+    # Después de `release`, no en paralelo a los builds: antes las functions llegaban a prod
+    # aunque un build fallara después, y quedaba una app vieja hablando con functions nuevas.
+    needs: [decrypt, release]
     # Una beta NO toca Supabase de producción: las functions que deploya son las de la rama,
     # y las usan todos los usuarios, no sólo los testers. La app de la beta no las necesita
     # (la memoria habla con el servicio de sync, no con functions). Y sólo desde main.

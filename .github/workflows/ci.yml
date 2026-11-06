@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # release.yml lo llama antes de buildear: una release no sale con tests en rojo.
+  workflow_call:
 
 jobs:
   typecheck:
