@@ -15,7 +15,7 @@
 // electron/__tests__/memory-provisioner.test.ts asserts byte-for-byte that the global
 // settings.json is unchanged by provision/deprovision — the regression test for this
 // exact hazard.
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, chmodSync, renameSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, chmodSync, renameSync, statSync } from 'fs'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
 
@@ -55,10 +55,25 @@ function claudeJsonPath(accountDir: string): string {
 // session-store.ts/local-paths-store.ts. A per-call
 // random tmp suffix avoids two concurrent provision calls (e.g. AccountStore.save() and
 // a PtyManager.create() self-heal racing) clobbering each other's in-flight write.
+//
+// Without an explicit `mode`, the file keeps the one it already had: the rename puts the tmp
+// file's inode in place, born with the umask (0644), and `.claude.json` — Claude Code's own
+// config — went from 0600 to world-readable on every provision (audit 2026-11-05). A file
+// that doesn't exist yet is born 0600: everything written here is per-account config.
 export function writeFileAtomic(path: string, content: string, mode?: number): void {
+  const finalMode = mode ?? existingMode(path) ?? 0o600
   const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
-  writeFileSync(tmp, content, mode !== undefined ? { mode } : undefined)
+  writeFileSync(tmp, content, { mode: finalMode })
+  chmodSync(tmp, finalMode) // writeFileSync's mode goes through the umask; chmod doesn't
   renameSync(tmp, path)
+}
+
+function existingMode(path: string): number | null {
+  try {
+    return statSync(path).mode & 0o777
+  } catch {
+    return null
+  }
 }
 
 /** Exported for reuse by other AI adapters (e.g. memory-provisioner-gemini.ts) — the
@@ -112,8 +127,14 @@ export function readJsonOrThrow(path: string): JsonFile {
   return parsed as JsonFile
 }
 
+/**
+ * Always 0600, even over a file that was 0644: every JSON written here lives under the
+ * account dir Nest owns (`.claude.json`, Gemini/Qwen `settings.json`), and `.claude.json`
+ * carries the account's identity and any MCP env a user typed in. The account dir is 0755,
+ * so a 0644 file there is readable by every user on the machine.
+ */
 export function writeJson(path: string, data: JsonFile): void {
-  writeFileAtomic(path, `${JSON.stringify(data, null, 2)}\n`)
+  writeFileAtomic(path, `${JSON.stringify(data, null, 2)}\n`, 0o600)
 }
 
 /** Idempotent: writes mcpServers.nest_memory into {accountDir}/.claude.json. */

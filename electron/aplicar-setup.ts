@@ -15,7 +15,7 @@
 //    que no era nuestro para agregar una línea.
 // 2. **Un destino que falla no aborta a los demás.** Que Cursor tenga un permiso raro no es
 //    motivo para dejar sin memoria a Claude Code. Se informa cuál falló y por qué.
-import { mkdirSync, writeFileSync, renameSync, existsSync, readFileSync, unlinkSync } from 'fs'
+import { mkdirSync, writeFileSync, renameSync, existsSync, readFileSync, unlinkSync, statSync, chmodSync, realpathSync } from 'fs'
 import { dirname } from 'path'
 import { randomBytes } from 'crypto'
 import type { PasoDelPlan, SondasDeDisco } from './setup-del-paquete'
@@ -44,14 +44,23 @@ export interface ResultadoDeAplicar {
  * Un config MCP dice qué binario corre y con qué argumentos; en una máquina compartida, que
  * cualquiera pueda leerlo no hace falta. Sólo aplica a los que creamos: a un archivo que ya
  * existía no le cambiamos los permisos, porque no son nuestros.
+ *
+ * "No cambiarlos" exige copiarlos: el renombre deja en el lugar el INODO del temporal, que
+ * nace con el umask (0644), así que un `~/.claude.json` en 0600 quedaba legible para otros
+ * usuarios de la máquina (auditoría 2026-11-05). Por lo mismo, un config que es un symlink
+ * (dotfiles en un repo) se escribe en su destino: renombrar sobre el link lo reemplazaba por
+ * un archivo suelto.
  */
 const MODO = 0o600
 
-function escribirAtomico(path: string, contenido: string, esNuevo: boolean): void {
+function escribirAtomico(pathPedido: string, contenido: string, esNuevo: boolean): void {
+  const path = esNuevo ? pathPedido : realpathSync(pathPedido)
+  const modo = esNuevo ? MODO : statSync(path).mode & 0o777
   mkdirSync(dirname(path), { recursive: true })
   const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
   try {
-    writeFileSync(tmp, contenido, esNuevo ? { mode: MODO } : undefined)
+    writeFileSync(tmp, contenido, { mode: modo })
+    chmodSync(tmp, modo) // el `mode` de writeFileSync pasa por el umask; éste no
     renameSync(tmp, path)
   } catch (err) {
     // El temporal se limpia SIEMPRE que el renombre no haya llegado a pasar. Dejarlo tirado

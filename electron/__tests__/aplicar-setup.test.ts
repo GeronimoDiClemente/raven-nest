@@ -2,7 +2,7 @@
 // `fs`: lo que puede fallar acá —permisos, directorios que no existen, un renombre que pisa
 // mal— no se ve mockeando las llamadas que uno cree que hace.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync, chmodSync, symlinkSync, lstatSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { aplicarPlan, sondasDeDisco } from '../aplicar-setup'
@@ -117,5 +117,48 @@ describe('aplicarPlan', () => {
     aplicarPlan(planDeSetup([d], sondasDeDisco(), ENTRADA))
     const sueltos = require('fs').readdirSync(home).filter((f: string) => f.includes('.tmp'))
     expect(sueltos).toEqual([])
+  })
+})
+
+// Permisos y symlinks (auditoría 2026-11-05): el renombre ponía el inodo del temporal, nacido
+// con el umask, en lugar del config del usuario.
+describe.skipIf(process.platform === 'win32')('aplicarPlan — permisos del archivo del usuario', () => {
+  const modo = (p: string) => statSync(p).mode & 0o777
+
+  it('un ~/.claude.json en 0600 sigue en 0600 después del setup y del deshacer', () => {
+    const d = destino('claude')
+    writeFileSync(d.path, '{}')
+    chmodSync(d.path, 0o600)
+    aplicarPlan(planDeSetup([d], sondasDeDisco(), ENTRADA))
+    expect(modo(d.path)).toBe(0o600)
+    aplicarPlan(planDeDeshacer([d], sondasDeDisco()))
+    expect(modo(d.path)).toBe(0o600)
+  })
+
+  it('tampoco le restringe los permisos a uno que el usuario dejó abierto', () => {
+    const d = destino('claude')
+    writeFileSync(d.path, '{}')
+    chmodSync(d.path, 0o664)
+    aplicarPlan(planDeSetup([d], sondasDeDisco(), ENTRADA))
+    expect(modo(d.path)).toBe(0o664)
+  })
+
+  it('el que crea nace en 0600, sin importar el umask', () => {
+    const d = destino('gemini')
+    mkdirSync(d.dirDeDeteccion!, { recursive: true })
+    aplicarPlan(planDeSetup([d], sondasDeDisco(), ENTRADA))
+    expect(modo(d.path)).toBe(0o600)
+  })
+
+  it('un config que es un symlink (dotfiles) sigue siendo symlink, y se escribe su destino', () => {
+    const d = destino('claude')
+    const real = join(home, 'dotfiles-claude.json')
+    writeFileSync(real, '{}')
+    chmodSync(real, 0o600)
+    symlinkSync(real, d.path)
+    aplicarPlan(planDeSetup([d], sondasDeDisco(), ENTRADA))
+    expect(lstatSync(d.path).isSymbolicLink()).toBe(true)
+    expect(JSON.parse(readFileSync(real, 'utf8')).mcpServers[NOMBRE_DEL_SERVIDOR]).toEqual(ENTRADA)
+    expect(modo(real)).toBe(0o600)
   })
 })
