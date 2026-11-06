@@ -187,6 +187,9 @@ en producción hay que fijar al menos `DATABASE_URL`.
 | `PORT` | `8080` | Puerto donde escucha el servidor HTTP. |
 | `MAX_BYTES_PER_USER` | ninguno (manda el plan) | Override de **instancia dedicada** (§10 de la spec de pricing): cuando un deploy sirve a un solo cliente, el techo por usuario de la tabla de planes no significa nada y el disco de la máquina es el límite real. Si está seteada, gana sobre `limitsFor(plan).maxBytes` **en los dos caminos que dependen de ese número**: lo que `GET /v1/sync/status` informa (`quota.max_bytes`) y el rechazo real de pushes por cuota (`quota_exceeded`, en `push.ts`). Los dos lo resuelven por la misma función, `maxBytesFor(plan)` en `limits.ts`. Sin setear — el caso del servicio compartido — manda el plan. Un valor no numérico, vacío o ≤ 0 se ignora y cae **al límite del plan** (antes caía a 1 GiB fijo, así que un `MAX_BYTES_PER_USER=abc` le reportaba 1 GiB a todo plan, Free incluido: un typo aflojaba el techo en vez de ignorarse). |
 | `PG_POOL_MAX` | `10` | Tamaño máximo del pool de conexiones a Postgres (`pg.Pool`). |
+| `PG_CONNECT_TIMEOUT_MS` | `5000` | Cuánto espera una request a que el pool le dé una conexión. Pasado eso, 503 con `Retry-After`. |
+| `PG_STATEMENT_TIMEOUT_MS` | `30000` | Tope de una consulta (`statement_timeout`). Las migraciones lo apagan para su sesión. |
+| `SYNC_ACCESS_LOG` | (prendido) | `0` apaga la línea JSON por request (`registro-de-requests.ts`). El suite la apaga. |
 | `R2_ACCOUNT_ID` | ninguno | ID de cuenta de Cloudflare, la primera parte del endpoint S3 de R2. **Sin las cuatro `R2_*` el servicio arranca igual pero no hace backups**, y lo dice en el log al arrancar. |
 | `R2_ACCESS_KEY_ID` | ninguno | Access key del API token de R2, **acotado al bucket de backups**. |
 | `R2_SECRET_ACCESS_KEY` | ninguno | Secret del mismo token. |

@@ -14,6 +14,13 @@ export const TTL_DEL_JWKS = 10 * 60 * 1000
 /** Lo mínimo entre dos refrescos disparados por un `kid` que no está en el caché. */
 export const ESPERA_ENTRE_REFRESCOS = 60 * 1000
 
+/**
+ * Cuánto se espera a Supabase. Sin tope, un Supabase que no contesta deja colgado cada login
+ * hasta que el sistema corte la conexión, ocupando sockets; con tope falla en 5s con un 401,
+ * igual que las otras dos llamadas a Supabase de `devices.ts`.
+ */
+export const TIMEOUT_DEL_JWKS = 5 * 1000
+
 export interface DepsDeJwks {
   buscar: (url: string) => Promise<Response>
   ahora: () => number
@@ -36,7 +43,7 @@ function esClaveDeFirma(k: unknown): k is JsonWebKey & { kid: string } {
  */
 export function clavesDeSupabase(
   urlDelProyecto: string,
-  deps: DepsDeJwks = { buscar: (url) => fetch(url), ahora: () => Date.now() }
+  deps: DepsDeJwks = { buscar: (url) => fetch(url, { signal: AbortSignal.timeout(TIMEOUT_DEL_JWKS) }), ahora: () => Date.now() }
 ): ClavesDeFirma {
   const url = `${urlDelProyecto.replace(/\/+$/, '')}/auth/v1/.well-known/jwks.json`
 

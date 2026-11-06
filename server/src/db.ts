@@ -15,13 +15,35 @@ const MIGRATION_LOCK_KEY = 8127346512
 // connections per request instead of reusing one, exhausting Postgres under load.
 let pool: Pool | undefined
 
+/**
+ * Los dos topes de tiempo que el pool no trae por default, y sin los cuales un Postgres lento
+ * deja requests colgadas para siempre.
+ *
+ * - `connectionTimeoutMillis`: cuánto espera una request a que se libere una conexión. Sin
+ *   tope, con el pool lleno (diez pushes grandes a la vez) un status espera indefinidamente,
+ *   el cliente corta a los 30s y reintenta, y la cola sólo crece. Con tope, la request falla
+ *   rápido y `http.ts` contesta 503 con `Retry-After`.
+ * - `statement_timeout`: cuánto puede correr una consulta. Ninguna del camino de una request
+ *   debería pasar de segundos; una que llega a 30 está trabada y retiene su conexión. Las
+ *   migraciones lo apagan para su sesión (ver `migrate`): crear un índice puede tardar más.
+ */
+export function opcionesDelPool(env: NodeJS.ProcessEnv = process.env) {
+  return {
+    connectionString: env.DATABASE_URL ?? 'postgres://postgres:nestmem@127.0.0.1:55432/nest_memory',
+    max: Number(env.PG_POOL_MAX ?? 10),
+    connectionTimeoutMillis: Number(env.PG_CONNECT_TIMEOUT_MS ?? 5_000),
+    statement_timeout: Number(env.PG_STATEMENT_TIMEOUT_MS ?? 30_000),
+  }
+}
+
 export function getPool(): Pool {
   if (!pool) {
-    pool = new Pool({
-      connectionString:
-        process.env.DATABASE_URL ?? 'postgres://postgres:nestmem@127.0.0.1:55432/nest_memory',
-      max: Number(process.env.PG_POOL_MAX ?? 10),
-    })
+    pool = new Pool(opcionesDelPool())
+    // Sin este listener, un error en una conexión INACTIVA del pool —Postgres que se reinicia,
+    // un corte de red de Railway— se emite como 'error' sin nadie escuchando, y Node mata el
+    // proceso entero por una conexión que ni estaba en uso. El pool ya la descarta solo; acá
+    // sólo hay que dejar constancia.
+    pool.on('error', (err) => console.error('[db] conexión inactiva perdida:', err.message))
   }
   return pool
 }
@@ -55,6 +77,9 @@ export async function migrate(pool: Pool): Promise<number> {
 
   const client = await pool.connect()
   try {
+    // Una migración puede crear un índice sobre una tabla grande: el tope de las requests no
+    // aplica acá. Se restaura en el finally, porque el cliente vuelve al pool.
+    await client.query('set statement_timeout = 0')
     await client.query('select pg_advisory_lock($1)', [MIGRATION_LOCK_KEY])
     await client.query(
       `create table if not exists schema_migrations (
@@ -86,6 +111,7 @@ export async function migrate(pool: Pool): Promise<number> {
     return applied
   } finally {
     await client.query('select pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY])
+    await client.query('reset statement_timeout')
     client.release()
   }
 }

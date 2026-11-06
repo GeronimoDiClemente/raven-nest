@@ -12,7 +12,7 @@ const pool = getPool()
 // fails to migrate must refuse to start, not accept traffic against an unmigrated schema.
 await migrate(pool)
 
-createApp(pool).listen(PORT, () => {
+const server = createApp(pool).listen(PORT, () => {
   console.log(`[sync] listening on ${PORT}`)
 })
 
@@ -55,8 +55,23 @@ const runBackupIfDue = async () => {
 void runBackupIfDue()
 setInterval(() => void runBackupIfDue(), BACKUP_EVERY_MS).unref()
 
+// Apagado ordenado. Railway manda SIGTERM en cada redeploy: antes se cerraba el pool primero,
+// y las requests en vuelo —un push a medio lote— morían con un error de conexión. Ahora se deja
+// de aceptar conexiones, se espera a que terminen las que están en curso, y recién ahí se cierra
+// el pool. El tope de 10s es por si alguna no termina nunca: Railway mata a los 30 igual.
+const TOPE_DEL_APAGADO_MS = 10_000
+let apagando = false
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
-    void pool.end().then(() => process.exit(0))
+    if (apagando) return
+    apagando = true
+    console.log(`[sync] ${signal}: terminando las requests en curso`)
+    setTimeout(() => process.exit(1), TOPE_DEL_APAGADO_MS).unref()
+    server.close(() => {
+      void pool.end().finally(() => process.exit(0))
+    })
+    // Las keep-alive ociosas no son requests en curso: sin esto `close` las espera hasta que
+    // el cliente las suelte.
+    server.closeIdleConnections()
   })
 }

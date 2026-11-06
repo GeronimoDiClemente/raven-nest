@@ -24,6 +24,6 @@ export default defineConfig({
      * 24 archivos de tests suben filas en claro para probar OTRAS cosas (cuota, tope, pull,
      * supersede); esto los deja seguir haciéndolo. En producción esta variable no existe.
      */
-    env: { ALLOW_PLAINTEXT_PERSONAL: '1' },
+    env: { ALLOW_PLAINTEXT_PERSONAL: '1', SYNC_ACCESS_LOG: '0' },
   },
 })

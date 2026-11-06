@@ -20,6 +20,7 @@ import { aplicarMembresias, leerAvisoDeMembresias } from './membership-sync'
 import { UUID_RE } from './uuid'
 import { cabecerasCors, origenesDeVinculacion } from './cors'
 import { ipDelCliente } from './ip-del-cliente'
+import { registrarRequest, rutaParaLog, emisorDelEntorno as emisorDeRegistro, type LineaDeRequest } from './registro-de-requests'
 
 // El emisor del JWKS se arma UNA vez por URL y se guarda: cada instancia tiene su propio
 // caché, así que una por request no cachearía nada y saldría a Supabase en cada login.
@@ -219,7 +220,18 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`)
   const path = url.pathname
 
-  if (path === '/health') return send(res, 200, { ok: true })
+  // Toca la base: un `/health` que contesta 200 con Postgres caído le dice a un monitor de
+  // uptime que todo anda mientras ninguna request de sync puede funcionar. El tope de conexión
+  // del pool (`db.ts`) hace que esto falle en 5s y no se cuelgue.
+  if (path === '/health') {
+    try {
+      await pool.query('select 1')
+      return send(res, 200, { ok: true })
+    } catch (err) {
+      console.error('[health] la base no responde:', (err as Error).message)
+      return send(res, 503, { ok: false })
+    }
+  }
 
   // La beta cerrada se reparte desde acá (ver `betas.ts`). Con su propio try/catch por lo
   // mismo que el resto: una falla de R2 o de la base no puede tumbar el proceso.
@@ -445,10 +457,34 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     // A `status` on the error means it is the client's fault (bad JSON, an oversized body)
     // and safe to echo back. Anything else is ours — log it server-side and hand the client
     // a generic code instead of leaking internals (a stack trace, a driver error message).
+    if (esBaseNoDisponible(err)) return sendNoDisponible(res, path, err)
     const status = (err as { status?: number }).status ?? 500
     if (status === 500) console.error('[http]', path, err)
     return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
   }
+}
+
+/**
+ * La base no está disponible para esta request: el pool no consiguió conexión a tiempo, una
+ * consulta pasó su tope (`db.ts`), o Postgres no acepta conexiones (reinicio, corte de red).
+ * No es un bug de la request, así que va un 503 con `Retry-After` en vez de un 500 — el
+ * cliente lo trata como pasajero y vuelve más tarde.
+ */
+export function esBaseNoDisponible(err: unknown): boolean {
+  const msg = (err as { message?: unknown })?.message
+  if (typeof msg === 'string' && /timeout exceeded when trying to connect|connection timeout|Connection terminated/i.test(msg)) return true
+  const code = (err as { code?: unknown })?.code
+  // 57014 = query_canceled (corte por statement_timeout); 57P01..03 = Postgres apagándose o
+  // arrancando; los otros, la conexión TCP misma.
+  return ['57014', '57P01', '57P02', '57P03', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND'].includes(code as string)
+}
+
+const REINTENTO_SIN_BASE_S = 5
+
+function sendNoDisponible(res: ServerResponse, path: string, err: unknown): void {
+  // La ruta normalizada, no el path crudo: el de `/beta/` lleva un token.
+  console.error('[http] base no disponible', rutaParaLog(path), (err as Error).message)
+  send(res, 503, { error: 'unavailable' }, { 'Retry-After': String(REINTENTO_SIN_BASE_S) })
 }
 
 /**
@@ -690,14 +726,18 @@ async function handleInternalMemberships(pool: Pool, req: IncomingMessage, res: 
   }
 }
 
-export function createApp(pool: Pool) {
+export function createApp(pool: Pool, registrar: (l: LineaDeRequest) => void = emisorDeRegistro()) {
   return createServer((req, res) => {
+    registrarRequest(req, res, registrar)
     handleRequest(pool, req, res).catch((err) => {
       // Last-resort net: handleRequest already catches everything reachable through the
       // routes above. This exists only so a bug in that catch itself still can't produce
-      // an unhandled rejection that takes the process down.
+      // an unhandled rejection that takes the process down. Los handlers con try propio
+      // (devices, link, keys) dejan escapar acá un pool saturado: también es un 503.
+      if (res.headersSent) return console.error('[http] unhandled', err)
+      if (esBaseNoDisponible(err)) return sendNoDisponible(res, new URL(req.url ?? '/', 'http://x').pathname, err)
       console.error('[http] unhandled', err)
-      if (!res.headersSent) send(res, 500, { error: 'internal_error' })
+      send(res, 500, { error: 'internal_error' })
     })
   })
 }
