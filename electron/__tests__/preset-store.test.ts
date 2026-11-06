@@ -103,4 +103,36 @@ describe('PresetStore', () => {
     expect(list.length).toBe(2)
     warn.mockRestore()
   })
+
+  describe('lo que se le pasa a /bin/sh', () => {
+    const escribir = (p: unknown) => {
+      const dir = join(repo, '.raven', 'presets')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'x.json'), JSON.stringify(p))
+    }
+    const base = { id: 'x', name: 'X' }
+
+    it('un comando que no es string invalida el preset', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      escribir({ ...base, setup: ['npm i', { cmd: 'rm -rf ~' }] })
+      expect(store.list(repo)).toEqual([])
+      escribir({ ...base, postCreate: [42] })
+      expect(store.list(repo)).toEqual([])
+      warn.mockRestore()
+    })
+
+    it('un env con un valor que no es string, o con una variable que cambia qué se ejecuta, también', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      for (const env of [{ A: 1 }, { NODE_OPTIONS: '--require ./x.js' }, { PATH: '/tmp/x' }, { DYLD_INSERT_LIBRARIES: 'x' }, { ld_preload: 'x' }, { BASH_ENV: 'x' }]) {
+        escribir({ ...base, env })
+        expect(store.list(repo)).toEqual([])
+      }
+      warn.mockRestore()
+    })
+
+    it('un env común pasa', () => {
+      escribir({ ...base, setup: ['npm i'], env: { PORT: '3000', NODE_ENV: 'development' } })
+      expect(store.list(repo)).toHaveLength(1)
+    })
+  })
 })

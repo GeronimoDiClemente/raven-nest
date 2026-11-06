@@ -683,6 +683,9 @@ contextBridge.exposeInMainWorld('preset', {
     ipcRenderer.invoke('preset:delete', repoPath, presetId),
   apply: (worktreePath: string, presetId: string) =>
     ipcRenderer.invoke('preset:apply', worktreePath, presetId),
+  review: (repoPath: string, presetId: string) => ipcRenderer.invoke('preset:review', repoPath, presetId),
+  trust: (repoPath: string, presetId: string, hash: string) =>
+    ipcRenderer.invoke('preset:trust', repoPath, presetId, hash),
   cancel: (worktreePath: string) => ipcRenderer.invoke('preset:cancel', worktreePath),
   onSetupProgress: (cb: (worktreePath: string, line: string) => void) => {
     ipcRenderer.removeAllListeners('preset:setupProgress')

@@ -495,8 +495,7 @@ export default function App() {
         const repoPath = activeRepoPathRef.current
         if (!repoPath) return // sin repo activo no hay de dónde ramificar
         const branch = await window.tickets.branchName(githubLoginRef.current ?? '', 'slack', m.text.slice(0, 24))
-        const res = await window.worktree.create({ repoPath, branch }) as unknown as
-          ({ ok: true; meta: WorktreeMeta } | { ok: false; error: string })
+        const res = await window.worktree.create({ repoPath, branch })
         if (!res.ok) { console.warn('[slack] worktree.create failed', res.error); return }
         const worktreePath = res.meta.repoPath
         paneThreadRef.current[worktreePath] = { channel: m.channel, threadTs: m.threadTs }

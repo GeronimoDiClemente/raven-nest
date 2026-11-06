@@ -34,11 +34,12 @@ export function QuickWorktreePalette({ open, repoPath, onClose, onCreated }: Pro
     setError(null)
     setCreating(true)
     try {
-      const meta = await window.worktree.create({
+      const res = await window.worktree.create({
         repoPath,
         branch: branch.trim(),
       })
-      onCreated(meta)
+      if (!res.ok) { setError(res.error); return }
+      onCreated(res.meta)
       setBranch('')
       onClose()
     } catch (err) {

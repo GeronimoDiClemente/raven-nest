@@ -2,12 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useGitHub } from '../hooks/useGitHub'
 import { useUserRepos } from '../hooks/useUserRepos'
 import type { BoardRow } from '../integrations/board'
-import type { Ticket, WorkerSpec, WorktreeMeta } from '../types'
-
-// worktree:create actually resolves to this union (see the handler in
-// electron/main.ts); the bridge type in src/types.ts predates it and still
-// says Promise<WorktreeMeta>, so we narrow here through unknown.
-type WorktreeCreateResult = { ok: true; meta: WorktreeMeta } | { ok: false; error: string }
+import type { Ticket, WorkerSpec } from '../types'
 
 interface Props {
   row: BoardRow
@@ -84,7 +79,7 @@ export function WorktreePicker({ row, onClose, onCreated, onOpenWorktree }: Prop
     setBusy(true)
     setError(null)
     try {
-      const res = await window.worktree.create({ repoPath: repo.local_path, branch }) as unknown as WorktreeCreateResult
+      const res = await window.worktree.create({ repoPath: repo.local_path, branch })
       if (!res.ok) { setError(res.error || 'worktree failed'); return }
       const ticket: Ticket = { key: row.key, providerId: row.providerId, title: row.title, url: row.url, state: row.ticketState, context: '' }
       const started = await window.tickets.startWork({ pluginId: row.pluginId, ticket, branch, worktreePath: res.meta.repoPath })

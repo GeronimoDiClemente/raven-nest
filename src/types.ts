@@ -614,6 +614,19 @@ export interface RavenPreset {
   spotlightIgnore?: string[]
 }
 
+/** Lo que contesta `worktree:create`: el main no tira, devuelve el motivo. */
+export type WorktreeCreateResult = { ok: true; meta: WorktreeMeta } | { ok: false; error: string }
+
+/** Lo que un preset ejecuta, para mostrarlo antes de aprobarlo. */
+export interface PresetReview {
+  trusted: boolean
+  hash: string
+  postCreate: string[]
+  setup: string[]
+  dev: string | null
+  env: Record<string, string>
+}
+
 export interface ConversationMeta {
   id: string
   aiType: string
@@ -1463,7 +1476,7 @@ declare global {
         | { ok: true; worktrees: WorktreeMeta[] }
         | { ok: false; error: string }
       >
-      create: (opts: { repoPath: string; branch: string; fromBranch?: string; path?: string; presetId?: string }) => Promise<WorktreeMeta>
+      create: (opts: { repoPath: string; branch: string; fromBranch?: string; path?: string; presetId?: string }) => Promise<WorktreeCreateResult>
       remove: (worktreePath: string) => Promise<void>
       get: (worktreePath: string) => Promise<WorktreeMeta | null>
       setPreset: (worktreePath: string, presetId: string | null) => Promise<void>
@@ -1482,6 +1495,9 @@ declare global {
       save: (repoPath: string, preset: RavenPreset) => Promise<void>
       delete: (repoPath: string, presetId: string) => Promise<void>
       apply: (worktreePath: string, presetId: string) => Promise<void>
+      /** Lo que el preset ejecuta y si este repo ya lo aprobó (`electron/preset-trust.ts`). */
+      review: (repoPath: string, presetId: string) => Promise<PresetReview | null>
+      trust: (repoPath: string, presetId: string, hash: string) => Promise<{ ok: true } | { ok: false; error: string }>
       cancel: (worktreePath: string) => Promise<void>
       onSetupProgress: (cb: (worktreePath: string, line: string) => void) => void
       onSetupState: (cb: (worktreePath: string, state: WorktreeMeta['setupState']) => void) => void

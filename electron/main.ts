@@ -114,6 +114,7 @@ import { ConversationStore } from './conversation-store'
 import { WorkspaceStore } from './workspace-store'
 import { WorktreeStore } from './worktree-store'
 import { PresetStore } from './preset-store'
+import { PresetTrust, hashDePreset } from './preset-trust'
 import { SetupRunner } from './setup-runner'
 import { CliInstallRunner, installCommandFor } from './cli-install-runner'
 import { scanPid } from './port-monitor'
@@ -880,6 +881,9 @@ const conversationStore = new ConversationStore()
 const workspaceStore = new WorkspaceStore()
 const worktreeStore = new WorktreeStore(pathJoin(ravenHome(), '.raven-nest'))
 const presetStore = new PresetStore()
+const presetTrust = new PresetTrust(ravenHome())
+/** El error que el modal reconoce para mostrar los comandos y pedir la aprobación. */
+const PRESET_SIN_APROBAR = 'preset_not_trusted'
 const setupRunner = new SetupRunner()
 const cliInstallRunner = new CliInstallRunner()
 const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[0] ?? null)
@@ -1923,6 +1927,16 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
     return { ok: false as const, error: `Invalid fromBranch name: ${opts.fromBranch}` }
   }
 
+  // Un preset del repo no corre sin que el usuario haya visto y aprobado sus comandos
+  // (preset-trust.ts). Se chequea ANTES de crear nada: fallar después dejaría un worktree a medias.
+  let preset: import('../src/types').RavenPreset | null = null
+  if (opts.presetId) {
+    preset = presetStore.get(opts.repoPath, opts.presetId)
+    if (preset && !presetTrust.estaAprobado(opts.repoPath, preset)) {
+      return { ok: false as const, error: PRESET_SIN_APROBAR }
+    }
+  }
+
   const from = opts.fromBranch ?? 'HEAD'
   const addResult = await runWorktreeAdd(opts.repoPath, opts.branch, wtPath, from)
   if (!addResult.ok) return { ok: false as const, error: addResult.error }
@@ -1935,10 +1949,6 @@ ipcMain.handle('worktree:create', async (_evt, opts: {
 
   // Persist meta
   const now = Date.now()
-  let preset: import('../src/types').RavenPreset | null = null
-  if (opts.presetId) {
-    preset = presetStore.get(opts.repoPath, opts.presetId)
-  }
   const meta = {
     repoPath: wtPath,
     rootRepoPath: opts.repoPath,
@@ -2084,7 +2094,32 @@ ipcMain.handle('preset:list', async (_evt, repoPath: string) => {
 
 ipcMain.handle('preset:save', async (_evt, repoPath: string, preset: import('../src/types').RavenPreset) => {
   if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
-  return presetStore.save(repoPath, preset)
+  const guardado = presetStore.save(repoPath, preset)
+  // Lo escribió el usuario en el editor de Nest: ya vio lo que ejecuta.
+  presetTrust.aprobar(repoPath, guardado)
+  return guardado
+})
+
+// Lo que el modal muestra antes de correr un preset del repo: todo lo que se ejecuta, y el hash
+// que el usuario aprueba (si el archivo cambia entre que lo ve y lo aprueba, no vale).
+ipcMain.handle('preset:review', async (_evt, repoPath: string, presetId: string) => {
+  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
+  const p = presetStore.get(repoPath, presetId)
+  if (!p) return null
+  return {
+    trusted: presetTrust.estaAprobado(repoPath, p),
+    hash: hashDePreset(p),
+    postCreate: p.postCreate ?? [], setup: p.setup ?? [], dev: p.dev ?? null, env: p.env ?? {},
+  }
+})
+
+ipcMain.handle('preset:trust', async (_evt, repoPath: string, presetId: string, hash: string) => {
+  if (!isAbsolute(repoPath)) throw new Error('repoPath must be absolute')
+  const p = presetStore.get(repoPath, presetId)
+  if (!p) return { ok: false as const, error: 'Preset not found' }
+  if (hashDePreset(p) !== hash) return { ok: false as const, error: 'The preset changed after you reviewed it. Review it again.' }
+  presetTrust.aprobar(repoPath, p)
+  return { ok: true as const }
 })
 
 ipcMain.handle('preset:delete', async (_evt, repoPath: string, presetId: string) => {
@@ -2098,6 +2133,7 @@ ipcMain.handle('preset:apply', async (_evt, worktreePath: string, presetId: stri
   if (!meta) throw new Error('Worktree not found')
   const preset = presetStore.get(meta.rootRepoPath, presetId)
   if (!preset) throw new Error(`Preset not found: ${presetId}`)
+  if (!presetTrust.estaAprobado(meta.rootRepoPath, preset)) throw new Error(PRESET_SIN_APROBAR)
   worktreeStore.setMeta({
     ...meta,
     presetId: preset.id,

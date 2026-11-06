@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { RavenPreset, WorktreeMeta } from '../types'
+import type { PresetReview, RavenPreset, WorktreeMeta } from '../types'
 import { useBridge } from '../lib/bridge'
 
 interface Props {
@@ -21,6 +21,9 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
   const [fromBranch, setFromBranch] = useState<string>('')
   const [envFiles, setEnvFiles] = useState<string[]>([])
   const [copyEnvFiles, setCopyEnvFiles] = useState(true)
+  // El preset elegido todavía no está aprobado: se muestra lo que ejecuta y Create pasa a ser
+  // «Trust and create». Cambiar de preset lo descarta.
+  const [revision, setRevision] = useState<PresetReview | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -59,17 +62,36 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
   const repoName = lastSlash >= 0 ? repoPosix.slice(lastSlash + 1) : repoPosix
   const suggestedPath = path || `${parentDir}/${repoName}-${slug || '<branch>'}`
 
+  const elegirPreset = (id: string | null) => { setPresetId(id); setRevision(null) }
+
   const handleCreate = async () => {
     if (!branch.trim()) { setError('Branch name required'); return }
     setError(null); setCreating(true)
     try {
-      const meta = await bridge.worktree.create({
+      if (presetId) {
+        if (revision) {
+          // Lo que el usuario vio es lo que se aprueba: si el archivo cambió, el main lo rechaza.
+          const r = await bridge.preset.trust(repoPath, presetId, revision.hash)
+          if (!r.ok) { setRevision(await bridge.preset.review(repoPath, presetId)); setError(r.error); return }
+        } else {
+          const r = await bridge.preset.review(repoPath, presetId)
+          if (r && !r.trusted) { setRevision(r); return }
+        }
+      }
+      const res = await bridge.worktree.create({
         repoPath,
         branch: branch.trim(),
         fromBranch: fromBranch || undefined,
         path: path.trim() || undefined,
         presetId: presetId ?? undefined,
       })
+      if (!res.ok) {
+        // Carrera: el preset cambió entre la revisión y el create. Se vuelve a mostrar.
+        if (res.error === 'preset_not_trusted' && presetId) { setRevision(await bridge.preset.review(repoPath, presetId)); return }
+        setError(res.error)
+        return
+      }
+      const meta = res.meta
       // Best-effort .env carry-over. Failures are logged but never abort the
       // create flow — the worktree already exists at this point.
       if (copyEnvFiles && envFiles.length > 0) {
@@ -80,7 +102,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
         }
       }
       onCreated(meta)
-      setBranch(''); setPath(''); setPresetId(null); onClose()
+      setBranch(''); setPath(''); setPresetId(null); setRevision(null); onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -141,7 +163,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
           <button
             type="button"
             className={`preset-card ${presetId === null ? 'preset-card-selected' : ''}`}
-            onClick={() => setPresetId(null)}
+            onClick={() => elegirPreset(null)}
             disabled={creating}
           >
             <span className="preset-card-name">Empty</span>
@@ -152,7 +174,7 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
               key={p.id}
               type="button"
               className={`preset-card ${presetId === p.id ? 'preset-card-selected' : ''}`}
-              onClick={() => setPresetId(p.id)}
+              onClick={() => elegirPreset(p.id)}
               disabled={creating}
               title={p.description}
             >
@@ -164,6 +186,8 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
             </button>
           ))}
         </div>
+
+        {revision && <RevisionDePreset revision={revision} repoName={repoName} />}
 
         {error && <div className="modal-error">{error}</div>}
 
@@ -194,10 +218,33 @@ export function NewWorktreeModal({ open, repoPath, onClose, onCreated }: Props) 
         <div className="dialog-actions">
           <button className="dialog-cancel" onClick={onClose} disabled={creating}>Cancel</button>
           <button className="btn-primary" data-tour-id="wt-create-btn" onClick={handleCreate} disabled={creating || !branch.trim()}>
-            {creating ? 'Creating…' : 'Create'}
+            {creating ? 'Creating…' : revision ? 'Trust and create' : 'Create'}
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Todo lo que el preset va a ejecutar, antes de aprobarlo. Viene del repo: lo puede haber
+ * escrito cualquiera que commitee ahí (electron/preset-trust.ts).
+ */
+function RevisionDePreset({ revision, repoName }: { revision: PresetReview; repoName: string }) {
+  const comandos = [...revision.postCreate, ...revision.setup]
+  const env = Object.entries(revision.env)
+  return (
+    <div role="alert" className="mt-3 flex flex-col gap-1.5 rounded-md border border-warn p-3">
+      <p className="m-0 text-fs-sm font-medium text-warn">This preset runs commands from the repo</p>
+      <p className="m-0 text-fs-xs text-muted-foreground">
+        Anyone who can commit to {repoName} could have written them. Only continue if you trust this
+        repo. Nest remembers your approval until these commands change.
+      </p>
+      <pre className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-fs-xs text-foreground">
+        {comandos.map((c) => `$ ${c}`).join('\n')}
+        {revision.dev ? `${comandos.length ? '\n' : ''}dev: ${revision.dev}` : ''}
+        {env.length ? `\n${env.map(([k, v]) => `${k}=${v}`).join('\n')}` : ''}
+      </pre>
     </div>
   )
 }

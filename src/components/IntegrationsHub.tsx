@@ -10,17 +10,13 @@ import { RecipesView } from './RecipesView'
 import { AutomationsView } from './AutomationsView'
 import { ConnectionsView } from './ConnectionsView'
 import type { BoardRow } from '../integrations/board'
-import type { WorkerSpec, WorktreeMeta } from '../types'
+import type { WorkerSpec } from '../types'
 
 interface IntegrationsHubProps {
   onClose: () => void
   activeRepoPath?: string | null
   onOpenWorktree?: (worktreePath: string, initialInput?: string, worker?: WorkerSpec) => void
 }
-
-// worktree:create actually resolves to this union (see WorktreePicker.tsx's
-// identical local type + comment) — narrow through unknown here too.
-type WorktreeCreateResult = { ok: true; meta: WorktreeMeta } | { ok: false; error: string }
 
 type HubTab = 'hub' | 'connections' | 'recipes' | 'automations'
 
@@ -49,7 +45,7 @@ export function IntegrationsHub({ onClose, activeRepoPath, onOpenWorktree }: Int
     setCalBusy(true)
     try {
       const branch = await window.tickets.branchName(githubLogin ?? '', 'cal', title)
-      const res = await window.worktree.create({ repoPath: activeRepoPath, branch }) as unknown as WorktreeCreateResult
+      const res = await window.worktree.create({ repoPath: activeRepoPath, branch })
       if (!res.ok) { setCalError(res.error || 'worktree failed'); return }
       const started = await window.gcal.startSession({ title, context, worktreePath: res.meta.repoPath })
       onOpenWorktree?.(res.meta.repoPath, started.ok ? started.prompt : undefined)
