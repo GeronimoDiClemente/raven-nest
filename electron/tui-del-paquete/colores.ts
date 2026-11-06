@@ -28,6 +28,27 @@ export const ORDEN_DE_TIPOS: ObservationType[] = [
 /** Un tipo que no está en la leyenda no inventa color, como en la app. */
 export const colorDeTipo = (tipo: string): string => COLOR_DE_TIPO[tipo as ObservationType] ?? 'gray'
 
+/**
+ * El agente que escribió la memoria (`originAi`), con el color de marca de su logo en la app
+ * (`src/components/AILogos.tsx`). Es la excepción de marca de un tercero, como en la app.
+ */
+const PROVEEDORES: Record<string, { nombre: string; color: string }> = {
+  claude: { nombre: 'Claude', color: '#D97757' },
+  codex: { nombre: 'Codex', color: '#22C55E' },
+  gemini: { nombre: 'Gemini', color: '#3186FF' },
+  copilot: { nombre: 'Copilot', color: '#0D91E1' },
+  opencode: { nombre: 'OpenCode', color: '#FFFFFF' },
+  deepseek: { nombre: 'DeepSeek', color: '#4D6BFE' },
+  grok: { nombre: 'Grok', color: '#E8E8E8' },
+  qwen: { nombre: 'Qwen', color: '#6950EF' },
+  cursor: { nombre: 'Cursor', color: '#D4D4D4' },
+}
+
+/** Un agente sin logo en la app va con su nombre tal cual y sin color. */
+export function proveedor(ai: string): { nombre: string; color: string | null } {
+  return PROVEEDORES[ai] ?? { nombre: ai, color: null }
+}
+
 /** `Decision`, `Bugfix`…: la etiqueta de la app. */
 export const etiquetaDeTipo = (tipo: string): string => tipo.charAt(0).toUpperCase() + tipo.slice(1)
 

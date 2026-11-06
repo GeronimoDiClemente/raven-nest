@@ -309,6 +309,36 @@ describe('pantallas de la TUI — bordes', () => {
     r.unmount()
   })
 
+  it('la lista nombra al agente que escribió cada memoria, y el detalle suma rama y agente', async () => {
+    const conAgente = [
+      { ...MEMORIAS[0]!, originAi: 'claude', gitBranch: 'feat/x' },
+      { ...MEMORIAS[1]!, originAi: 'codex' },
+      MEMORIAS[2]!,
+    ]
+    const { fuente } = fuenteFalsa({ memorias: conAgente })
+    const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('Link codes'))
+    const f = r.lastFrame()!.split('\n')
+    expect(f.find((l) => l.includes('Encryption is'))).toContain('◆ Claude')
+    expect(f.find((l) => l.includes('Stale guard'))).toContain('◆ Codex')
+    expect(f.find((l) => l.includes('Link codes'))).not.toContain('◆')
+    // La fecha sigue alineada con o sin agente.
+    const fecha = (l: string) => l.indexOf('ago')
+    expect(fecha(f.find((l) => l.includes('Encryption is'))!)).toBe(fecha(f.find((l) => l.includes('Link codes'))!))
+    r.stdin.write('\r')
+    await hasta(() => !!r.lastFrame()?.includes('The full body'))
+    expect(r.lastFrame()).toMatch(/feat\/x · 2h ago · ◆ Claude/)
+    r.unmount()
+  })
+
+  it('a 70 columnas el agente se cae antes que el título', async () => {
+    const { fuente } = fuenteFalsa({ memorias: [{ ...MEMORIAS[0]!, originAi: 'claude' }] })
+    const r = render(<App fuente={fuente} ancho={70} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('Encryption'))
+    expect(r.lastFrame()).not.toContain('◆')
+    r.unmount()
+  })
+
   it('el tipo architecture entra entero y la columna de títulos queda alineada', async () => {
     const { fuente } = fuenteFalsa({ memorias: [mem('z', 'Layers of the daemon', 'architecture', 'x', 1), MEMORIAS[0]!] })
     const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)

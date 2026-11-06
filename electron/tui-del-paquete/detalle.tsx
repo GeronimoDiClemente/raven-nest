@@ -2,7 +2,7 @@
 import { segmentosDeContenido, type EstadoDeLaTui } from './estado'
 import { ink } from './ink'
 import { colorDeTipo, etiquetaDeTipo, pintar } from './colores'
-import { haceCuanto } from './lista'
+import { haceCuanto, Proveedor } from './lista'
 
 type Segmento = ReturnType<typeof segmentosDeContenido>[number]
 
@@ -85,6 +85,7 @@ export function Detalle(p: { estado: EstadoDeLaTui; ancho: number; alto: number;
     tipo,
     item.tags.length > 0 ? item.tags.map((t) => `#${t}`).join(' ') : null,
     p.proyecto,
+    item.gitBranch,
     haceCuanto(item.updatedAt, p.ahora),
   ].filter(Boolean).join(' · ')
 
@@ -102,6 +103,7 @@ export function Detalle(p: { estado: EstadoDeLaTui; ancho: number; alto: number;
       <Text wrap="truncate">
         <Text color={pintar(color, colorDeTipo(item.type))}>{meta.slice(0, tipo.length)}</Text>
         <Text dimColor>{meta.slice(tipo.length)}</Text>
+        {item.originAi ? <><Text dimColor> ·</Text><Proveedor ai={item.originAi} color={color} /></> : null}
       </Text>
       <Box flexDirection="column" marginTop={1}>
         {visibles.map((linea, i) => (

@@ -4184,7 +4184,10 @@ function estadoDeNestParaLaTui(): Pick<StatusMemoryResult, 'sync' | 'conflicts' 
         }
       : null,
     conflicts: vault.enabled ? readVaultHealth(resolveVaultRootDir(ravenHome(), userId, vault)).conflictCount : null,
-    sessions: { writing: cuantas('writing'), silent: cuantas('silent'), disabled: cuantas('disabled') },
+    sessions: {
+      writing: cuantas('writing'), silent: cuantas('silent'), disabled: cuantas('disabled'),
+      agents: sesiones.map((s) => ({ aiType: s.aiType, health: s.health })),
+    },
   }
 }
 

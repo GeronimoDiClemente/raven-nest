@@ -231,7 +231,11 @@ export interface StatusMemoryResult {
   /** Notas en `_conflicts/` del vault; `null` con el vault apagado. */
   conflicts: number | null
   /** El cruce de `memory-sessions.ts` (§2.2): panes con memoria que escriben y que callan. */
-  sessions: { writing: number; silent: number; disabled: number } | null
+  sessions: {
+    writing: number; silent: number; disabled: number
+    /** Qué agente corre en cada pane (`aiType`), para nombrarlos. Un Nest viejo no lo manda. */
+    agents?: Array<{ aiType: string; health: 'writing' | 'silent' | 'disabled' }>
+  } | null
 }
 
 /** `memory.doctor`: lo bloqueado con su motivo, para la pestaña Doctor de la TUI con Nest abierto. */

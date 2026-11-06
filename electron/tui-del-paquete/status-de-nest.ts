@@ -5,6 +5,7 @@ import type { StatusMemoryResult } from '../memory-protocol'
 import type { DatosDeStatus, FilaDeEstado, Marca } from '../status-del-paquete'
 import { grupoDeTipo, type GrupoDeTipo } from '../estilo-del-paquete'
 import type { Llamador } from './fuente-comun'
+import { proveedor } from './colores'
 
 /** Lo que se muestra con un Nest que no sabe contestar `memory.status` (o que no contesta). */
 export const STATUS_SOLO_NEST: DatosDeStatus = {
@@ -49,15 +50,30 @@ function conflictos(n: number | null): FilaDeEstado | null {
     : { marca: 'aviso', etiqueta: 'Conflicts', detalle: `${n} in the vault's _conflicts — your hand edits, kept apart` }
 }
 
+/** `Claude, Codex`: los agentes en ese estado, sin repetir; `null` si el Nest no los mandó. */
+function quienes(s: NonNullable<StatusMemoryResult['sessions']>, health: 'writing' | 'silent'): string | null {
+  if (!s.agents) return null
+  const nombres = [...new Set(s.agents.filter((a) => a.health === health).map((a) => proveedor(a.aiType).nombre))]
+  return nombres.length > 0 ? nombres.join(', ') : null
+}
+
 function sesiones(s: StatusMemoryResult['sessions']): FilaDeEstado | null {
   if (!s) return null
+  const escriben = quienes(s, 'writing')
+  const mudos = quienes(s, 'silent')
   if (s.silent > 0) {
+    const callan = `${s.silent} silent${mudos ? ` (${mudos})` : ''}`
+    const otros = s.writing ? ` · ${s.writing} writing${escriben ? ` (${escriben})` : ''}` : ''
+    // Con los nombres a la vista el «sin memoria» sobra: la ✗ ya lo dice, y la fila entra en una línea.
+    const cola = mudos ? '' : ' — an agent is running without memory'
+    return { marca: 'falla', etiqueta: 'Sessions', detalle: `${callan}${otros}${cola}` }
+  }
+  if (s.writing > 0) {
     return {
-      marca: 'falla', etiqueta: 'Sessions',
-      detalle: `${s.silent} silent${s.writing ? ` · ${s.writing} writing` : ''} — an agent is running without memory`,
+      marca: 'ok', etiqueta: 'Sessions',
+      detalle: `${s.writing} agent${s.writing === 1 ? '' : 's'} writing memory${escriben ? ` — ${escriben}` : ''}`,
     }
   }
-  if (s.writing > 0) return { marca: 'ok', etiqueta: 'Sessions', detalle: `${s.writing} agent${s.writing === 1 ? '' : 's'} writing memory` }
   return { marca: 'nada', etiqueta: 'Sessions', detalle: 'no agent with memory open in Nest' }
 }
 

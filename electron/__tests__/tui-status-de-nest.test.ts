@@ -60,6 +60,14 @@ describe('statusDeNest', () => {
     expect(fila(con({ sessions: { writing: 1, silent: 0, disabled: 0 } }), 'Sessions')?.detalle).toBe('1 agent writing memory')
     expect(fila(con({ sessions: { writing: 0, silent: 0, disabled: 1 } }), 'Sessions')?.marca).toBe('nada')
     expect(fila(con({ sessions: null }), 'Sessions')).toBeUndefined()
+    const agents = [
+      { aiType: 'claude', health: 'writing' as const }, { aiType: 'claude', health: 'writing' as const },
+      { aiType: 'codex', health: 'silent' as const },
+    ]
+    expect(fila(con({ sessions: { writing: 2, silent: 1, disabled: 0, agents } }), 'Sessions')?.detalle)
+      .toBe('1 silent (Codex) · 2 writing (Claude)')
+    expect(fila(con({ sessions: { writing: 2, silent: 0, disabled: 0, agents: agents.slice(0, 2) } }), 'Sessions')?.detalle)
+      .toBe('2 agents writing memory — Claude')
   })
 })
 
