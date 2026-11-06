@@ -125,6 +125,8 @@ import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPids
 // @ts-ignore
 import pidtree from 'pidtree'
 import { matarArbol } from './matar-arbol'
+import { esLaPaginaDeLaApp } from './navegacion-de-la-ventana'
+import { pathToFileURL } from 'url'
 import { buscarHuerfanos, matarHuerfano } from './barrido-de-huerfanos'
 import type { Huerfano } from './huerfanos-de-tareas'
 import { BrowserPaneManager } from './browser-pane-manager'
@@ -982,6 +984,18 @@ function createWindow(): void {
     }
     return { action: 'deny' }
   })
+
+  // La ventana no navega nunca fuera de su página: el preload correría en la página nueva con
+  // todo el bridge (pty incluido). Un link o un .html soltado donde ningún handler de drop lo
+  // frena hacía exactamente eso (electron/navegacion-de-la-ventana.ts).
+  const paginaDeLaApp = process.env['ELECTRON_RENDERER_URL'] ?? pathToFileURL(join(__dirname, '../dist/index.html')).href
+  const frenarNavegacion = (event: Electron.Event, url: string, _enElLugar: boolean, esElFramePrincipal: boolean) => {
+    if (!esElFramePrincipal || esLaPaginaDeLaApp(url, paginaDeLaApp)) return
+    event.preventDefault()
+    console.warn('[navigation-guard] blocked main window navigation to', url)
+  }
+  win.webContents.on('will-navigate', frenarNavegacion)
+  win.webContents.on('will-redirect', frenarNavegacion)
 
   if (process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(process.env['ELECTRON_RENDERER_URL'])
