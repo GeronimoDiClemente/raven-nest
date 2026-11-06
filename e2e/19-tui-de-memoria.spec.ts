@@ -47,7 +47,7 @@ async function capturarSalidaPty(app: ElectronApplication) {
   const salidas = () => app.evaluate(() =>
     (globalThis as unknown as { __salidaPty: Record<string, string> }).__salidaPty)
   /** El pane donde corre la TUI: el único cuya salida dibuja el encabezado. */
-  const paneDeLaTui = async () => Object.entries(await salidas()).find(([, t]) => sinAnsi(t).includes('Nest Memory'))
+  const paneDeLaTui = async () => Object.entries(await salidas()).find(([, t]) => sinAnsi(t).includes('> nest memory_'))
   const salidaDe = async (id: string) => sinAnsi((await salidas())[id] ?? '')
   return { salidas, paneDeLaTui, salidaDe }
 }
