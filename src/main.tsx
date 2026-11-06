@@ -5,6 +5,7 @@ import App from './App'
 import AuthScreen from './components/AuthScreen'
 import { supabase } from './lib/supabase'
 import { leerDeepLinkDeAuth, esCanjeDeRecuperacion, LINK_NO_VALIDO } from './lib/auth-deeplink'
+import { decidirSesionAlArrancar, haySesionGuardada, eventoDecideSesion } from './lib/sesion-al-arrancar'
 // Geist empaquetada: la app se ve igual en Mac, Windows y Linux.
 // Van ANTES de global.css para que la @font-face exista cuando el CSS la nombra.
 // Sólo el subset latin (normal + italic) — la app es en
@@ -95,16 +96,19 @@ function Root() {
       setSession(true)
       return () => {}
     }
-    const timeout = setTimeout(() => setSession(false), 5000)
-    supabase.auth.getSession().then(({ data }) => {
-      clearTimeout(timeout)
-      setSession(!!data.session)
-    }).catch(() => {
-      clearTimeout(timeout)
-      setSession(false)
+    // Sin red o con Supabase caído, una sesión guardada alcanza para entrar: ver
+    // lib/sesion-al-arrancar.ts.
+    const storageKey = (supabase.auth as unknown as { storageKey: string }).storageKey
+    decidirSesionAlArrancar({
+      cliente: supabase.auth,
+      guardada: () => { try { return haySesionGuardada(localStorage.getItem(storageKey)) } catch { return false } },
+      fijar: setSession,
+      setTimer: (cb, ms) => setTimeout(cb, ms),
+      clearTimer: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!eventoDecideSesion(event)) return
       if (event === 'USER_UPDATED') {
         setRecovery(false)
         setSession(!!session)
