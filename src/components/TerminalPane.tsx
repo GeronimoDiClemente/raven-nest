@@ -15,6 +15,7 @@ import { registerTerminalFocus, unregisterTerminalFocus } from '../terminal-regi
 import { safeWriteText } from '../lib/clipboard'
 import { useSortable } from '@dnd-kit/sortable'
 import { stripAnsi, PROMPT_RE, UI_CHROME_RE, filterChrome } from '../lib/terminal-chrome'
+import { crearEscrituraDiferida, type EscrituraDiferida } from '../lib/escritura-diferida'
 
 const BUSY_THRESHOLD_MS = 2000
 const MAX_CONV_BUFFER = 500_000 // ~500KB
@@ -96,6 +97,10 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
   // El `enfocado` vigente, para leerlo desde el callback del PTY sin re-suscribirse.
   const enfocadoRef = useRef(enfocado)
   enfocadoRef.current = enfocado
+  // Todo lo que va a xterm pasa por acá: sin foco, la salida llega a ~10 Hz en vez de a la
+  // velocidad del agente. Ver `lib/escritura-diferida.ts`.
+  const escrituraRef = useRef<EscrituraDiferida | null>(null)
+  useEffect(() => { escrituraRef.current?.setInmediato(enfocado) }, [enfocado])
   const onBusyChangeRef = useRef(onBusyChange)
   onBusyChangeRef.current = onBusyChange
   const onActivityRef = useRef(onActivity)
@@ -169,6 +174,12 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
   useEffect(() => {
     let alive = true
     let activityDebounce: ReturnType<typeof setTimeout> | null = null
+    const escritura = crearEscrituraDiferida({
+      escribir: write,
+      setTimer: (cb, ms) => window.setTimeout(cb, ms),
+      clearTimer: (id) => window.clearTimeout(id),
+    }, enfocadoRef.current)
+    escrituraRef.current = escritura
 
     registerPane(pane.id, (data) => {
       if (!alive) return
@@ -185,7 +196,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
           setTimeout(() => window.pty.write(pane.id, '\r'), 350)
         }, 400)
       }
-      write(data)
+      escritura.escribir(data)
       if (!activityDebounce) {
         onActivityRef.current?.(pane.id, true)
         activityDebounce = setTimeout(() => { activityDebounce = null }, 500)
@@ -240,7 +251,7 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       // flanco de arriba no dispara nunca y el pane se queda ocupado para siempre.
       isBusyRef.current = false
       setIsBusy(false)
-      write('\r\n\x1b[2m── process ended ──\x1b[0m\r\n')
+      escritura.escribir('\r\n\x1b[2m── process ended ──\x1b[0m\r\n')
       onBusyChangeRef.current(pane.id, false)
     })
 
@@ -252,11 +263,11 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       if (alreadyRunning) {
         // Reconnect: replay scroll-back buffer into xterm
         const buffer = await window.pty.getBuffer(pane.id)
-        if (buffer) write(buffer)
+        if (buffer) escritura.escribir(buffer)
       } else {
         const res = await window.pty.create(pane.id, pane.cmd, pane.accountDir, pane.repoPath, pane.shellId)
         if (!res.ok) {
-          write(`\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`)
+          escritura.escribir(`\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`)
           setProcessEnded(true)
         } else {
           onPtyStarted?.(pane.id, pane.repoPath)
@@ -269,6 +280,8 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     return () => {
       alive = false
       clearTimeout(t)
+      escritura.stop()
+      if (escrituraRef.current === escritura) escrituraRef.current = null
       if (activityDebounce) clearTimeout(activityDebounce)
       unregisterPane(pane.id)
       // Do NOT kill the PTY — it must survive tab switches and window hide
@@ -301,7 +314,9 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     outputBuf.current = ''
     const res = await window.pty.create(pane.id, pane.cmd, pane.accountDir, pane.repoPath, pane.shellId)
     if (!res.ok) {
-      write(`\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`)
+      const aviso = `\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`
+      if (escrituraRef.current) escrituraRef.current.escribir(aviso)
+      else write(aviso)
       setProcessEnded(true)
     } else {
       onPtyStarted?.(pane.id, pane.repoPath)

@@ -458,18 +458,13 @@ body {
   border-radius: 50%;
   background: var(--ok);
   flex-shrink: 0;
-  animation: activityPulse 1.5s ease-in-out infinite;
   margin-right: 2px;
 }
-
-@keyframes activityPulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.8); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tab-activity-dot { animation: none; }
-}
+/* Quieto a propósito. Latía con una animación infinita, y una animación viva —aunque sea de
+   un punto de 6px— hace que el compositor produzca frames a la tasa del monitor (120 Hz en
+   una Mac) mientras dure: con un agente trabajando eran ~8 puntos de GPU y ~3 de renderer,
+   más que el terminal mismo (medido 2026-11-06). El punto ya dice "hay actividad" con
+   estar; no hace falta que se mueva. */
 
 /* ── Sidebar ─────────────────────────────────────────────── */
 
@@ -7687,16 +7682,10 @@ button.ci-badge:hover {
 .user-menu-dot--pro        { background: var(--raven-blue); }
 .user-menu-dot--team       { background: #FFB800; }
 .user-menu-dot--enterprise { background: #7C5CFC; }
-.user-menu-dot--trial {
-  background: #FFB800;
-  animation: user-menu-trial-pulse 1.6s ease-in-out infinite;
-}
-@keyframes user-menu-trial-pulse {
-  /* El anillo de `.user-menu-dot` va primero en las dos: la animación reemplaza el
-     box-shadow entero y, sin él, el punto lo perdía mientras late. */
-  0%, 100% { box-shadow: 0 0 0 1.5px var(--bg-primary, #0a0a0a), 0 0 0 0 rgba(255,184,0,0.5); }
-  50%      { box-shadow: 0 0 0 1.5px var(--bg-primary, #0a0a0a), 0 0 0 4px rgba(255,184,0,0); }
-}
+/* Sin latido: animaba un box-shadow en loop, que se repinta en cada frame, y el punto está
+   siempre a la vista. Durante todo el trial la app quemaba ~22% de CPU (renderer + GPU) en
+   reposo por esto (medido 2026-11-06). El color ya lo distingue de Team. */
+.user-menu-dot--trial { background: #FFB800; }
 
 /* Una sola línea. El plan vivía en un segundo renglón y era lo que empujaba la altura de la
    fila; ahora va en el `title`, que es donde ya estaba el mail. */
