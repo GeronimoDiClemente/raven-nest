@@ -300,11 +300,25 @@ describe('deshacer no deja residuo, pero tampoco se lleva lo ajeno', () => {
 describe('cómo se lanza el servidor', () => {
   it('en macOS y Linux, npx directo', () => {
     for (const p of ['darwin', 'linux'] as const) {
-      expect(comoLanzarElServidor(p)).toEqual({ command: 'npx', args: ['-y', '@nestmux/memory', 'mcp'] })
+      expect(comoLanzarElServidor(p, '1.2.3')).toEqual({ command: 'npx', args: ['-y', '@nestmux/memory@1.2.3', 'mcp'] })
     }
   })
 
   it('en Windows, a través de cmd /c', () => {
-    expect(comoLanzarElServidor('win32')).toEqual({ command: 'cmd', args: ['/c', 'npx', '-y', '@nestmux/memory', 'mcp'] })
+    expect(comoLanzarElServidor('win32', '1.2.3')).toEqual({ command: 'cmd', args: ['/c', 'npx', '-y', '@nestmux/memory@1.2.3', 'mcp'] })
+  })
+
+  // Auditoría 2026-11-05: sin versión, cada arranque del editor corría lo último del registro.
+  it('fija la versión publicada del paquete, nunca el nombre suelto', () => {
+    const { args } = comoLanzarElServidor('darwin')
+    expect(args[1]).toMatch(/^@nestmux\/memory@\d+\.\d+\.\d+$/)
+  })
+
+  it('actualizar es volver a correr setup: la entrada de otra versión se reescribe', () => {
+    const d = destino('claude')
+    const vieja = conEntrada('{}', d, comoLanzarElServidor('darwin', '0.1.0'))
+    const [paso] = planDeSetup([d], { existe: () => true, leer: () => vieja }, comoLanzarElServidor('darwin', '0.2.0'))
+    expect(paso!.accion).toBe('actualizar')
+    expect(paso!.textoNuevo).toContain('@nestmux/memory@0.2.0')
   })
 })

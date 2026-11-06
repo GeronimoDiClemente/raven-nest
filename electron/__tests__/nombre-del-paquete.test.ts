@@ -34,6 +34,15 @@ describe('el nombre del paquete sale de una sola constante', () => {
     expect(deRenderer).toBe(pkg.name)
   })
 
+  it('la versión que fija setup es la de packages/nest-memory/package.json', () => {
+    const fuente = readFileSync(join(raiz, 'electron', 'nombre-del-paquete.ts'), 'utf8')
+    const version = /export const VERSION_DEL_PAQUETE = '([^']+)'/.exec(fuente)?.[1]
+    const pkg = JSON.parse(
+      readFileSync(join(raiz, 'packages', 'nest-memory', 'package.json'), 'utf8'),
+    ) as { version: string }
+    expect(version).toBe(pkg.version)
+  })
+
   it('es el scope de la marca, no el nombre viejo que se confundía con NestJS', () => {
     expect(deElectron).toBe('@nestmux/memory')
   })

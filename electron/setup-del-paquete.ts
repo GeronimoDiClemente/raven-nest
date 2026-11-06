@@ -22,11 +22,11 @@
 // > **Sobre el comando que se escribe.** Quien llama decide, y hay una trampa: si `setup`
 // > corre por `npx` sin instalar nada, el binario vive en una caché temporal que npm puede
 // > limpiar. Escribir ESE path dejaría configuraciones que se pudren solas, así que lo que
-// > corresponde escribir es una invocación estable (`npx -y @nestmux/memory mcp`) y no la ruta
+// > corresponde escribir es una invocación estable (`npx -y @nestmux/memory@<versión> mcp`) y no la ruta
 // > resuelta del proceso actual.
 import { modify, applyEdits, parse as parseJsonc } from 'jsonc-parser'
 import { join } from 'path'
-import { NOMBRE_DEL_PAQUETE } from './nombre-del-paquete'
+import { NOMBRE_DEL_PAQUETE, VERSION_DEL_PAQUETE } from './nombre-del-paquete'
 
 /** El nombre bajo el que se registra el servidor, igual que del lado de Nest. */
 export const NOMBRE_DEL_SERVIDOR = 'nest_memory'
@@ -49,12 +49,19 @@ export interface EntradaDelServidor {
  * sin instalar nada, el binario vive en una caché temporal que npm puede limpiar, y esa ruta
  * dejaría configuraciones que se pudren solas.
  *
+ * Con la versión FIJA (auditoría 2026-11-05). Sin versión, cada arranque del editor corría lo
+ * último que hubiera en npm con `-y`, sin preguntar: quien publicara en el scope —o una
+ * dependencia del proyecto abierto que se llamara igual— corría código con acceso a la base,
+ * al socket del daemon y a la credencial del device. Con `@x.y.z` el registro no deja cambiar
+ * lo publicado, y actualizar es volver a correr `setup` desde la versión nueva: la entrada
+ * vieja no coincide y se reescribe.
+ *
  * En Windows va por `cmd /c`: `npx` ahí es `npx.cmd`, un script, y los editores que lanzan
  * el proceso sin shell no lo encuentran. Claude Code lo exige explícitamente y Codex daba
  * «program not found». `cmd /c npx` anda en todos, incluidos VS Code y Cursor.
  */
-export function comoLanzarElServidor(plataforma: NodeJS.Platform): EntradaDelServidor {
-  const npx = ['npx', '-y', NOMBRE_DEL_PAQUETE, 'mcp']
+export function comoLanzarElServidor(plataforma: NodeJS.Platform, version: string = VERSION_DEL_PAQUETE): EntradaDelServidor {
+  const npx = ['npx', '-y', `${NOMBRE_DEL_PAQUETE}@${version}`, 'mcp']
   return plataforma === 'win32'
     ? { command: 'cmd', args: ['/c', ...npx] }
     : { command: npx[0]!, args: npx.slice(1) }

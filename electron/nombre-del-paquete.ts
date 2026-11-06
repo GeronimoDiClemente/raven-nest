@@ -14,6 +14,13 @@
 // `packages/nest-memory/package.json`.
 export const NOMBRE_DEL_PAQUETE = '@nestmux/memory'
 
+/**
+ * La versión publicada, la que `setup` fija en la configuración de los editores (ver
+ * `comoLanzarElServidor`). Se sube junto con `packages/nest-memory/package.json`:
+ * `nombre-del-paquete.test.ts` falla si no coinciden.
+ */
+export const VERSION_DEL_PAQUETE = '0.1.0'
+
 /** Cómo se le dice al usuario que corra un subcomando: `comando('login')` → `npx @nestmux/memory login`. */
 export function comando(subcomando: string): string {
   return `npx ${NOMBRE_DEL_PAQUETE} ${subcomando}`
