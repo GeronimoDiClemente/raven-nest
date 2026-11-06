@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FC, type ReactNode } from 'react'
-import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket, AIType } from '../types'
+import type { MetricsSnapshot, RepoMetric, WorktreeMetricInfo, PaneMetric, DiskBucket, AIType, OrphanProcess } from '../types'
+import OrphanProcesses from './OrphanProcesses'
 import { AILogo, AI_LOGOS } from './AILogos'
 import { formatBytes, formatPct, diskLabel } from '../lib/formatMetrics'
 import { TriangleAlert, X } from 'lucide-react'
@@ -16,6 +17,8 @@ interface Props {
   onRefresh: () => Promise<void>
   isDiskRefreshing: boolean
   onClose: () => void
+  orphans?: OrphanProcess[]
+  onKillOrphan?: (pid: number) => Promise<{ ok: true } | { ok: false; error: string }>
 }
 
 // Thresholds for the "heaviest pane" callout. Fires when EITHER total RAM
@@ -60,6 +63,7 @@ function useToggleSet(): [Set<string>, (k: string) => void] {
 
 export default function ResourceBarPopover({
   snapshot, ports, primary, onPrimaryChange, onRefreshDisk, onRefresh, isDiskRefreshing, onClose,
+  orphans = [], onKillOrphan,
 }: Props) {
   const [collapsedRepos, toggleRepo] = useToggleSet()
   const [collapsedWorktrees, toggleWorktree] = useToggleSet()
@@ -131,6 +135,13 @@ export default function ResourceBarPopover({
             </button>
           </div>
         </div>
+
+        {onKillOrphan && orphans.length > 0 && (
+          <>
+            <OrphanProcesses huerfanos={orphans} onKill={onKillOrphan} />
+            <div className="rb-divider" />
+          </>
+        )}
 
         {snapshot ? (
           <>

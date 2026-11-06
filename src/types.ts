@@ -567,6 +567,19 @@ export interface RepoMetric {
   diskBuckets?: DiskBucket[]
   worktrees: WorktreeMetricInfo[]
 }
+/** Un proceso que quedó vivo de una tarea de fondo de un agente que ya terminó. */
+export interface OrphanProcess {
+  pid: number
+  pgid: number
+  cpu: number
+  /** Cuánto lleva vivo, en segundos. */
+  segundos: number
+  comando: string
+  agente: 'claude'
+  proyecto: string
+  tarea: string
+}
+
 export interface MetricsSnapshot {
   totalSystemMemBytes: number
   totals: { cpuPercent: number; memBytes: number; ramSharePercent: number }
@@ -1573,6 +1586,9 @@ declare global {
       refreshDisk: (worktreePaths: string[]) => Promise<Record<string, { total: number; buckets: DiskBucket[] }>>
       killPid: (pid: number) => Promise<{ ok: true } | { ok: false; error: string }>
       portsByPids: (pids: number[]) => Promise<Record<number, number[]>>
+      /** Lo que dejaron vivo tareas de fondo de agentes que ya terminaron (`huerfanos-de-tareas.ts`). */
+      orphans: (refresh?: boolean) => Promise<OrphanProcess[]>
+      killOrphan: (pid: number) => Promise<{ ok: true } | { ok: false; error: string }>
     }
     tickets: TicketsBridge
     signals: SignalsBridge

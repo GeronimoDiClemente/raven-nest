@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { MetricsPaneInput } from '../types'
 import { useMetrics } from '../hooks/useMetrics'
+import { useHuerfanos } from '../hooks/useHuerfanos'
 import ResourceBarPopover from './ResourceBarPopover'
 import { formatBytes } from '../lib/formatMetrics'
 import { cn } from '@/lib/utils'
@@ -31,6 +32,10 @@ export default function ResourceBar({ panes }: Props) {
   }, [])
 
   const { snapshot, ports, refreshDisk, refresh, isDiskRefreshing } = useMetrics(panes, open)
+  const { huerfanos, matar } = useHuerfanos(open)
+  const avisoDeHuerfanos = huerfanos.length > 0
+    ? `${huerfanos.length} orphaned process${huerfanos.length === 1 ? '' : 'es'} left by agent tasks`
+    : null
 
   // Close on Escape while open.
   useEffect(() => {
@@ -62,10 +67,13 @@ export default function ResourceBar({ panes }: Props) {
           'border rounded-md text-fs-sm font-mono tabular-nums',
           'text-muted-foreground hover:text-foreground',
           open && 'text-foreground',
+          avisoDeHuerfanos && 'inline-flex items-center gap-1.5',
         )}
         onClick={() => setOpen((v) => !v)}
-        title="Resource Usage"
+        title={avisoDeHuerfanos ?? 'Resource Usage'}
       >
+        {/* El mismo punto ámbar que la fila de Memories: hay algo que mirar, no algo roto. */}
+        {avisoDeHuerfanos && <span aria-label={avisoDeHuerfanos} className="size-1.5 shrink-0 rounded-full bg-warn" />}
         {pillLabel}
       </button>
       {open && (
@@ -78,6 +86,8 @@ export default function ResourceBar({ panes }: Props) {
           onRefresh={refresh}
           isDiskRefreshing={isDiskRefreshing}
           onClose={() => setOpen(false)}
+          orphans={huerfanos}
+          onKillOrphan={matar}
         />
       )}
     </div>

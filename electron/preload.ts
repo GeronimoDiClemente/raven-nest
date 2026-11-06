@@ -672,6 +672,8 @@ contextBridge.exposeInMainWorld('metrics', {
     ipcRenderer.invoke('metrics:refreshDisk', worktreePaths),
   killPid: (pid: number) => ipcRenderer.invoke('metrics:killPid', pid),
   portsByPids: (pids: number[]) => ipcRenderer.invoke('metrics:portsByPids', pids),
+  orphans: (refresh?: boolean) => ipcRenderer.invoke('metrics:orphans', refresh === true),
+  killOrphan: (pid: number) => ipcRenderer.invoke('metrics:killOrphan', pid),
 })
 
 contextBridge.exposeInMainWorld('preset', {

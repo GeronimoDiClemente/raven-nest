@@ -123,6 +123,9 @@ import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPids
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import pidtree from 'pidtree'
+import { matarArbol } from './matar-arbol'
+import { buscarHuerfanos, matarHuerfano } from './barrido-de-huerfanos'
+import type { Huerfano } from './huerfanos-de-tareas'
 import { BrowserPaneManager } from './browser-pane-manager'
 import { SpotlightEngine } from './spotlight-engine'
 import { BenchmarkRecorder } from './benchmark-recorder'
@@ -2266,11 +2269,11 @@ ipcMain.handle('metrics:refreshDisk', async (_evt, worktreePaths: string[]) => {
   return metricsCollector.refreshDisk(valid)
 })
 
-// Kill a process by PID. On Windows we use `taskkill /F /T` to kill the whole
-// tree — a PowerShell pane has its dev server as a descendant and `process.kill`
-// would only signal the shell itself, leaving the actual server orphaned.
-// Falls back to `process.kill(pid)` if taskkill isn't available.
-function killProcessTree(pid: number): { ok: true } | { ok: false; error: string } {
+// Kill a process by PID with its whole tree. On Windows we use `taskkill /F /T` —
+// a PowerShell pane has its dev server as a descendant and `process.kill` would only
+// signal the shell itself, leaving the actual server orphaned. On macOS/Linux the
+// same problem is solved by `matarArbol` (SIGTERM to the tree, SIGKILL after a grace).
+async function killProcessTree(pid: number): Promise<{ ok: true } | { ok: false; error: string }> {
   if (process.platform === 'win32') {
     try {
       execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], {
@@ -2281,14 +2284,46 @@ function killProcessTree(pid: number): { ok: true } | { ok: false; error: string
     } catch {
       // taskkill missing or refused — fall through to process.kill
     }
+    try {
+      process.kill(pid)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   }
-  try {
-    process.kill(pid)
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
-  }
+  return matarArbol(pid, {
+    arbolDe: (p) => pidtree(p, { root: true }),
+    senal: (p, s) => { process.kill(p, s) },
+    vivo: (p) => { try { process.kill(p, 0); return true } catch (err) { return (err as NodeJS.ErrnoException).code === 'EPERM' } },
+    esperar: (ms) => new Promise((r) => setTimeout(r, ms)),
+  })
 }
+
+// Huérfanos de tareas de fondo (docs/HANDOFF-2026-11-02-procesos-huerfanos.md): se buscan al
+// arrancar, cada 5 minutos y cuando el popover pide refrescar. Nunca se matan solos.
+const INTERVALO_DE_HUERFANOS_MS = 5 * 60_000
+let huerfanosConocidos: Huerfano[] = []
+let barridoEnVuelo: Promise<Huerfano[]> | null = null
+function barrerHuerfanos(): Promise<Huerfano[]> {
+  barridoEnVuelo ??= buscarHuerfanos()
+    .then((h) => { huerfanosConocidos = h; return h })
+    .catch(() => huerfanosConocidos)
+    .finally(() => { barridoEnVuelo = null })
+  return barridoEnVuelo
+}
+if (process.platform !== 'win32') {
+  setTimeout(() => { void barrerHuerfanos() }, 30_000).unref()
+  setInterval(() => { void barrerHuerfanos() }, INTERVALO_DE_HUERFANOS_MS).unref()
+}
+
+ipcMain.handle('metrics:orphans', async (_evt, refrescar: boolean) => (refrescar ? barrerHuerfanos() : huerfanosConocidos))
+
+ipcMain.handle('metrics:killOrphan', async (_evt, pid: number) => {
+  if (!Number.isFinite(pid) || pid <= 0) return { ok: false as const, error: 'Invalid pid' }
+  const r = await matarHuerfano(pid)
+  void barrerHuerfanos()
+  return r
+})
 
 ipcMain.handle('metrics:killPid', async (_evt, pid: number) => {
   if (!Number.isFinite(pid) || pid <= 0) {
