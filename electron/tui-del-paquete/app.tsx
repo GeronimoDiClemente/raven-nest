@@ -80,7 +80,8 @@ const ANCHO_COMPACTO = 50
 function Encabezado(p: { proyecto: string; inst: Instantanea; ancho: number; compacto: boolean; color: boolean }) {
   const { Box, Text } = ink()
   const s = p.inst.status
-  const titulo = `Nest Memory · ${p.proyecto}`
+  // La marca del CLI (`marca()` en estilo-del-paquete.ts): `> nest memory_`, con el cursor en acento.
+  const titulo = `> nest memory_ · ${p.proyecto}`
   const conteo = s && !s.sinConteos && !p.compacto
     ? ` · ${s.total.toLocaleString('en-US')} ${s.total === 1 ? 'item' : 'items'}`
     : ''
@@ -89,7 +90,11 @@ function Encabezado(p: { proyecto: string; inst: Instantanea; ancho: number; com
   const items = entra ? conteo : ''
   return (
     <Box justifyContent="space-between" width={p.ancho}>
-      <Text bold wrap="truncate">{titulo}</Text>
+      <Text wrap="truncate">
+        <Text bold>{'> nest memory'}</Text>
+        <Text bold color={pintar(p.color, 'green')}>_</Text>
+        <Text dimColor>{` · ${p.proyecto}`}</Text>
+      </Text>
       {s && s.resumen ? (
         <Box flexShrink={0} marginLeft={1}>
           <Text wrap="truncate">
@@ -102,16 +107,26 @@ function Encabezado(p: { proyecto: string; inst: Instantanea; ancho: number; com
   )
 }
 
+/**
+ * Las pestañas como las de la app: la activa invertida (el acento acromático), las otras con
+ * el número apagado. Adentro de una memoria no hay activa: se vuelve con Esc.
+ */
 function Pestanas(p: { estado: EstadoDeLaTui; compacto: boolean }) {
   const { Text } = ink()
-  const separacion = p.compacto ? ' ' : '  '
+  const separacion = p.compacto ? '' : ' '
   return (
     <Text wrap="truncate">
       {PESTANAS.map((t, i) => {
         const activa = t.id === p.estado.pestana && p.estado.pila.length === 0
-        const nombre = `${i + 1} ${t.nombre}${t.id === 'recent' && p.estado.todosLosProyectos ? ' · all' : ''}`
-        const relleno = p.compacto ? '' : ' '
-        return <Text key={t.id} bold={activa}>{activa ? `[${nombre}]` : `${relleno}${nombre}${relleno}`}{separacion}</Text>
+        const nombre = `${t.nombre}${t.id === 'recent' && p.estado.todosLosProyectos ? ' · all' : ''}`
+        return (
+          <Text key={t.id}>
+            <Text inverse={activa} bold={activa}>
+              {' '}<Text dimColor={!activa}>{i + 1}</Text>{` ${nombre} `}
+            </Text>
+            {separacion}
+          </Text>
+        )
       })}
     </Text>
   )
@@ -159,7 +174,7 @@ function Pantalla(p: { inst: Instantanea; ancho: number; alto: number; color: bo
   switch (e.pestana) {
     case 'recent':
     case 'search': return <Lista estado={e} ancho={p.ancho - 2} conFecha={columnas(p.ancho).conFecha} alto={p.alto} color={p.color} ahora={ahora} />
-    case 'status': return <Status datos={p.inst.status} color={p.color} />
+    case 'status': return <Status datos={p.inst.status} color={p.color} ancho={p.ancho - 2} />
     case 'doctor': return <Doctor datos={p.inst.doctor} color={p.color} />
   }
 }

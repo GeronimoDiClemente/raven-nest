@@ -7,6 +7,9 @@ import { doctorDeNest, completarDoctorConNest } from '../tui-del-paquete/doctor-
 import type { DatosDeDoctor } from '../doctor-del-paquete'
 import { ajustarTeclas, colorDelEstado } from '../tui-del-paquete/app'
 import { posicionEnLista } from '../tui-del-paquete/lista'
+import { bloquesDeTipos } from '../tui-del-paquete/status'
+import { COLOR_DE_TIPO, ORDEN_DE_TIPOS } from '../tui-del-paquete/colores'
+import { MEMORY_TYPE_ANSI, MEMORY_TYPES_IN_LEGEND_ORDER } from '../../src/lib/memory-type-legend'
 
 const BASE: StatusMemoryResult = {
   total: 12, byType: { decision: 3, architecture: 2, bugfix: 4, discovery: 3 }, team: 2, pending: 0,
@@ -150,5 +153,19 @@ describe('la barra y la lista', () => {
     expect(posicionEnLista({ lista, cursor: 2, pestana: 'recent', todosLosProyectos: true })).toBe('3 of 3 · all projects')
     const llena = Array.from({ length: 50 }, () => ({}) as never)
     expect(posicionEnLista({ lista: llena, cursor: 4, pestana: 'search', todosLosProyectos: false })).toBe('5 of 50+')
+  })
+})
+
+describe('la TUI se ve como la app', () => {
+  it('cada tipo tiene el mismo índice ANSI que Memories, en el mismo orden', () => {
+    const NOMBRE = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white', 'gray']
+    for (const t of MEMORY_TYPES_IN_LEGEND_ORDER) expect(COLOR_DE_TIPO[t]).toBe(NOMBRE[MEMORY_TYPE_ANSI[t]])
+    expect(ORDEN_DE_TIPOS).toEqual(MEMORY_TYPES_IN_LEGEND_ORDER)
+  })
+
+  it('la barra va en el orden de la leyenda y un tipo chico no desaparece', () => {
+    const b = bloquesDeTipos({ discovery: 600, decision: 398, bugfix: 2 }, 40)
+    expect(b.map(([t]) => t)).toEqual(['decision', 'bugfix', 'discovery'])
+    expect(b.find(([t]) => t === 'bugfix')![1]).toBe(1)
   })
 })

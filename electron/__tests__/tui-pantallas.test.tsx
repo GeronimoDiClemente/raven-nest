@@ -28,7 +28,7 @@ const MEMORIAS = [
 ]
 
 const STATUS: DatosDeStatus = {
-  modo: 'propia', vacia: false, total: 1284, porGrupo: { decisions: 3 }, personal: 1280, deEquipo: 4,
+  modo: 'propia', vacia: false, total: 1284, porGrupo: { decisions: 3 }, porTipo: { decision: 3 }, personal: 1280, deEquipo: 4,
   guardadaEn: '~/.nest/memory.db', servicio: 'https://sync.example',
   filas: [
     { marca: 'ok', etiqueta: 'Sync', detalle: 'up to date' },
@@ -89,9 +89,9 @@ describe('pantallas de la TUI', () => {
     const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)
     await hasta(() => !!r.lastFrame()?.includes('Link codes'))
     const f = r.lastFrame()!
-    expect(f).toContain('Nest Memory · raven-nest')
-    expect(f).toContain('decision')
-    expect(f).toContain('bugfix')
+    expect(f).toContain('> nest memory_ · raven-nest')
+    expect(f).toContain('Decision')
+    expect(f).toContain('Bugfix')
     expect(f).toContain('Encryption is mandatory on connect')
     expect(f).toContain('Stale guard orders like resolveLWW')
     expect(f).toContain('n new')
@@ -290,7 +290,7 @@ describe('pantallas de la TUI — bordes', () => {
     const r = render(<App fuente={fuente} ancho={45} suspenderYEditar={suspender} />)
     await hasta(() => !!r.lastFrame()?.includes('synced'))
     const filas = r.lastFrame()!.split('\n')
-    expect(filas[0]).toContain('Nest Memory · raven-nest')
+    expect(filas[0]).toContain('> nest memory_ · raven-nest')
     expect(filas[1]).toContain('4 Doctor')
     expect(filas[2]!.trim().startsWith('─')).toBe(true)
     expect(filas.length).toBeLessThanOrEqual(24)
@@ -304,7 +304,7 @@ describe('pantallas de la TUI — bordes', () => {
     await hasta(() => !!r.lastFrame()?.includes('database is locked'))
     // En la barra, con la TUI viva: no en la pantalla de error de Ink.
     const filas = r.lastFrame()!.split('\n')
-    expect(filas[0]).toContain('Nest Memory · raven-nest')
+    expect(filas[0]).toContain('> nest memory_ · raven-nest')
     expect(filas.at(-1)).toContain('database is locked')
     r.unmount()
   })
@@ -316,7 +316,7 @@ describe('pantallas de la TUI — bordes', () => {
     const f = r.lastFrame()!.split('\n')
     const a = f.find((l) => l.includes('Layers'))!
     const d = f.find((l) => l.includes('Encryption is'))!
-    expect(a).toContain('architecture')
+    expect(a).toContain('Architecture')
     expect(a.indexOf('Layers')).toBe(d.indexOf('Encryption is'))
     r.unmount()
   })

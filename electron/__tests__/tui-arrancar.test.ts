@@ -79,7 +79,7 @@ const MEMORIA: ObservationSummary = {
 const CUERPO_ENTERO = 'The whole body, much longer than the list shows.'
 
 const STATUS: DatosDeStatus = {
-  modo: 'propia', vacia: false, total: 1, porGrupo: {}, personal: 1, deEquipo: 0,
+  modo: 'propia', vacia: false, total: 1, porGrupo: {}, porTipo: {}, personal: 1, deEquipo: 0,
   guardadaEn: '~/.nest/memory.db', servicio: null, filas: [], ilegiblesDeEquipo: 0, recientes: [], resumen: 'synced',
 }
 

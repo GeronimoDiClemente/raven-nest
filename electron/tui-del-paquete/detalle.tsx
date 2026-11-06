@@ -1,9 +1,8 @@
 // El detalle de una memoria: encabezado y contenido con scroll, con los [[wikilinks]] resaltados.
 import { segmentosDeContenido, type EstadoDeLaTui } from './estado'
 import { ink } from './ink'
-import { COLOR_DE_GRUPO, pintar } from './colores'
+import { colorDeTipo, etiquetaDeTipo, pintar } from './colores'
 import { haceCuanto } from './lista'
-import { grupoDeTipo } from '../estilo-del-paquete'
 
 type Segmento = ReturnType<typeof segmentosDeContenido>[number]
 
@@ -81,8 +80,9 @@ export function Detalle(p: { estado: EstadoDeLaTui; ancho: number; alto: number;
   if (!d) return <Text dimColor>Loading…</Text>
 
   const { item } = d
+  const tipo = etiquetaDeTipo(item.type)
   const meta = [
-    item.type,
+    tipo,
     item.tags.length > 0 ? item.tags.map((t) => `#${t}`).join(' ') : null,
     p.proyecto,
     haceCuanto(item.updatedAt, p.ahora),
@@ -100,8 +100,8 @@ export function Detalle(p: { estado: EstadoDeLaTui; ancho: number; alto: number;
     <Box flexDirection="column">
       <Text bold wrap="truncate">{item.title}</Text>
       <Text wrap="truncate">
-        <Text color={pintar(color, COLOR_DE_GRUPO[grupoDeTipo(item.type)])}>{meta.slice(0, item.type.length)}</Text>
-        <Text dimColor>{meta.slice(item.type.length)}</Text>
+        <Text color={pintar(color, colorDeTipo(item.type))}>{meta.slice(0, tipo.length)}</Text>
+        <Text dimColor>{meta.slice(tipo.length)}</Text>
       </Text>
       <Box flexDirection="column" marginTop={1}>
         {visibles.map((linea, i) => (

@@ -8,7 +8,7 @@ import type { Llamador } from './fuente-comun'
 
 /** Lo que se muestra con un Nest que no sabe contestar `memory.status` (o que no contesta). */
 export const STATUS_SOLO_NEST: DatosDeStatus = {
-  modo: 'daemon', vacia: false, sinConteos: true, total: 0, porGrupo: {}, personal: 0, deEquipo: 0,
+  modo: 'daemon', vacia: false, sinConteos: true, total: 0, porGrupo: {}, porTipo: {}, personal: 0, deEquipo: 0,
   guardadaEn: null, servicio: null, ilegiblesDeEquipo: 0, recientes: [],
   filas: [{ marca: 'ok', etiqueta: 'Nest', detalle: 'open — memory goes through it' }],
   resumen: 'Nest owns this memory',
@@ -77,7 +77,7 @@ export function statusDeNest(r: StatusMemoryResult): DatosDeStatus {
     : (r.conflicts ?? 0) > 0 ? `${r.conflicts} conflict${r.conflicts === 1 ? '' : 's'}`
     : s.resumen
   return {
-    modo: 'daemon', vacia: false, total: r.total, porGrupo, personal: r.total - r.team, deEquipo: r.team,
+    modo: 'daemon', vacia: false, total: r.total, porGrupo, porTipo: r.byType, personal: r.total - r.team, deEquipo: r.team,
     guardadaEn: null, servicio: null, ilegiblesDeEquipo: 0, recientes: [], filas, resumen,
   }
 }

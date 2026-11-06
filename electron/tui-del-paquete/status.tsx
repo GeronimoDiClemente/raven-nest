@@ -1,8 +1,7 @@
 // La pestaña Status: el mismo contenido que `nestmux-memory status`, de `DatosDeStatus`.
 import { ink } from './ink'
-import { COLOR_DE_GRUPO, MARCA, pintar } from './colores'
+import { MARCA, ORDEN_DE_TIPOS, colorDeTipo, etiquetaDeTipo, pintar } from './colores'
 import type { DatosDeStatus, FilaDeEstado } from '../status-del-paquete'
-import type { GrupoDeTipo } from '../estilo-del-paquete'
 
 /** `✓  Etiqueta      detalle`, con la etiqueta en columna fija como en el CLI. */
 export function FilaDeMarca(p: { fila: FilaDeEstado; color: boolean; ancho?: number }) {
@@ -16,9 +15,24 @@ export function FilaDeMarca(p: { fila: FilaDeEstado; color: boolean; ancho?: num
   )
 }
 
-const ORDEN: GrupoDeTipo[] = ['decisions', 'fixes', 'conventions', 'discoveries', 'sessions']
+/** El ancho máximo de la barra: más larga no se lee mejor, sólo ocupa. */
+const ANCHO_DE_BARRA = 48
 
-export function Status(p: { datos: DatosDeStatus | null; color: boolean }) {
+/**
+ * Cuántos bloques le tocan a cada tipo, en el orden de la leyenda de la app. Un tipo presente
+ * nunca baja de un bloque: si no, el que tiene 2 de 1.284 desaparece de la barra.
+ */
+export function bloquesDeTipos(porTipo: Record<string, number>, ancho: number): Array<[string, number]> {
+  const conocidos = ORDEN_DE_TIPOS.filter((t) => (porTipo[t] ?? 0) > 0)
+  const otros = Object.keys(porTipo).filter((t) => !conocidos.includes(t as never) && porTipo[t]! > 0).sort()
+  const tipos = [...conocidos, ...otros]
+  const total = tipos.reduce((n, t) => n + porTipo[t]!, 0)
+  if (total === 0) return []
+  const libre = Math.max(tipos.length, ancho)
+  return tipos.map((t) => [t, Math.max(1, Math.round((porTipo[t]! / total) * libre))])
+}
+
+export function Status(p: { datos: DatosDeStatus | null; color: boolean; ancho?: number }) {
   const { Box, Text } = ink()
   const { datos: d, color } = p
   if (!d) return <Text dimColor>Loading…</Text>
@@ -38,19 +52,25 @@ export function Status(p: { datos: DatosDeStatus | null; color: boolean }) {
     )
   }
 
-  const grupos = ORDEN.filter((g) => (d.porGrupo[g] ?? 0) > 0)
+  const bloques = bloquesDeTipos(d.porTipo, Math.min(ANCHO_DE_BARRA, (p.ancho ?? 80) - 2))
   return (
     <Box flexDirection="column">
       <Text><Text bold>{d.total.toLocaleString('en-US')}</Text> {d.total === 1 ? 'memory' : 'memories'}</Text>
-      {grupos.length > 0 ? (
-        <Text>
-          {grupos.map((g, i) => (
-            <Text key={g}>
-              {i > 0 ? '   ' : ''}
-              <Text color={pintar(color, COLOR_DE_GRUPO[g])}>■</Text> {g} {d.porGrupo[g]}
-            </Text>
-          ))}
-        </Text>
+      {bloques.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          {/* Sin color la barra no distingue nada: queda sólo la leyenda. */}
+          {color ? (
+            <Text>{bloques.map(([t, n]) => <Text key={t} color={colorDeTipo(t)}>{'█'.repeat(n)}</Text>)}</Text>
+          ) : null}
+          <Text>
+            {bloques.map(([t], i) => (
+              <Text key={t}>
+                {i > 0 ? '   ' : ''}
+                <Text color={pintar(color, colorDeTipo(t))}>■</Text> {etiquetaDeTipo(t)} <Text dimColor>{d.porTipo[t]}</Text>
+              </Text>
+            ))}
+          </Text>
+        </Box>
       ) : null}
       <Box flexDirection="column" marginTop={1}>
         <Text><Text dimColor>{'SCOPE'.padEnd(9)}</Text>personal {d.personal}{d.deEquipo > 0 ? ` · team ${d.deEquipo}` : ''}</Text>

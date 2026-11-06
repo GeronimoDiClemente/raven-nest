@@ -1,8 +1,8 @@
 // Recent y Search: la misma lista de memorias. Search suma la línea de la consulta arriba.
 import type { EstadoDeLaTui } from './estado'
 import { ink } from './ink'
-import { COLOR_DE_GRUPO, pintar } from './colores'
-import { grupoDeTipo, hace, recortar } from '../estilo-del-paquete'
+import { colorDeTipo, etiquetaDeTipo, pintar } from './colores'
+import { hace, recortar } from '../estilo-del-paquete'
 import { TIPOS } from '../memory-protocol'
 import { LIMITE } from './runner'
 
@@ -66,8 +66,8 @@ export function Lista(p: { estado: EstadoDeLaTui; ancho: number; conFecha: boole
           const elegida = desde + i === e.cursor
           return (
             <Box key={m.syncId}>
-              <Text>{elegida ? '▸ ' : '  '}</Text>
-              <Text color={pintar(color, COLOR_DE_GRUPO[grupoDeTipo(m.type)])}>{m.type.padEnd(ANCHO_DE_TIPO)} </Text>
+              <Text bold>{elegida ? '▌ ' : '  '}</Text>
+              <Text color={pintar(color, colorDeTipo(m.type))}>{etiquetaDeTipo(m.type).padEnd(ANCHO_DE_TIPO)} </Text>
               <Text bold={elegida}>{recortar(m.title, anchoDeTitulo).padEnd(anchoDeTitulo)}</Text>
               {conFecha ? <Text dimColor> {haceCuanto(m.updatedAt, p.ahora).padStart(ANCHO_DE_FECHA)}</Text> : null}
             </Box>

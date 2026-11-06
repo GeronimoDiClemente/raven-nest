@@ -22,6 +22,8 @@ export interface DatosDeStatus {
   sinConteos?: boolean
   total: number
   porGrupo: Partial<Record<GrupoDeTipo, number>>
+  /** Las vivas por `type`: la TUI las pinta con la leyenda de la app. */
+  porTipo: Record<string, number>
   personal: number
   deEquipo: number
   /** El path, ya acortado con `acortarHome`. */
@@ -54,7 +56,7 @@ export interface DependenciasDeStatus {
 }
 
 const VACIO: DatosDeStatus = {
-  modo: 'propia', vacia: false, total: 0, porGrupo: {}, personal: 0, deEquipo: 0,
+  modo: 'propia', vacia: false, total: 0, porGrupo: {}, porTipo: {}, personal: 0, deEquipo: 0,
   guardadaEn: null, servicio: null, filas: [], ilegiblesDeEquipo: 0, recientes: [], resumen: '',
 }
 
@@ -94,10 +96,12 @@ export async function leerStatusDelPaquete(d: DependenciasDeStatus): Promise<Dat
     ).all() as Array<{ type: string; scope: string; c: number }>
     const total = grupos.reduce((n, f) => n + f.c, 0)
     const porGrupo: Partial<Record<GrupoDeTipo, number>> = {}
+    const porTipo: Record<string, number> = {}
     let deEquipo = 0
     for (const f of grupos) {
       const g = grupoDeTipo(f.type)
       porGrupo[g] = (porGrupo[g] ?? 0) + f.c
+      porTipo[f.type] = (porTipo[f.type] ?? 0) + f.c
       if (f.scope === 'team') deEquipo += f.c
     }
 
@@ -161,7 +165,7 @@ export async function leerStatusDelPaquete(d: DependenciasDeStatus): Promise<Dat
       : 'synced'
 
     return {
-      modo: base.modo, vacia: false, total, porGrupo,
+      modo: base.modo, vacia: false, total, porGrupo, porTipo,
       personal: total - deEquipo, deEquipo,
       guardadaEn: corto(base.path), servicio, filas, ilegiblesDeEquipo,
       recientes: contextObservations(db, null, GLOBAL_PROJECT_KEY, 3),
