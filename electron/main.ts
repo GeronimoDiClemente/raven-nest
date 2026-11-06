@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeS
 import { autoUpdater } from 'electron-updater'
 import { esVersionBeta, feedDeBeta, headersDeBeta } from './updater-de-beta'
 import { resolve as pathResolve } from 'path'
+import { crearRegistro, duplicarConsola } from './registro-local'
 
 const MIN_VERSION_URL = 'https://raw.githubusercontent.com/GeronimoDiClemente/raven-nest/main/min-version.json'
 const MIN_VERSION_TIMEOUT_MS = 4000
@@ -73,9 +74,36 @@ async function enforceMinVersion(): Promise<boolean> {
 // would otherwise propagate as uncaughtException and kill the main process.
 process.stdout.on('error', (err) => { if ((err as NodeJS.ErrnoException).code !== 'EPIPE') throw err })
 process.stderr.on('error', (err) => { if ((err as NodeJS.ErrnoException).code !== 'EPIPE') throw err })
+
+// Desde acá todo `console.*` del main queda también en `main.log` (ver `registro-local.ts`).
+// Va lo más arriba posible para que lo que pase durante el arranque también quede.
+let registroLocal: ReturnType<typeof crearRegistro> | null = null
+try {
+  registroLocal = crearRegistro(app.getPath('logs'))
+  duplicarConsola(registroLocal)
+  console.log(`[nest] ${app.getVersion()} arrancando (${process.platform} ${process.arch})`)
+} catch (err) {
+  console.error('[nest] no se pudo abrir main.log', err)
+}
+
 process.on('uncaughtException', (err) => {
   if ((err as NodeJS.ErrnoException).code === 'EPIPE') return
+  // Lo último que se escribe antes de que el proceso muera: es justo lo que hay que guardar.
+  registroLocal?.escribir('fatal', ['[uncaughtException]', err])
   throw err
+})
+// Una promesa rechazada sin catch no tumba el main (Electron sólo avisa), pero es un error que
+// nadie manejó y hasta ahora no dejaba rastro.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason)
+})
+// El renderer o un helper (GPU, utility) que muere: la ventana queda en blanco y no había
+// forma de saber por qué. `reason` dice si fue un crash, falta de memoria o un kill.
+app.on('render-process-gone', (_e, wc, d) => {
+  console.error('[render-process-gone]', d.reason, `exit ${d.exitCode}`, wc.getURL().split('?')[0])
+})
+app.on('child-process-gone', (_e, d) => {
+  console.error('[child-process-gone]', d.type, d.reason, `exit ${d.exitCode}`, d.name ?? d.serviceName ?? '')
 })
 
 // Single instance lock — ensures deep links route to existing window
@@ -3131,7 +3159,9 @@ function prepararChequeoDeBeta(): boolean {
 function safeCheckForUpdates(): void {
   if (updaterState !== 'idle') return
   if (!prepararChequeoDeBeta()) return
-  autoUpdater.checkForUpdates().catch(() => {})
+  // El catch no puede tirar (esto corre en un timer), pero un chequeo que falla en toda la flota
+  // —feed caído, firma inválida— dejaba a los usuarios en versiones viejas sin que nadie lo viera.
+  autoUpdater.checkForUpdates().catch((err) => console.error('[updater] chequeo fallido:', err instanceof Error ? err.message : err))
 }
 
 function setupAutoUpdater(): void {
