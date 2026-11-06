@@ -1,4 +1,5 @@
-import { BrowserWindow, WebContentsView, session as electronSession, shell } from 'electron'
+import { BrowserWindow, WebContentsView, session as electronSession, shell, type Session } from 'electron'
+import { permisoDeBrowserPane } from './permisos-de-browser-pane'
 
 export interface PaneBounds {
   x: number
@@ -29,6 +30,24 @@ const SCROLLBAR_CSS = `
   ::-webkit-scrollbar-corner { background: transparent; }
 `
 
+// Sin handler, Electron le aprueba a la página todo lo que pida (cámara, micrófono, ubicación…).
+// Se instala una vez por sesión: varias panes comparten `persist:browser-default`.
+const sesionesConPermisos = new WeakSet<Session>()
+
+function instalarPermisos(ses: Session): void {
+  if (sesionesConPermisos.has(ses)) return
+  sesionesConPermisos.add(ses)
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const url = details.requestingUrl || wc.getURL()
+    const ok = permisoDeBrowserPane(permission, url)
+    if (!ok) console.warn('[browser-pane] denied permission', permission, 'to', url)
+    callback(ok)
+  })
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => permisoDeBrowserPane(permission, requestingOrigin))
+  // WebHID, WebSerial y WebUSB: ninguna página de un pane habla con el hardware.
+  ses.setDevicePermissionHandler(() => false)
+}
+
 export class BrowserPaneManager {
   private panes = new Map<string, PaneEntry>()
   private hostWindowGetter: () => BrowserWindow | null
@@ -46,9 +65,11 @@ export class BrowserPaneManager {
     if (!win) throw new Error('No host window')
     if (this.panes.has(paneId)) this.destroy(paneId)
 
+    const ses = electronSession.fromPartition(partition)
+    instalarPermisos(ses)
     const view = new WebContentsView({
       webPreferences: {
-        session: electronSession.fromPartition(partition),
+        session: ses,
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true,
