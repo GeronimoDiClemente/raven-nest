@@ -433,6 +433,7 @@ export class MemoryIpcServer {
         case 'memory.get': {
           const params = request.params as GetMemoryParams
           const item = store.getSummary(params.syncId)
+          const fila = item ? store.get(params.syncId) : null
           // Los vecinos viajan CON la memoria, no en una llamada aparte — ver el doc
           // comment de GetMemoryResult.neighbors en memory-protocol.ts.
           return {
@@ -440,6 +441,7 @@ export class MemoryIpcServer {
             neighbors: item ? store.vecinos(params.syncId) : [],
             pendingLinks: item ? store.linksPendientes(params.syncId) : [],
             resolvedLinks: item ? store.linksResueltos(params.syncId) : [],
+            ...(fila ? { scope: fila.scope as GetMemoryResult['scope'], revisionCount: fila.revision_count } : {}),
           } as GetMemoryResult
         }
 

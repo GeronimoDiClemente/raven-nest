@@ -71,6 +71,16 @@ export function filasDeContenido(lineas: Segmento[][], ancho: number): Segmento[
   return filas
 }
 
+/** Cuántos backlinks se ven a la vez: más, y el contenido se queda sin lugar. */
+const BACKLINKS_A_LA_VISTA = 5
+
+/** Qué tramo de los backlinks se ve: los primeros, o los que rodean al enfocado. */
+export function ventanaDeBacklinks(total: number, enfocado: number | null): [number, number] {
+  if (total <= BACKLINKS_A_LA_VISTA) return [0, total]
+  const desde = enfocado === null ? 0 : Math.min(Math.max(0, enfocado - BACKLINKS_A_LA_VISTA + 1), total - BACKLINKS_A_LA_VISTA)
+  return [desde, desde + BACKLINKS_A_LA_VISTA]
+}
+
 /** `ancho` es el interior (sin márgenes). */
 export function Detalle(p: { estado: EstadoDeLaTui; ancho: number; alto: number; color: boolean; ahora: number; proyecto: string | null }) {
   const { Box, Text } = ink()
@@ -89,10 +99,20 @@ export function Detalle(p: { estado: EstadoDeLaTui; ancho: number; alto: number;
     haceCuanto(item.updatedAt, p.ahora),
   ].filter(Boolean).join(' · ')
 
+  // Las propiedades del panel lateral de la app; sin ellas (un Nest viejo) no hay fila.
+  const propiedades = d.scope !== undefined || d.revisiones !== undefined
+  const backlinks = d.mencionadaEn ?? []
+  const base = d.resolvedLinks.length
+  const enfocadoEnBacklinks = tope.linkEnfocado !== null && tope.linkEnfocado >= base ? tope.linkEnfocado - base : null
+  const [bDesde, bHasta] = ventanaDeBacklinks(backlinks.length, enfocadoEnBacklinks)
+  const quedanFuera = backlinks.length - (bHasta - bDesde)
+  // El espacio, el título de la sección, las filas y el «+N more».
+  const altoDeBacklinks = backlinks.length === 0 ? 0 : 2 + (bHasta - bDesde) + (quedanFuera > 0 ? 1 : 0)
+
   const lineas = filasDeContenido(lineasDeContenido(item.content, d.resolvedLinks), p.ancho)
-  // Título, meta y el espacio: lo que queda es para el contenido (los dos primeros se truncan
-  // para que ocupen una fila cada uno).
-  const altoDeContenido = Math.max(1, p.alto - 3)
+  // Título, meta, propiedades y el espacio: lo que queda (menos los backlinks) es para el
+  // contenido. Las de arriba se truncan para que ocupen una fila cada una.
+  const altoDeContenido = Math.max(1, p.alto - 3 - (propiedades ? 1 : 0) - altoDeBacklinks)
   // El reducer no sabe cuántas líneas hay: el tope del scroll se aplica al dibujar.
   const desde = Math.min(tope.scroll, Math.max(0, lineas.length - altoDeContenido))
   const visibles = lineas.slice(desde, desde + altoDeContenido)
@@ -105,6 +125,13 @@ export function Detalle(p: { estado: EstadoDeLaTui; ancho: number; alto: number;
         <Text dimColor>{meta.slice(tipo.length)}</Text>
         {item.originAi ? <><Text dimColor> ·</Text><Proveedor ai={item.originAi} color={color} /></> : null}
       </Text>
+      {propiedades ? (
+        <Text wrap="truncate">
+          {d.scope ? <><Text dimColor>Scope </Text>{d.scope}</> : null}
+          {d.scope && d.revisiones !== undefined ? '   ' : null}
+          {d.revisiones !== undefined ? <><Text dimColor>Revisions </Text>{d.revisiones}</> : null}
+        </Text>
+      ) : null}
       <Box flexDirection="column" marginTop={1}>
         {visibles.map((linea, i) => (
           <Text key={desde + i} wrap="truncate">
@@ -117,6 +144,18 @@ export function Detalle(p: { estado: EstadoDeLaTui; ancho: number; alto: number;
           </Text>
         ))}
       </Box>
+      {backlinks.length > 0 ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text dimColor>MENTIONED IN</Text>
+          {backlinks.slice(bDesde, bHasta).map((b, i) => (
+            <Text key={b.syncId} wrap="truncate">
+              <Text dimColor>← </Text>
+              <Text underline inverse={bDesde + i === enfocadoEnBacklinks}>{b.title}</Text>
+            </Text>
+          ))}
+          {quedanFuera > 0 ? <Text dimColor>{`+${quedanFuera} more — tab to reach them`}</Text> : null}
+        </Box>
+      ) : null}
     </Box>
   )
 }

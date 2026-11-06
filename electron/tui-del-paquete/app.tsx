@@ -29,7 +29,7 @@ export const AYUDA: Array<[string, string]> = [
   ['1-4 / Tab', 'switch tab (Shift+Tab goes back)'],
   ['↑↓ / j k', 'move, or scroll a memory'],
   ['⏎', 'open the memory, or follow the focused link'],
-  ['Tab', 'in a memory: next link (Shift+Tab: previous)'],
+  ['Tab', 'in a memory: next link or backlink (Shift+Tab: previous)'],
   ['Esc', 'back, or clear the search'],
   ['/', 'search'],
   ['g', 'Recent: this project / all projects'],

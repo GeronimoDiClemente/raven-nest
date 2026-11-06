@@ -42,7 +42,16 @@ export async function leerDetalle(c: Llamador, cwd: string, syncId: string): Pro
   if (!r.item) return null
   // Un daemon de un Nest más viejo no manda los links: sin el `?? []`, el detalle revienta en
   // cuanto el contenido tiene un `[[…]]`.
-  return { item: r.item, pendingLinks: r.pendingLinks ?? [], resolvedLinks: r.resolvedLinks ?? [] }
+  // Sólo los backlinks por `[[...]]`, como el «Mentioned in» de la app: una conexión manual no
+  // tiene lado.
+  const mencionadaEn = (r.neighbors ?? [])
+    .filter((v) => v.direction === 'incoming' && v.via === 'wikilink')
+    .map((v) => ({ syncId: v.syncId, title: v.title }))
+  return {
+    item: r.item, pendingLinks: r.pendingLinks ?? [], resolvedLinks: r.resolvedLinks ?? [], mencionadaEn,
+    ...(r.scope ? { scope: r.scope } : {}),
+    ...(typeof r.revisionCount === 'number' ? { revisiones: r.revisionCount } : {}),
+  }
 }
 
 export function pedidoDeGuardar(cwd: string, m: MemoriaEscrita): SaveMemoryParams {

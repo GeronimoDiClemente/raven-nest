@@ -33,6 +33,7 @@ function fakeStore(overrides: Partial<MemoryStore> = {}): MemoryStore {
     vecinos: vi.fn(() => []),
     linksPendientes: vi.fn(() => []),
     linksResueltos: vi.fn(() => []),
+    get: vi.fn(() => null),
     ...overrides,
   } as unknown as MemoryStore
 }
@@ -877,6 +878,13 @@ describe('MemoryIpcServer — lo que necesita la TUI (store real)', () => {
     expect(await conNest.responder('memory.status', {})).toMatchObject({
       total: 0, conflicts: 3, sessions: { writing: 1, silent: 1, disabled: 0 }, sync: { status: 'idle' },
     })
+  })
+
+  it('memory.get trae el scope y las revisiones de la fila', async () => {
+    const { syncId } = await guardar('/tmp/repo-a', 'T')
+    expect(await server.responder('memory.get', { cwd: '/tmp/repo-a', syncId })).toMatchObject({ scope: 'personal', revisionCount: 0 })
+    const nada = (await server.responder('memory.get', { cwd: '/tmp/repo-a', syncId: 'no-existe' })) as object
+    expect(nada).not.toHaveProperty('scope')
   })
 
   it('memory.update con el mismo tipo y nada más es unchanged', async () => {

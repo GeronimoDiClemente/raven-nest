@@ -142,7 +142,7 @@ describe('fuente del paquete', () => {
       base: { modo: 'daemon', socket: 's', token: 't' }, nest: [nest],
       responder: (_d, m) => (m === 'memory.get' ? { item, neighbors: [], pendingLinks: ['x'], resolvedLinks: [] } : { items: [] }),
     })
-    expect(await fuente.obtener('a')).toEqual({ item, pendingLinks: ['x'], resolvedLinks: [] })
+    expect(await fuente.obtener('a')).toEqual({ item, pendingLinks: ['x'], resolvedLinks: [], mencionadaEn: [] })
     await fuente.recientes({ todos: true, limite: 5 })
     expect(llamadas.every((l) => l.donde === 'daemon')).toBe(true)
     expect(llamadas[1].params).toMatchObject({ allProjects: true, limit: 5 })
@@ -291,7 +291,19 @@ describe('leerDetalle contra un daemon de un Nest más viejo', () => {
   it('sin resolvedLinks ni pendingLinks devuelve listas vacías', async () => {
     const item = { syncId: 'a', title: 'T', type: 'decision', content: 'see [[Other]]', topicKey: null, tags: [], updatedAt: 1, originAi: null, gitBranch: null }
     const d = await leerDetalle({ call: async () => ({ item }) }, '/tmp/r', 'a')
-    expect(d).toEqual({ item, resolvedLinks: [], pendingLinks: [] })
+    // Ni scope ni revisiones: el detalle no inventa propiedades que el daemon no mandó.
+    expect(d).toEqual({ item, resolvedLinks: [], pendingLinks: [], mencionadaEn: [] })
+  })
+
+  it('los backlinks son sólo los vecinos entrantes por wikilink, y las propiedades pasan tal cual', async () => {
+    const item = { syncId: 'a', title: 'T', type: 'decision', content: '', topicKey: null, tags: [], updatedAt: 1, originAi: null, gitBranch: null }
+    const neighbors = [
+      { syncId: 'b', title: 'Cita a T', topicKey: null, direction: 'incoming', via: 'wikilink' },
+      { syncId: 'c', title: 'T cita a esta', topicKey: null, direction: 'outgoing', via: 'wikilink' },
+      { syncId: 'd', title: 'Conectada a mano', topicKey: null, direction: 'both', via: 'manual' },
+    ]
+    const d = await leerDetalle({ call: async () => ({ item, neighbors, scope: 'team', revisionCount: 3 }) }, '/tmp/r', 'a')
+    expect(d).toMatchObject({ mencionadaEn: [{ syncId: 'b', title: 'Cita a T' }], scope: 'team', revisiones: 3 })
   })
 })
 

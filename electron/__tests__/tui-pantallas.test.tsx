@@ -331,6 +331,30 @@ describe('pantallas de la TUI — bordes', () => {
     r.unmount()
   })
 
+  it('el detalle muestra scope, revisiones y los backlinks, y Tab llega a los backlinks', async () => {
+    const { fuente, llamadas } = fuenteFalsa()
+    const obtener = fuente.obtener
+    fuente.obtener = async (id) => {
+      const d = await obtener(id)
+      return d && id === 'a'
+        ? { ...d, scope: 'team', revisiones: 2, mencionadaEn: [{ syncId: 'b', title: 'Stale guard orders like resolveLWW' }] }
+        : d
+    }
+    const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('Link codes'))
+    r.stdin.write('\r')
+    await hasta(() => !!r.lastFrame()?.includes('MENTIONED IN'))
+    const f = r.lastFrame()!
+    expect(f).toContain('Scope team   Revisions 2')
+    expect(f).toContain('← Stale guard orders like resolveLWW')
+    r.stdin.write('\t')
+    await tic()
+    r.stdin.write('\r')
+    await hasta(() => llamadas.includes('obtener:b'))
+    expect(llamadas).toContain('obtener:b')
+    r.unmount()
+  })
+
   it('a 70 columnas el agente se cae antes que el título', async () => {
     const { fuente } = fuenteFalsa({ memorias: [{ ...MEMORIAS[0]!, originAi: 'claude' }] })
     const r = render(<App fuente={fuente} ancho={70} suspenderYEditar={suspender} />)

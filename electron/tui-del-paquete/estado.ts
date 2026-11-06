@@ -15,11 +15,16 @@ export type Pestana = 'recent' | 'search' | 'status' | 'doctor'
 
 export interface Vista { tipo: 'detalle'; syncId: string; linkEnfocado: number | null; scroll: number }
 
-/** Lo que devuelve `memory.get`, sin los vecinos. */
+/** Lo que devuelve `memory.get`; de los vecinos, sólo los backlinks. */
 export interface DetalleDeMemoria {
   item: ObservationSummary
   resolvedLinks: WikilinkResuelto[]
   pendingLinks: string[]
+  /** Las que la citan con `[[...]]`: el «Mentioned in» de la app. */
+  mencionadaEn?: Array<{ syncId: string; title: string }>
+  /** Las propiedades del panel lateral de la app; un Nest viejo no las manda. */
+  scope?: string
+  revisiones?: number
 }
 
 export interface EstadoDeLaTui {
@@ -119,12 +124,22 @@ function irAPestana(e: EstadoDeLaTui, p: Pestana): Resultado {
   return sin({ ...base, cargando: true }, refrescar(base))
 }
 
-/** Índices de `resolvedLinks` a los que se puede ir (los huecos se saltean). */
+/**
+ * Índices a los que se puede ir con Tab: primero los de `resolvedLinks` (los huecos se
+ * saltean) y después los backlinks, numerados a continuación (`resolvedLinks.length + j`).
+ */
 function linksNavegables(d: DetalleDeMemoria | null): number[] {
   if (!d) return []
   const r: number[] = []
   d.resolvedLinks.forEach((l, i) => { if (l.syncId) r.push(i) })
+  ;(d.mencionadaEn ?? []).forEach((_, j) => r.push(d.resolvedLinks.length + j))
   return r
+}
+
+/** El destino de un índice de `linksNavegables`, o `null` si es un hueco. */
+export function destinoDelLink(d: DetalleDeMemoria, indice: number): string | null {
+  if (indice < d.resolvedLinks.length) return d.resolvedLinks[indice]?.syncId ?? null
+  return d.mencionadaEn?.[indice - d.resolvedLinks.length]?.syncId ?? null
 }
 
 const esTexto = (input: string, key: Tecla) => input.length > 0 && !key.ctrl && !key.meta
@@ -161,8 +176,8 @@ function teclaEnDetalle(e: EstadoDeLaTui, input: string, key: Tecla): Resultado 
     return sin(conTope(e, { linkEnfocado: siguiente }))
   }
   if (key.return) {
-    const l = tope.linkEnfocado === null ? null : e.detalle?.resolvedLinks[tope.linkEnfocado]
-    return l?.syncId ? apilar(e, l.syncId) : sin(e)
+    const destino = tope.linkEnfocado === null || !e.detalle ? null : destinoDelLink(e.detalle, tope.linkEnfocado)
+    return destino ? apilar(e, destino) : sin(e)
   }
   if (key.upArrow || input === 'k') return sin(conTope(e, { scroll: Math.max(0, tope.scroll - 1) }))
   if (key.downArrow || input === 'j') return sin(conTope(e, { scroll: tope.scroll + 1 }))

@@ -206,6 +206,9 @@ export interface GetMemoryResult {
   pendingLinks: string[]
   /** Cada `[[...]]` del texto con su destino (`syncId: null` = hueco), en el orden en que aparecen. */
   resolvedLinks: WikilinkResuelto[]
+  /** Las propiedades del panel lateral de la app. Opcionales: un Nest viejo no las manda. */
+  scope?: 'personal' | 'project' | 'team'
+  revisionCount?: number
 }
 
 /**
