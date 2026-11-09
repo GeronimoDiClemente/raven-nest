@@ -100,6 +100,33 @@ export async function hadRecentSuccess(pool: Pool, hours: number): Promise<boole
 }
 
 /**
+ * Pasado este tope sin un backup bueno, `/health/backup` da 503. El backup es diario: 26 horas
+ * dejan correr un dump lento o un redeploy a la hora justa sin falsas alarmas, y una noche
+ * salteada ya se ve a la mañana siguiente.
+ */
+export const BACKUP_MAX_HORAS = 26
+
+/** Cuándo terminó el último backup bueno, de cualquier origen. `null` si nunca hubo. */
+export async function ultimoBackupBueno(pool: Pool): Promise<Date | null> {
+  const { rows } = await pool.query('select max(finished_at) as t from backups where ok = true')
+  return rows[0]?.t ? new Date(rows[0].t) : null
+}
+
+/**
+ * Puro: si el último backup bueno está dentro del tope. Nunca haber tenido uno es tan malo
+ * como tener uno viejo — para un monitor, las dos son "no hay de dónde restaurar hoy".
+ */
+export function frescuraDelBackup(
+  ultimo: Date | null,
+  ahora: Date,
+  maxHoras = BACKUP_MAX_HORAS,
+): { ok: boolean; horas: number | null } {
+  if (!ultimo) return { ok: false, horas: null }
+  const horas = Math.round(((ahora.getTime() - ultimo.getTime()) / 3_600_000) * 10) / 10
+  return { ok: horas <= maxHoras, horas }
+}
+
+/**
  * Las dependencias reales, o `null` si R2 no está configurado.
  *
  * `null` y no una excepción: un deploy sin R2 —el de desarrollo, el de un cliente que todavía

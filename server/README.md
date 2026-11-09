@@ -22,6 +22,7 @@ estado propio — todo vive en Postgres — que habla el contrato de wire §5: `
 | `POST /v1/link/approve` | — | Con el JWT de Supabase y `{ user_code }`: ata el pedido a la cuenta, aplicando antes la red de seguridad del plan pago de Supabase (igual que `registerDevice`), para que lo que `check` dijo `ok` sea lo que el reclamo acepte. No emite nada. La misma escalera de errores que `check` (404/400/409); si otra aprobación concurrente ató el pedido primero, también 409 `already_approved`. 20 por hora por `userId` verificado, en un balde aparte del de `check` (un 401 no lo gasta). CORS: ver `LINK_WEB_ORIGINS`. |
 | `POST /v1/link/poll` | — | Con `{ device_code, name?, platform? }`: 400 `authorization_pending`, 429 `slow_down`, 410 `expired`, 403 `denied`, o 200 con el token (lo emite `registerDevice`, con sus controles). |
 | `GET /health` | — | Sin token. |
+| `GET /health/backup` | — | Sin token. 200 `{ ok: true, horas }` si el último backup BUENO terminó hace 26 h o menos; 503 si es más viejo o si nunca hubo (`horas: null`). Es para un segundo monitor de uptime: un backup que deja de correr no tumba nada y sin esto nadie se entera hasta que hace falta restaurar. |
 
 ## Cifrado del lado del cliente — qué deja de ser legible
 

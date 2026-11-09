@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { getPool, migrate } from '../src/db'
 import {
   backupKey, countRows, runBackup, hadRecentSuccess, shouldRunBackup, backupDepsFromEnv,
+  frescuraDelBackup, ultimoBackupBueno,
   type BackupDeps,
 } from '../src/backup'
 
@@ -184,5 +185,33 @@ describe('shouldRunBackup', () => {
     await limpiarBackups()
     await runBackup(pool, deps())
     expect(await shouldRunBackup(pool, deps(), 20)).toBe(false)
+  })
+})
+
+describe('frescuraDelBackup', () => {
+  const ahora = new Date('2026-11-09T12:00:00Z')
+  const hace = (h: number) => new Date(ahora.getTime() - h * 3_600_000)
+
+  it('nunca haber tenido uno no es ok', () => {
+    expect(frescuraDelBackup(null, ahora)).toEqual({ ok: false, horas: null })
+  })
+
+  it('hasta 26 horas es ok; pasado eso, no', () => {
+    expect(frescuraDelBackup(hace(5), ahora)).toEqual({ ok: true, horas: 5 })
+    expect(frescuraDelBackup(hace(26), ahora)).toEqual({ ok: true, horas: 26 })
+    expect(frescuraDelBackup(hace(26.5), ahora)).toEqual({ ok: false, horas: 26.5 })
+  })
+})
+
+// En este archivo por lo mismo que `shouldRunBackup`: la consulta es sobre la tabla entera.
+describe('ultimoBackupBueno', () => {
+  it('es el final del bueno más nuevo, no el de un intento fallido', async () => {
+    await limpiarBackups()
+    const bueno = await runBackup(pool, deps())
+    await pool.query(`update backups set finished_at = now() + interval '1 hour' where id = $1`, [bueno.id])
+    await expect(runBackup(pool, deps({ upload: async () => { throw new Error('x') } }))).rejects.toThrow()
+    await pool.query(`update backups set finished_at = now() + interval '2 hours' where ${MIAS} and ok = false`)
+    const { rows } = await pool.query('select finished_at from backups where id = $1', [bueno.id])
+    expect((await ultimoBackupBueno(pool))?.getTime()).toBe(new Date(rows[0].finished_at).getTime())
   })
 })

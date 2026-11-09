@@ -44,6 +44,16 @@ describe('http', () => {
     expect(res.status).toBe(200)
   })
 
+  // Si da 200 o 503 depende de los backups que hayan escrito los otros archivos en paralelo; lo
+  // que se fija acá es que la ruta existe sin token y no dice más que las horas.
+  it('serves /health/backup without a token, y sólo con ok y horas', async () => {
+    const res = await fetch(`${base}/health/backup`)
+    expect([200, 503]).toContain(res.status)
+    const body = await res.json()
+    expect(Object.keys(body).sort()).toEqual(['horas', 'ok'])
+    expect(body.ok).toBe(res.status === 200)
+  })
+
   it('rejects a push with no token', async () => {
     const res = await fetch(`${base}/v1/sync/push`, { method: 'POST', body: '{}' })
     expect(res.status).toBe(401)

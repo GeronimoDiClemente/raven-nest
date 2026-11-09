@@ -9,6 +9,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 
 const RUTAS_CONOCIDAS = new Set([
   '/health',
+  '/health/backup',
   '/internal/plan',
   '/internal/memberships',
   '/internal/metrics',
@@ -71,7 +72,7 @@ export function registrarRequest(
   res.setHeader('X-Request-Id', rid)
   res.on('finish', () => {
     const ruta = rutaParaLog(new URL(req.url ?? '/', 'http://x').pathname)
-    if (ruta === '/health' && res.statusCode === 200) return
+    if ((ruta === '/health' || ruta === '/health/backup') && res.statusCode === 200) return
     emitir({
       t: new Date().toISOString(),
       rid,

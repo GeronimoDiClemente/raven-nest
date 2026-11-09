@@ -18,6 +18,7 @@ import { handleBeta } from './betas'
 import { aplicarPlan, leerAvisoDePlan, verificarFirmaDePlan } from './plan-sync'
 import { aplicarMembresias, leerAvisoDeMembresias } from './membership-sync'
 import { calcularMetricas, esPedidoDeMetricas } from './metricas'
+import { frescuraDelBackup, ultimoBackupBueno } from './backup'
 import { UUID_RE } from './uuid'
 import { cabecerasCors, origenesDeVinculacion } from './cors'
 import { ipDelCliente } from './ip-del-cliente'
@@ -231,6 +232,19 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
     } catch (err) {
       console.error('[health] la base no responde:', (err as Error).message)
       return send(res, 503, { ok: false })
+    }
+  }
+
+  // Para un monitor de uptime aparte del de `/health`: un backup que dejó de correr no tumba
+  // nada, así que nadie se entera hasta que hace falta restaurar. Sólo dice las horas, ni la
+  // clave del objeto ni el tamaño.
+  if (path === '/health/backup') {
+    try {
+      const f = frescuraDelBackup(await ultimoBackupBueno(pool), new Date())
+      return send(res, f.ok ? 200 : 503, f)
+    } catch (err) {
+      console.error('[health] no se pudo leer el último backup:', (err as Error).message)
+      return send(res, 503, { ok: false, horas: null })
     }
   }
 
