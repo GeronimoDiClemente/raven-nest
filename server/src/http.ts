@@ -17,6 +17,7 @@ import { recryptTeamObservations, listRecryptPending } from './team-keys-recrypt
 import { handleBeta } from './betas'
 import { aplicarPlan, leerAvisoDePlan, verificarFirmaDePlan } from './plan-sync'
 import { aplicarMembresias, leerAvisoDeMembresias } from './membership-sync'
+import { calcularMetricas, esPedidoDeMetricas } from './metricas'
 import { UUID_RE } from './uuid'
 import { cabecerasCors, origenesDeVinculacion } from './cors'
 import { ipDelCliente } from './ip-del-cliente'
@@ -249,6 +250,8 @@ async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerRespon
   if (path === '/internal/plan') return handleInternalPlan(pool, req, res)
   // Lo mismo para la membresía de equipos (hueco del 30-oct): mismo secreto y misma firma.
   if (path === '/internal/memberships') return handleInternalMemberships(pool, req, res)
+  // Las métricas del back-office: mismo secreto y firma, y sólo devuelve conteos.
+  if (path === '/internal/metrics') return handleInternalMetrics(pool, req, res)
 
   // §9.2 — la emisión del token. Va ANTES de `authenticate` y fuera de su try/catch porque
   // es el único camino que NO lleva un token `nmk_`: la credencial es el JWT del login que
@@ -722,6 +725,31 @@ async function handleInternalMemberships(pool: Pool, req: IncomingMessage, res: 
   } catch (err) {
     const status = (err as { status?: number }).status ?? 500
     if (status === 500) console.error('[http] /internal/memberships', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/**
+ * `POST /internal/metrics`: los agregados de `metricas.ts` para el admin-api. POST y no GET
+ * porque la firma va sobre un cuerpo, y el cuerpo (`{"consulta":"metricas"}`) es lo que impide
+ * reusar una firma de otra ruta interna.
+ */
+async function handleInternalMetrics(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const secreto = process.env.PLAN_SYNC_SECRET ?? ''
+  if (!secreto) return send(res, 404, { error: 'not_found' })
+  if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+  try {
+    const cuerpo = await readRawBody(req, MAX_PLAN_BODY_BYTES)
+    const firma = req.headers['x-nest-signature']
+    const cabecera = Array.isArray(firma) ? firma[0] : firma
+    if (!verificarFirmaDePlan(cabecera, cuerpo, secreto, Math.floor(Date.now() / 1000))) {
+      return send(res, 401, { error: 'unauthorized' })
+    }
+    if (!esPedidoDeMetricas(cuerpo)) return send(res, 400, { error: 'bad_request' })
+    return send(res, 200, { ok: true, metricas: await calcularMetricas(pool) })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /internal/metrics', err)
     return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
   }
 }

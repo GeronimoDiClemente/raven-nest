@@ -11,6 +11,7 @@ const RUTAS_CONOCIDAS = new Set([
   '/health',
   '/internal/plan',
   '/internal/memberships',
+  '/internal/metrics',
   '/v1/devices',
   '/v1/devices/revoke',
   '/v1/link/start',
