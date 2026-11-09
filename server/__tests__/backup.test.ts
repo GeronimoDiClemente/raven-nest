@@ -45,7 +45,8 @@ describe('backupKey', () => {
 describe('countRows', () => {
   it('cuenta las tablas de datos del servicio', async () => {
     const counts = await countRows(pool)
-    for (const t of ['users', 'devices', 'projects', 'observations', 'push_receipts', 'allowlist']) {
+    for (const t of ['users', 'devices', 'projects', 'observations', 'push_receipts', 'allowlist',
+      'team_memberships', 'device_keys', 'key_wraps', 'team_keys', 'team_key_wraps']) {
       expect(typeof counts[t], `falta ${t}`).toBe('number')
     }
     // `backups` no se cuenta: la escribe el propio backup y el número cambiaría entre que se

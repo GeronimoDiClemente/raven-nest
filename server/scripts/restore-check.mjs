@@ -17,6 +17,9 @@ import { createHash } from 'node:crypto'
 import pg from 'pg'
 import { r2ConfigFromEnv, listKeys, getObject } from '../src/r2.ts'
 import { pgRestore } from '../src/pg-dump.ts'
+// La misma lista que cuenta el backup: si estuviera copiada acá, una tabla nueva se contaría al
+// hacer el dump y nunca se verificaría al restaurar.
+import { DATA_TABLES } from '../src/backup.ts'
 
 const args = process.argv.slice(2)
 const flag = (n) => args.includes(n)
@@ -28,7 +31,6 @@ const value = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : 
 const DATABASE_URL = process.env.DATABASE_URL
   ?? 'postgres://postgres:nestmem@127.0.0.1:55432/nest_memory'
 const PG_BIN_DATABASE_URL = process.env.PG_BIN_DATABASE_URL ?? DATABASE_URL
-const DATA_TABLES = ['users', 'devices', 'projects', 'observations', 'push_receipts', 'allowlist']
 
 function fatal(msg) { console.error(`x ${msg}`); process.exit(1) }
 
@@ -109,8 +111,12 @@ async function main() {
         console.table(restaurados)
       } else {
         console.table(DATA_TABLES.map((t) => ({ tabla: t, esperado: esperados[t], restaurado: restaurados[t] })))
+        // Un dump anterior a que se sumara una tabla a DATA_TABLES no tiene su conteo: se avisa,
+        // pero no es un desajuste. Si contara, el último backup real fallaría hasta el próximo.
+        const sinConteo = DATA_TABLES.filter((t) => !(t in esperados))
+        if (sinConteo.length > 0) console.log(`! sin conteo registrado en este dump: ${sinConteo.join(', ')}`)
         const diffs = DATA_TABLES
-          .filter((t) => restaurados[t] !== esperados[t])
+          .filter((t) => t in esperados && restaurados[t] !== esperados[t])
           .map((t) => `  ${t}: esperado ${esperados[t]}, restaurado ${restaurados[t]}`)
         if (diffs.length > 0) throw new Error(`conteos que no coinciden:\n${diffs.join('\n')}`)
       }

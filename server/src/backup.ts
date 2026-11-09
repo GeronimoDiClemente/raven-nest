@@ -14,7 +14,13 @@ const KEY_PREFIX = 'nest-memory/'
  * incluirla haría fallar TODA restauración verificada, para siempre, por un desajuste que no
  * es un error.
  */
-const DATA_TABLES = ['users', 'devices', 'projects', 'observations', 'push_receipts', 'allowlist'] as const
+export const DATA_TABLES = [
+  'users', 'devices', 'projects', 'observations', 'push_receipts', 'allowlist',
+  // Las del cifrado y los equipos. Faltaban, y son justo las que no se pueden reconstruir: sin
+  // `key_wraps` (envolturas de la maestra, incluida la del código de recuperación) ni
+  // `team_key_wraps`, una restauración "verificada" podía devolver memoria que nadie puede abrir.
+  'team_memberships', 'device_keys', 'key_wraps', 'team_keys', 'team_key_wraps',
+] as const
 
 export type BackupDeps = {
   dump: () => Promise<Uint8Array>
