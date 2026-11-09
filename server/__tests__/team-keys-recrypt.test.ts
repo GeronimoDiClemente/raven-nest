@@ -303,7 +303,7 @@ describe('listRecryptPending — C1', () => {
     // le llega por el pull), así que sella lo que el servidor le da, en ESA versión.
     expect(res.items.find((i) => i.sync_id === delMember)).toEqual({
       sync_id: delMember, lamport: 1, title: 'en claro', content: 'contenido en claro', tags: [],
-      content_hash: null, origin_account: null,
+      content_hash: null, origin_account: null, git_branch: null,
       // Task 15b (I2): con el tema y el proyecto el cliente deriva el MISMO HMAC que una fila
       // nueva (`sealMutationPayload`), sin depender de tener el proyecto clonado.
       project_key: 'repo-x', topic_key: null,
@@ -578,5 +578,62 @@ describe('listRecryptPending — tombstones sin texto (F3)', () => {
     expect(res.ok).toBe(true)
     if (!res.ok) return
     expect(res.items.map((i) => i.sync_id)).not.toContain(syncId)
+  })
+})
+
+// La migración no sellaba `git_branch`: una fila de equipo subida en claro antes de activar
+// quedaba con la rama a la vista y la tarjeta igual decía "todo cifrado".
+describe('git_branch también se sella', () => {
+  const selladaSalvoRama = async (syncId: string, topic: string | null = null) => {
+    await obs(syncId, projectMember, 'team', memberId)
+    await pool.query(
+      `update observations set title = 'nmc1:t', content = 'nmc1:c', git_branch = 'feat/clientes-acme',
+              topic_key = $2 where sync_id = $1`,
+      [syncId, topic]
+    )
+  }
+  const rama = async (syncId: string) =>
+    (await pool.query('select git_branch from observations where sync_id = $1', [syncId])).rows[0].git_branch
+
+  it('una fila con todo sellado salvo la rama está pendiente, la trae, y recrypt la sella', async () => {
+    const syncId = randomUUID()
+    await selladaSalvoRama(syncId)
+    const pend = await listRecryptPending(pool, leader(), teamId, {})
+    expect(pend.ok && pend.items.map((i) => [i.sync_id, i.git_branch])).toEqual([[syncId, 'feat/clientes-acme']])
+    const res = await recryptTeamObservations(pool, leader(), teamId, {
+      proof: PRUEBA, items: [item(syncId, { git_branch: 'nmc1:g' })],
+    })
+    expect(res.ok && res.applied).toEqual([syncId])
+    expect(await rama(syncId)).toBe('nmc1:g')
+    const despues = await listRecryptPending(pool, leader(), teamId, {})
+    expect(despues.ok && despues.total).toBe(0)
+  })
+
+  it('una fila ya migrada (título sellado, tema HMAC) conserva su tema: no se hashea dos veces', async () => {
+    const syncId = randomUUID()
+    await selladaSalvoRama(syncId, HMAC_A)
+    const res = await recryptTeamObservations(pool, leader(), teamId, {
+      proof: PRUEBA, items: [item(syncId, { git_branch: 'nmc1:g', topic_key: 'b'.repeat(32) })],
+    })
+    expect(res.ok && res.applied).toEqual([syncId])
+    expect((await filaTema(syncId)).topic_key).toBe(HMAC_A)
+  })
+
+  it('un item sin git_branch (cliente anterior) no toca la columna', async () => {
+    const syncId = randomUUID()
+    await obs(syncId, projectMember, 'team', memberId)
+    await pool.query(`update observations set git_branch = 'nmc1:ya' where sync_id = $1`, [syncId])
+    const res = await recryptTeamObservations(pool, leader(), teamId, { proof: PRUEBA, items: [item(syncId)] })
+    expect(res.ok && res.applied).toEqual([syncId])
+    expect(await rama(syncId)).toBe('nmc1:ya')
+  })
+
+  it('un git_branch que no es string ni null invalida el lote', async () => {
+    const syncId = randomUUID()
+    await selladaSalvoRama(syncId)
+    const res = await recryptTeamObservations(pool, leader(), teamId, {
+      proof: PRUEBA, items: [item(syncId, { git_branch: 42 })],
+    })
+    expect(res).toEqual({ ok: false, status: 400, error: 'invalid_fields' })
   })
 })

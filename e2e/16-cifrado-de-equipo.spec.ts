@@ -333,7 +333,7 @@ function enClaroDelEquipo(teamId: string): number {
   const campo = (c: string) => `(o.${c} is not null and o.${c} not like 'nmc1:%')`
   return Number(sql(`select count(*) from observations o join projects p on p.id = o.project_id
     where p.team_id = '${teamId}' and o.scope = 'team'
-      and (o.title not like 'nmc1:%' or ${campo('content')} or ${campo('content_hash')} or ${campo('origin_account')})`))
+      and (o.title not like 'nmc1:%' or ${campo('content')} or ${campo('content_hash')} or ${campo('origin_account')} or ${campo('git_branch')})`))
 }
 
 /** El `topic_key` de una fila en el servicio, tal cual (Task 15b, I2). */

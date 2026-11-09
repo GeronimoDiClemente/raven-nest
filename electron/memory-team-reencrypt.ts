@@ -35,6 +35,8 @@ interface FilaPendiente {
   tags: unknown
   content_hash: string | null
   origin_account: string | null
+  /** Ausente si el servidor es anterior a este campo: entonces no se manda. */
+  git_branch?: string | null
   /** El proyecto de la fila en el servidor y su tema EN CLARO (o null). */
   project_key: string
   topic_key: string | null
@@ -131,13 +133,18 @@ function sellar(keys: MemoryKeys, r: FilaPendiente) {
       : [encryptField(keys, JSON.stringify(tags), fieldAad(r.sync_id, 'tags'))],
     content_hash: r.content_hash === null ? null : sellarCampo(keys, r.content_hash, r.sync_id, 'content_hash'),
     origin_account: r.origin_account === null ? null : sellarCampo(keys, r.origin_account, r.sync_id, 'origin_account'),
+    ...(r.git_branch !== undefined
+      ? { git_branch: r.git_branch === null ? null : sellarCampo(keys, r.git_branch, r.sync_id, 'git_branch') }
+      : {}),
     lamport: r.lamport,
     // La MISMA derivación que `sealMutationPayload` (memory-envelope.ts) usa para una fila
     // nueva de equipo: clave de equipo, `project_key` de la fila y scope 'team'. Si difiriera en
     // un byte, la fila migrada y una nueva del mismo tema nunca chocarían y las dos quedarían
-    // vivas. Lo pendiente siempre trae el tema en claro: una fila que ya pasó por
-    // `sealMutationPayload` llega con todo sellado y no está pendiente.
-    topic_key: r.topic_key ? hmacTopicKey(keys, r.project_key, 'team', r.topic_key) : null,
+    // vivas. Con el título en claro el tema también lo está. Con el título sellado el tema ya
+    // es el HMAC: es una fila migrada antes de que se sellara `git_branch`, que vuelve sólo por
+    // la rama, y hashearlo de nuevo la separaría de su tema (el servidor igual lo conserva).
+    topic_key: !r.topic_key ? null
+      : isCiphertext(r.title) ? r.topic_key : hmacTopicKey(keys, r.project_key, 'team', r.topic_key),
   }
 }
 

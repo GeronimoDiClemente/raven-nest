@@ -186,7 +186,7 @@ describe('/v1/teams/key*', () => {
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json).toEqual({ total: 1, items: [{
-      sync_id: syncId, lamport: 1, title: 'en claro', content: 'contenido en claro', tags: [], content_hash: null, origin_account: null,
+      sync_id: syncId, lamport: 1, title: 'en claro', content: 'contenido en claro', tags: [], content_hash: null, origin_account: null, git_branch: null,
       project_key: expect.any(String), topic_key: null, // Task 15b (I2)
     }] })
 

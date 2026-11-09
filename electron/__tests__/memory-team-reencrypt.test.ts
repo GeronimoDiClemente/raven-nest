@@ -11,7 +11,12 @@ interface FilaServidor {
   lamport: number; title: string; content: string | null
   tags?: string[]; content_hash?: string | null; origin_account?: string | null
   project_key?: string; topic_key?: string | null
+  /** Sin la clave, la fila imita a un servidor anterior a `git_branch`: no la manda. */
+  git_branch?: string | null
 }
+
+const enClaro = (v: string | null | undefined) => v != null && v !== '' && !v.startsWith('nmc1:')
+const pendiente = (f: FilaServidor) => enClaro(f.title) || enClaro(f.git_branch)
 
 /**
  * Imita a server/src/team-keys-recrypt.ts + la ruta `recrypt-pending`: lo pendiente (CON su
@@ -34,11 +39,12 @@ function servidorFalso(master: Buffer, filas: Record<string, FilaServidor>, opts
     if (u.pathname === '/v1/teams/key/recrypt-pending') {
       const after = u.searchParams.get('after')
       const enClaro = Object.entries(filas)
-        .filter(([, f]) => !f.title.startsWith('nmc1:'))
+        .filter(([, f]) => pendiente(f))
         .map(([sync_id, f]) => ({
           sync_id, lamport: f.lamport, title: f.title, content: f.content, tags: f.tags ?? [],
           content_hash: f.content_hash ?? null, origin_account: f.origin_account ?? null,
           project_key: f.project_key ?? 'repo-x', topic_key: f.topic_key ?? null,
+          ...('git_branch' in f ? { git_branch: f.git_branch } : {}),
         }))
         .sort((a, b) => (a.sync_id < b.sync_id ? -1 : 1))
       const pagina = enClaro.filter((x) => !after || x.sync_id > after).slice(0, opts.porPagina ?? 200)
@@ -61,9 +67,13 @@ function servidorFalso(master: Buffer, filas: Record<string, FilaServidor>, opts
       for (const it of body.items) {
         const f = filas[String(it.sync_id)]
         if (!f) rejected.push({ sync_id: String(it.sync_id), error: 'not_found_in_team' })
-        else if (f.title.startsWith('nmc1:')) rejected.push({ sync_id: String(it.sync_id), error: 'already_sealed' })
+        else if (!pendiente(f)) rejected.push({ sync_id: String(it.sync_id), error: 'already_sealed' })
         else if (f.lamport !== it.lamport) rejected.push({ sync_id: String(it.sync_id), error: 'stale' })
-        else { f.title = String(it.title); f.content = it.content as string | null; applied.push(String(it.sync_id)) }
+        else {
+          f.title = String(it.title); f.content = it.content as string | null
+          if ('git_branch' in it) f.git_branch = it.git_branch as string | null
+          applied.push(String(it.sync_id))
+        }
       }
       return new Response(JSON.stringify({ ok: true, applied, rejected }), { status: 200 })
     }
@@ -196,6 +206,43 @@ describe('Task 15b — I2: la migración sella el tema igual que una fila nueva'
     const srv = servidorFalso(master, { a: { lamport: 1, title: 'A', content: 'x' } })
     await migrateTeam(deps(srv.fetchImpl), TEAM, master, sinEspera)
     expect(srv.lotes[0].items[0].topic_key).toBeNull()
+  })
+})
+
+describe('git_branch también se sella', () => {
+  it('sella la rama con su AAD, y una fila sin rama la manda null', async () => {
+    const master = generateMasterKey()
+    const srv = servidorFalso(master, {
+      a: { lamport: 1, title: 'A', content: 'x', git_branch: 'feat/clientes-acme' },
+      b: { lamport: 1, title: 'B', content: 'y', git_branch: null },
+    })
+    const res = await migrateTeam(deps(srv.fetchImpl), TEAM, master, sinEspera)
+    expect(res).toEqual({ total: 2, applied: 2, rejected: 0, remaining: 0 })
+    const a = srv.lotes[0].items.find((i) => i.sync_id === 'a')!
+    const b = srv.lotes[0].items.find((i) => i.sync_id === 'b')!
+    expect(decryptField(deriveKeys(master), String(a.git_branch), fieldAad('a', 'git_branch'))).toBe('feat/clientes-acme')
+    expect(b.git_branch).toBeNull()
+  })
+
+  it('con un servidor que no manda git_branch, el item no lo lleva (el servidor no toca la columna)', async () => {
+    const master = generateMasterKey()
+    const srv = servidorFalso(master, { a: { lamport: 1, title: 'A', content: 'x' } })
+    await migrateTeam(deps(srv.fetchImpl), TEAM, master, sinEspera)
+    expect('git_branch' in srv.lotes[0].items[0]).toBe(false)
+  })
+
+  it('una fila ya migrada que vuelve sólo por la rama manda su tema tal cual, sin hashearlo de nuevo', async () => {
+    const master = generateMasterKey()
+    const hmac = hmacTopicKey(deriveKeys(master), 'repo-x', 'team', 'deploy-target')
+    const srv = servidorFalso(master, {
+      a: { lamport: 1, title: 'nmc1:t', content: 'nmc1:c', topic_key: hmac, git_branch: 'main' },
+    })
+    const res = await migrateTeam(deps(srv.fetchImpl), TEAM, master, sinEspera)
+    expect(res).toEqual({ total: 1, applied: 1, rejected: 0, remaining: 0 })
+    const [item] = srv.lotes[0].items
+    expect(item.topic_key).toBe(hmac)
+    expect(item.title).toBe('nmc1:t')
+    expect(String(item.git_branch)).toMatch(/^nmc1:/)
   })
 })
 

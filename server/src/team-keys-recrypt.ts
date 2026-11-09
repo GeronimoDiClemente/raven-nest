@@ -29,6 +29,13 @@ export interface RecryptItem {
   content_hash: string | null
   origin_account: string | null
   /**
+   * `git_branch`, el sexto campo de `SEALED_FIELDS` (sellado desde el spec 2026-11-02). Esta
+   * migración no lo tocaba: una fila de equipo subida en claro antes de activar quedaba con la
+   * rama a la vista aunque la tarjeta dijera "todo cifrado". Ausente = no tocar la columna (un
+   * cliente anterior a este campo); `null` = el original era null.
+   */
+  git_branch?: string | null
+  /**
    * El `lamport` de la copia que el leader cifró (I1). Si la fila de la base ya no tiene ese
    * lamport, alguien la editó después del último pull del leader, y escribir lo que él mandó
    * pisaría esa edición con contenido VIEJO bajo el lamport NUEVO — que además empata en LWW
@@ -65,8 +72,8 @@ const HMAC_DE_TEMA = /^[0-9a-f]{32}$/
  * recrypt sólo title, así que una fila con el título sellado y el resto en claro aparecía como
  * pendiente para siempre y recrypt la rechazaba siempre.
  *
- * Mira todo lo que `sealMutationPayload` sella: title, content, content_hash, origin_account y
- * tags (que se sellan como UN sobre: `["nmc1:…"]`). Un null o un `[]` no cuenta como en claro,
+ * Mira todo lo que `sealMutationPayload` sella: title, content, content_hash, origin_account,
+ * git_branch y tags (que se sellan como UN sobre: `["nmc1:…"]`). Un null o un `[]` no cuenta como en claro,
  * y un título '' tampoco: es lo que deja un tombstone desde el F3 de la review final del cifrado
  * obligatorio (push.ts y la migración 013 le vacían el texto), y sin esa excepción cada borrado
  * de equipo volvía a aparecer como pendiente.
@@ -75,7 +82,9 @@ const HMAC_DE_TEMA = /^[0-9a-f]{32}$/
  * tema en claro que justo sea 32 hex — meterlo daría falsos "en claro" o falsos "sellado". Y no
  * hace falta: una fila que sella `sealMutationPayload` sale con el tema ya hasheado, y una que
  * migra este archivo cambia el tema en la MISMA escritura que el título, así que ninguna fila
- * que este predicado da por sellada conserva el tema en claro.
+ * que este predicado da por sellada conserva el tema en claro. La inversa también vale: con el
+ * título sellado el tema ya es HMAC, y `recryptTeamObservations` lo conserva tal cual (una fila
+ * migrada antes de que esto mirara `git_branch` vuelve a estar pendiente sólo por la rama).
  *
  * El `case` de los tags no es estilo: `jsonb_array_length` lanza sobre un jsonb que no es array,
  * y en un `and` Postgres no garantiza el orden de evaluación.
@@ -83,7 +92,7 @@ const HMAC_DE_TEMA = /^[0-9a-f]{32}$/
 function enClaro(o: string): string {
   const campo = (c: string) => `(${o}.${c} is not null and ${o}.${c} not like 'nmc1:%')`
   return `((${o}.title <> '' and ${o}.title not like 'nmc1:%')
-    or ${campo('content')} or ${campo('content_hash')} or ${campo('origin_account')}
+    or ${campo('content')} or ${campo('content_hash')} or ${campo('origin_account')} or ${campo('git_branch')}
     or case when jsonb_typeof(${o}.tags) = 'array' and jsonb_array_length(${o}.tags) > 0
             then not (jsonb_array_length(${o}.tags) = 1 and coalesce(${o}.tags->>0, '') like 'nmc1:%')
             else false end)`
@@ -97,6 +106,7 @@ export interface PendingRow {
   tags: unknown
   content_hash: string | null
   origin_account: string | null
+  git_branch: string | null
   /** Task 15b (I2): con estos dos el cliente deriva el MISMO HMAC de tema que una fila nueva
    * (`hmacTopicKey(claves, project_key, 'team', tema)`), sin tener el proyecto clonado. */
   project_key: string
@@ -148,10 +158,11 @@ export async function listRecryptPending(
   const { rows } = await pool.query(
     `with pagina as (
        select o.sync_id, o.lamport, o.title, o.content, o.tags, o.content_hash, o.origin_account,
-              o.topic_key, p.project_key,
+              o.git_branch, o.topic_key, p.project_key,
               octet_length(o.title) + coalesce(octet_length(o.content), 0)
                 + coalesce(octet_length(o.tags::text), 0) + coalesce(octet_length(o.content_hash), 0)
-                + coalesce(octet_length(o.origin_account), 0) + coalesce(octet_length(o.topic_key), 0)
+                + coalesce(octet_length(o.origin_account), 0) + coalesce(octet_length(o.git_branch), 0)
+                + coalesce(octet_length(o.topic_key), 0)
                 + octet_length(p.project_key) as bytes
          from observations o join projects p on p.id = o.project_id
         where ${pendiente} and ($2::text is null or o.sync_id > $2::text)
@@ -177,6 +188,7 @@ export async function listRecryptPending(
       tags: r.tags ?? [],
       content_hash: (r.content_hash as string | null) ?? null,
       origin_account: (r.origin_account as string | null) ?? null,
+      git_branch: (r.git_branch as string | null) ?? null,
       project_key: String(r.project_key),
       topic_key: (r.topic_key as string | null) ?? null,
     })),
@@ -219,6 +231,9 @@ export async function recryptTeamObservations(
       return { ok: false, status: 400, error: 'invalid_fields' }
     }
     if (it.origin_account !== null && typeof it.origin_account !== 'string') {
+      return { ok: false, status: 400, error: 'invalid_fields' }
+    }
+    if (it.git_branch !== undefined && it.git_branch !== null && typeof it.git_branch !== 'string') {
       return { ok: false, status: 400, error: 'invalid_fields' }
     }
     if (typeof it.lamport !== 'number' || !Number.isInteger(it.lamport) || it.lamport < 0) {
@@ -265,7 +280,7 @@ export async function recryptTeamObservations(
       // sigue en claro, lamport, tema) no cambia entre el chequeo y el update.
       const { rows } = await client.query(
         `select o.project_id, o.lamport, o.topic_key, o.deleted, o.superseded_by, o.client_updated_at,
-                ${enClaro('o')} as en_claro
+                o.title like 'nmc1:%' as titulo_sellado, ${enClaro('o')} as en_claro
            from observations o
            join projects p on p.id = o.project_id
           where o.sync_id = $1 and p.team_id = $2 and o.scope = 'team'
@@ -293,7 +308,10 @@ export async function recryptTeamObservations(
       }
       // I2: una fila SIN tema queda sin tema, mande lo que mande el cliente. Una CON tema
       // necesita el HMAC: sellar el resto y dejar el tema en claro es justo lo que se arregla.
-      const temaNuevo: string | null = actual.topic_key == null ? null : (it.topic_key ?? null)
+      // Con el título ya sellado el tema ya es el HMAC (ver `enClaro`) y se conserva: lo que
+      // mande el cliente sería el HMAC de un HMAC, y el supersede dejaría de encontrarla.
+      const temaNuevo: string | null = actual.topic_key == null ? null
+        : actual.titulo_sellado ? String(actual.topic_key) : (it.topic_key ?? null)
       if (actual.topic_key != null && temaNuevo === null) {
         await client.query('rollback')
         rejected.push({ sync_id: it.sync_id, error: 'missing_topic_key' })
@@ -351,10 +369,11 @@ export async function recryptTeamObservations(
       await client.query(
         `update observations
             set title = $1, content = $2, tags = $3::jsonb, project_seq = $4,
-                content_hash = $5, origin_account = $6, topic_key = $7, superseded_by = $8
+                content_hash = $5, origin_account = $6, topic_key = $7, superseded_by = $8,
+                git_branch = case when $10::boolean then $11::text else git_branch end
           where sync_id = $9`,
         [it.title, it.content, JSON.stringify(it.tags ?? []), nuevoSeq, it.content_hash, it.origin_account,
-          temaNuevo, supersededBy, it.sync_id]
+          temaNuevo, supersededBy, it.sync_id, it.git_branch !== undefined, it.git_branch ?? null]
       )
       await client.query('commit')
       applied.push(it.sync_id)
