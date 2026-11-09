@@ -30,6 +30,10 @@ arrancan los builds de Mac y Windows y otra cuando arranca la subida a R2.
 
 ## Pasos (una vez)
 
+> **Estado al 2026-11-09:** los pasos 1 y 2 están hechos (los dos environments existen, `release`
+> con la regla de main y `beta` con revisor). Falta el 3 en adelante: GitHub no deja leer el
+> valor de un secret, así que cargarlos en los environments es a mano, desde 1Password.
+
 ```bash
 R=GeronimoDiClemente/raven-nest
 

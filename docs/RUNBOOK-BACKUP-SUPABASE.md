@@ -18,7 +18,9 @@ quedan sin dueño. La memoria está a salvo aparte (el servicio de sync tiene su
 
 Depende de que exista el environment `release` (`docs/RUNBOOK-ENVIRONMENTS.md`, pasos 1 y 2).
 
-**1. El par de claves de age.**
+**1. El par de claves de age.** _Hecho el 2026-11-09:_ la pública ya es `BACKUP_AGE_RECIPIENT` en
+`release`, y la privada quedó en `~/nest-supabase-backup.key` de la Mac de Gero hasta pasarla a
+1Password (y borrarla del disco). Para rehacerla:
 ```bash
 brew install age
 age-keygen -o nest-supabase-backup.key   # imprime la pública: age1...
