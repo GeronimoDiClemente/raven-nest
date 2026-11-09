@@ -145,7 +145,7 @@ import { PresetStore } from './preset-store'
 import { PresetTrust, hashDePreset } from './preset-trust'
 import { SetupRunner } from './setup-runner'
 import { CliInstallRunner, installCommandFor } from './cli-install-runner'
-import { scanPid } from './port-monitor'
+import { scanPid, listeningPortsByPid, portsForPids } from './port-monitor'
 import { getCwdForPid, getProcessInfo, listListeningPidsPosix, listListeningPidsWindows } from './cwd-reader'
 // pidtree resolves a pid's full descendant tree. Used so port scans cover the
 // actual server (a child of the PowerShell shell), not just the shell itself.
@@ -919,8 +919,13 @@ const setupRunner = new SetupRunner()
 const cliInstallRunner = new CliInstallRunner()
 const browserPanes = new BrowserPaneManager(() => BrowserWindow.getAllWindows()[0] ?? null)
 const spotlight = new SpotlightEngine()
-const benchmark = new BenchmarkRecorder()
 const metricsCollector = new MetricsCollector()
+// On Windows benchmarks share the collector's persistent process host
+// (pidusage would start a powershell.exe per sample). 900 ms max age keeps
+// the 1 s benchmark tick from reusing the previous snapshot.
+const benchmark = new BenchmarkRecorder(
+  process.platform === 'win32' ? (pid) => metricsCollector.getProcessStat(pid, 900) : undefined,
+)
 const fsWatchRegistry = new FsWatchRegistry()
 app.on('before-quit', () => { fsWatchRegistry.closeAll() })
 
@@ -2452,17 +2457,16 @@ ipcMain.handle('ports:listForWorkspace', async (
 
   const merged = new Set<number>()
   const flat = new Set<number>()
+  // One system-wide socket read, shared by the tree match and (on Windows)
+  // the cwd attribution below.
+  let socketScan: Map<number, number[]> | null = null
 
   if (seedPids.size > 0) {
     const trees = await Promise.all(Array.from(seedPids).map((p) => metricsCollector.getTreeForPid(p)))
     for (const t of trees) for (const p of t) flat.add(p)
     if (flat.size > 0) {
-      const portArrays = await Promise.allSettled(Array.from(flat).map((pid) => scanPid(pid, resolvePidTree)))
-      for (const r of portArrays) {
-        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-          for (const port of r.value) merged.add(port)
-        }
-      }
+      socketScan = await listeningPortsByPid()
+      for (const port of portsForPids(socketScan, flat)) merged.add(port)
     }
   }
 
@@ -2475,7 +2479,7 @@ ipcMain.handle('ports:listForWorkspace', async (
   if (pathsToScan.size > 0) {
     try {
       const listening = process.platform === 'win32'
-        ? await listListeningPidsWindows()
+        ? socketScan ?? await listListeningPidsWindows()
         : null
       if (listening && listening.size > 0) {
         const normPaths = Array.from(pathsToScan).map((p) =>
@@ -2706,20 +2710,15 @@ ipcMain.handle('metrics:portsByPids', async (_evt, pids: number[]) => {
   //    with collect()'s own tree resolution. On Windows `pidtree` shells
   //    out to `wmic` (removed in Win11 22H2), so we never use it directly.
   const trees = await Promise.all(valid.map((p) => metricsCollector.getTreeForPid(p)))
-  // 2. For each input pid, scan every pid in its tree and union the results.
-  await Promise.all(valid.map(async (p, idx) => {
-    const tree = trees[idx]!
-    const results = await Promise.allSettled(tree.map((tp) => scanPid(tp, resolvePidTree)))
-    const merged = new Set<number>()
-    for (const r of results) {
-      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-        for (const port of r.value) merged.add(port)
-      }
-    }
-    if (merged.size > 0) {
-      out[p] = Array.from(merged).sort((a, b) => a - b)
-    }
-  }))
+  if (valid.length === 0) return out
+  // 2. ONE system-wide socket read, then match each tree against it. This used
+  //    to call scanPid for every pid of every tree, and each call spawned its
+  //    own netstat (Windows) or lsof (macOS/Linux).
+  const listening = await listeningPortsByPid()
+  valid.forEach((p, idx) => {
+    const ports = portsForPids(listening, trees[idx]!)
+    if (ports.length > 0) out[p] = ports
+  })
   return out
 })
 
