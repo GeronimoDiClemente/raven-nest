@@ -14,12 +14,12 @@ protección empieza cuando se hacen los pasos de abajo.
 
 | Environment | Ramas | Revisor | Secrets |
 |---|---|---|---|
-| `release` | sólo `main` | **no** (ver abajo) | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`, `SUPABASE_ACCESS_TOKEN`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
+| `release` | sólo `main` | **no** (ver abajo) | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`, `SUPABASE_ACCESS_TOKEN`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, y los del backup de Supabase (`SUPABASE_DB_URL`, `BACKUP_AGE_RECIPIENT`, `R2_SUPABASE_BACKUP_*`, ver `docs/RUNBOOK-BACKUP-SUPABASE.md`) |
 | `beta` | cualquiera | **sí** | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`, `R2_BETAS_ACCESS_KEY_ID`, `R2_BETAS_SECRET_ACCESS_KEY`, `R2_BETAS_BUCKET` |
 | (repo) | — | — | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `MAIN_VITE_GITHUB_CLIENT_ID`, `MAIN_VITE_GITLAB_CLIENT_ID`, `R2_ACCOUNT_ID` — son públicos de hecho: viajan dentro de la app |
 
-**`release` sin revisor, a propósito.** `staple-pending-releases.yml` corre cada 10 minutos y
-`check-mac-staple.yml` cada 2 horas, los dos con las credenciales de Apple: con un revisor
+**`release` sin revisor, a propósito.** `staple-pending-releases.yml` corre cada 10 minutos,
+`check-mac-staple.yml` cada 2 horas y `backup-supabase.yml` cada noche, todos con secrets de `release`: con un revisor
 quedarían esperando una aprobación para siempre. Lo que protege a `release` es la regla de
 ramas: un job de otra rama no recibe sus secrets. Quien puede pushear a `main` ya puede
 publicar, así que un revisor no agrega mucho ahí.

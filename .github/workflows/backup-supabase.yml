@@ -1,0 +1,120 @@
+name: Backup de Supabase
+
+# Supabase en el plan free no tiene backups: si se pierde la base, se pierden las cuentas
+# (`auth.users`), los perfiles, los equipos y los planes. Esto es el backup nocturno, a R2 y
+# cifrado. Cómo configurarlo y cómo restaurar: docs/RUNBOOK-BACKUP-SUPABASE.md.
+
+on:
+  schedule:
+    # 05:30 UTC, lejos del backup del servicio de sync (que corre al arrancar y cada 24 h).
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-supabase
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    # La URL de la base abre Supabase entero: vive en `release`, que sólo se abre para main.
+    environment: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.122.0
+
+      - name: Verificar la configuración
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_SUPABASE_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SUPABASE_BACKUP_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          BUCKET: ${{ secrets.R2_SUPABASE_BACKUP_BUCKET }}
+        run: |
+          for v in SUPABASE_DB_URL BACKUP_AGE_RECIPIENT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY R2_ACCOUNT_ID BUCKET; do
+            if [ -z "${!v}" ]; then echo "::error::Falta el secreto del backup: $v (ver docs/RUNBOOK-BACKUP-SUPABASE.md)"; exit 1; fi
+          done
+          case "$BACKUP_AGE_RECIPIENT" in
+            age1*) ;;
+            *) echo "::error::BACKUP_AGE_RECIPIENT tiene que ser la clave PÚBLICA de age (age1...), nunca la privada"; exit 1 ;;
+          esac
+
+      # Los tres archivos de la receta oficial de Supabase: roles, esquema y datos. `--data-only`
+      # incluye `auth` (lo verifica el paso siguiente); excluye los esquemas que maneja la
+      # plataforma.
+      - name: Dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p dump
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f dump/roles.sql --role-only
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f dump/schema.sql
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f dump/data.sql --use-copy --data-only
+          ls -l dump
+
+      # Un dump que no trae las cuentas es el peor backup posible: ocupa el lugar del bueno y
+      # parece que está. Se compara el número de filas de las tablas que no se pueden
+      # reconstruir contra la base viva. Entre la consulta y el dump pueden entrar cuentas
+      # nuevas, así que el dump puede tener MÁS, nunca menos.
+      - name: Verificar el dump contra la base
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          filas_en_dump() {
+            awk -v t="COPY \"$1\".\"$2\" " 'index($0, t) == 1 { dentro = 1; next } dentro && $0 == "\\." { exit } dentro { n++ } END { print n + 0 }' dump/data.sql
+          }
+          fallo=0
+          for tabla in auth.users public.profiles public.teams public.team_members; do
+            esquema="${tabla%%.*}"; nombre="${tabla#*.}"
+            vivas=$(psql "$SUPABASE_DB_URL" -Atc "select count(*) from ${esquema}.${nombre}")
+            en_dump=$(filas_en_dump "$esquema" "$nombre")
+            echo "$tabla: base $vivas, dump $en_dump"
+            if [ "$en_dump" -lt "$vivas" ]; then
+              echo "::error::$tabla: el dump tiene $en_dump filas y la base $vivas"
+              fallo=1
+            fi
+          done
+          if [ "$(filas_en_dump auth users)" -eq 0 ]; then
+            echo "::error::el dump no trae ninguna fila de auth.users"
+            fallo=1
+          fi
+          exit $fallo
+
+      # Cifrado con la clave PÚBLICA de age: ni GitHub ni R2 pueden abrirlo. La privada vive
+      # sólo en 1Password. El dump trae emails, el `github_token` de cada perfil y los ids de
+      # Stripe: subirlo en claro a un bucket sería otra copia de la base para proteger.
+      - name: Cifrar
+        env:
+          BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq age >/dev/null
+          STAMP=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          tar -C dump -czf - roles.sql schema.sql data.sql | age -r "$BACKUP_AGE_RECIPIENT" -o "supabase-$STAMP.tar.gz.age"
+          sha256sum "supabase-$STAMP.tar.gz.age" | tee "supabase-$STAMP.tar.gz.age.sha256"
+          # El claro no sobrevive al paso: nada después lo necesita.
+          rm -rf dump
+
+      - name: Subir a R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_SUPABASE_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SUPABASE_BACKUP_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          BUCKET: ${{ secrets.R2_SUPABASE_BACKUP_BUCKET }}
+        run: |
+          set -euo pipefail
+          EP="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          # El .sha256 va después: si está, el archivo al que se refiere ya subió entero.
+          for f in "supabase-$STAMP.tar.gz.age" "supabase-$STAMP.tar.gz.age.sha256"; do
+            aws s3 cp "$f" "s3://${BUCKET}/supabase/$f" --endpoint-url "$EP" --no-progress
+          done
