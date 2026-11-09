@@ -49,7 +49,7 @@ import { recoverWithCode } from './memory-keys-client'
 import { normalizeRecoveryCode } from './memory-key-wrap'
 import { enrolarDesdeLogin } from './enrolamiento-desde-login'
 import { mensajeDeEnrolamiento, type ResultadoDeEnrolamiento } from './enrolamiento-del-paquete'
-import { comando, NOMBRE_DEL_PAQUETE } from './nombre-del-paquete'
+import { comando, NOMBRE_DEL_PAQUETE, VERSION_DEL_PAQUETE } from './nombre-del-paquete'
 import { webDelPaquete, abrirNavegador, iniciarVinculacion } from './vinculacion-web-del-paquete'
 import { decidirArranque } from './tui-del-paquete/decidir-arranque'
 import { leerStatusDeNest } from './tui-del-paquete/status-de-nest'
@@ -557,6 +557,7 @@ export function correr(argv: string[]): void {
   const cmd = parsearArgumentos(argv)
   switch (cmd.comando) {
     case 'ayuda': console.log(textoDeAyuda(e, versionDelPaquete())); return
+    case 'version': console.log(versionDelPaquete() ?? VERSION_DEL_PAQUETE); return
     case 'tui': correrAsync(comandoTui()); return
     case 'setup': comandoSetup(cmd); return
     case 'status': correrAsync(comandoStatus()); return

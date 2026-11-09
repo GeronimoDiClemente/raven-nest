@@ -13,6 +13,7 @@ import { crearEstilo, marca, type Estilo } from './estilo-del-paquete'
 
 export type ComandoDelPaquete =
   | { comando: 'ayuda' }
+  | { comando: 'version' }
   /** Sin argumentos: la vista interactiva (o la ayuda, si no hay terminal para ella). */
   | { comando: 'tui' }
   | { comando: 'setup'; soloEditores: string[] | null; deshacer: boolean; simulado: boolean }
@@ -102,6 +103,8 @@ export function parsearArgumentos(argv: string[]): ComandoDelPaquete {
   // TUI; el CLI cae a la ayuda si no hay una terminal donde dibujarla.
   if (!primero) return { comando: 'tui' }
   if (primero === '--help' || primero === '-h') return { comando: 'ayuda' }
+  // Lo primero que alguien prueba con un CLI recién instalado, y lo que se pide en un reporte.
+  if (primero === '--version' || primero === '-v') return { comando: 'version' }
 
   if (primero === 'setup') return parsearSetup(resto)
 

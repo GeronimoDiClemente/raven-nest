@@ -15,6 +15,11 @@ describe('parsearArgumentos', () => {
     expect(p('-h')).toEqual({ comando: 'ayuda' })
   })
 
+  it('--version y -v piden la versión', () => {
+    expect(p('--version')).toEqual({ comando: 'version' })
+    expect(p('-v')).toEqual({ comando: 'version' })
+  })
+
   it('setup, con todos los editores por defecto', () => {
     expect(p('setup')).toEqual({ comando: 'setup', soloEditores: null, deshacer: false, simulado: false })
   })
