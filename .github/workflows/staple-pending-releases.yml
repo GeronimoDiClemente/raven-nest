@@ -21,6 +21,9 @@ permissions:
 
 jobs:
   staple:
+    # Las credenciales de Apple viven en el environment `release` (sólo main, sin revisor: este
+    # job corre por cron y un revisor lo dejaría esperando). Ver docs/RUNBOOK-ENVIRONMENTS.md.
+    environment: release
     runs-on: macos-latest
     timeout-minutes: 15
     steps:

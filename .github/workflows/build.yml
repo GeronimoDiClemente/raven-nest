@@ -23,6 +23,8 @@ jobs:
 
   build-windows:
     needs: decrypt
+    # El certificado de Windows está en `release`: este build de diagnóstico firma sólo desde main.
+    environment: release
     runs-on: windows-2022
     permissions:
       contents: write

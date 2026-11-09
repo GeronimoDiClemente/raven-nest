@@ -94,6 +94,10 @@ jobs:
 
   build-mac:
     needs: decrypt
+    # Los secrets de firma viven en dos environments (docs/RUNBOOK-ENVIRONMENTS.md): `release`
+    # sólo se abre para main, y `beta` —que corre desde cualquier rama— pide un revisor. Sin
+    # esto, quien pushea una rama editando este archivo se lleva los certificados.
+    environment: ${{ needs.decrypt.outputs.beta == 'true' && 'beta' || 'release' }}
     runs-on: macos-latest
     steps:
       - name: Download decrypted source
@@ -311,6 +315,7 @@ jobs:
 
   build-win:
     needs: decrypt
+    environment: ${{ needs.decrypt.outputs.beta == 'true' && 'beta' || 'release' }}
     runs-on: windows-2022
     steps:
       - name: Download decrypted source
@@ -390,6 +395,8 @@ jobs:
     # y las usan todos los usuarios, no sólo los testers. La app de la beta no las necesita
     # (la memoria habla con el servicio de sync, no con functions). Y sólo desde main.
     if: needs.decrypt.outputs.beta != 'true' && github.ref == 'refs/heads/main'
+    # El token de Supabase y las claves de Stripe sólo están en `release`.
+    environment: release
     runs-on: ubuntu-latest
     steps:
       - name: Download decrypted source
@@ -434,6 +441,9 @@ jobs:
 
   release:
     needs: [build-mac, build-win, build-linux, decrypt]
+    # Una beta sube a R2 con las claves de `beta`; una estable sólo usa el GITHUB_TOKEN, pero
+    # declara `release` igual para que quede como deploy de main.
+    environment: ${{ needs.decrypt.outputs.beta == 'true' && 'beta' || 'release' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download mac artifacts
