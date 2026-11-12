@@ -55,8 +55,8 @@ export const TOOL_MANIFEST = [
   {
     name: 'nest_read_worker',
     description:
-      'Read one worker by `workerId`: state, branch, commits and diffstat. Keep reads small; the ' +
-      'final result arrives as its report.',
+      'Read one worker by `workerId`: its state, branch and worktree, plus the last lines of its pane. ' +
+      'Keep reads small; the final result arrives as its report.',
     inputSchema: {
       type: 'object',
       properties: { workerId: { ...STR, description: 'The id returned by nest_launch_worker.' } },
@@ -66,8 +66,8 @@ export const TOOL_MANIFEST = [
   {
     name: 'nest_send_worker',
     description:
-      'Send a message to one worker by `workerId`, e.g. the answer to its question. It is typed ' +
-      'into the worker pane. No secrets.',
+      'Send a message to one live worker by `workerId`, e.g. the answer to its question. It is typed ' +
+      'into the worker pane. A finished worker (done, exited, stopped) cannot receive messages. No secrets.',
     inputSchema: {
       type: 'object',
       properties: {

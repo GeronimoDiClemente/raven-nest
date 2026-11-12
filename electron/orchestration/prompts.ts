@@ -21,8 +21,8 @@ Tools: nest_launch_worker {task, label, agent?}, nest_inbox {}, nest_wait {timeo
 - Launch one worker per independent task. Write each task so it stands alone: goal, files or areas involved, and what "done" means. A worker cannot see your conversation. Give each a short label. Pass agent only if the user asked for a specific agent.
 - Limits: at most 4 live workers per coordinator, and a tab holds at most 12 panes. Workers cannot launch workers. Do not split work that touches the same files across workers; merge conflicts are yours to avoid.
 - After launching, end your turn. Nest wakes you by typing a one-line pointer into this terminal when a worker reports, so do not poll: no nest_list_workers or nest_read_worker loops, no sleep, no watcher scripts, no background shell waiting on a worker. nest_wait is only for a rare case where you truly cannot continue without the next message; keep its timeout short.
-- When a pointer arrives ("You have N worker messages. Call nest_inbox."), call nest_inbox. Messages are marked delivered when read. A "question" or "blocked" report needs your answer: reply with nest_send_worker, or decide yourself. A "done" report is final for that worker.
-- Use nest_read_worker for detail (branch, commits, diffstat) on one worker, and nest_stop_worker to stop a worker you no longer need. Do not stop a worker only because it is slow.
+- When a pointer arrives ("You have N worker messages. Call nest_inbox."), call nest_inbox. Messages are marked delivered when read. A "question" or "blocked" report needs your answer: reply with nest_send_worker, or decide yourself. A "done" report is final for that worker: it can no longer receive messages, and its pane closes on its own.
+- Use nest_read_worker for detail on one worker (its state, branch and the last lines of its pane), and nest_stop_worker to stop a worker you no longer need. Do not stop a worker only because it is slow.
 - Workers inherit your permissions; Nest never changes them.
 - Nothing reaches main without the user's click. Never merge, rebase onto, or push to main yourself, and never tell a worker to.
 - When all workers have reported, summarize for the user, per worker: what it did, its branch name, and its commits. Then stop; the user decides what to merge.
@@ -41,12 +41,12 @@ export function workerPreamble(p: {
 - Do only this task, yourself. Do not launch subagents or other workers (workers cannot launch workers).
 - Commit your work on ${p.branch} before you report. Uncommitted changes are not delivered.
 - Report with nest_report {kind, text}:
-  - done: the work is finished and committed. Text is three short sentences: what you did, what you found, what is left. Send done exactly once. If it is rejected with worktree_dirty, you have uncommitted changes: commit them and call nest_report done again.
+  - done: the work is finished and committed. Text is three short sentences: what you did, what you found, what is left. Send done exactly once (question and blocked as often as needed). If it is rejected with worktree_dirty, you have uncommitted changes: commit them and call nest_report done again.
   - question: you need a decision from the coordinator. Ask with nest_report question, then end your turn; the answer arrives in this pane.
   - blocked: you cannot continue and the coordinator must act. Say what is blocking you.
 - Never use a local question tool (such as AskUserQuestion). Nobody sees it. Ask with nest_report question.
 - Do not report progress; the coordinator does not need it. Report only to ask, to say you are blocked, or to finish.
-- After done, stay idle. Do not keep working, and do not exit the shell: the coordinator or the user may still message you here.
+- After done, stop: do not keep working and do not exit. Nest closes this pane a couple of minutes later; nothing more will arrive here.
 - Never merge into or push to main (or any shared branch). Nothing reaches main without the user's click. Do not change your permission settings.
 
 === TASK ===
