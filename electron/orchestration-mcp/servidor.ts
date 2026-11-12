@@ -47,7 +47,8 @@ export async function handleRpc(msg: JsonRpcRequest, client: ClienteDeOrquestaci
           const result = await client.call(method, params.arguments ?? {})
           return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(result) }] } }
         } catch (err) {
-          // Error de la tool (p.ej. invalid_params, límite de workers): el modelo tiene que verlo.
+          // Error del socket (p.ej. invalid_params, límite de workers): vuelve como resultado
+          // isError para que el modelo lo vea. Una tool desconocida es -32602 (arriba).
           const text = `Error: ${err instanceof Error ? err.message : String(err)}`
           return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: true } }
         }

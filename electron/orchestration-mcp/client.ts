@@ -10,7 +10,7 @@ const WAIT_MAX_MS = 240_000
 const WAIT_MARGIN_MS = 5000
 
 /** `inbox.wait` bloquea en el servidor hasta `timeoutMs`: el cliente espera eso más un margen. */
-function timeoutFor(method: OrchMethod, params: unknown): number {
+export function timeoutFor(method: OrchMethod, params: unknown): number {
   if (method !== 'inbox.wait') return REQUEST_TIMEOUT_MS
   const asked = (params as WaitParams | undefined)?.timeoutMs
   const wait = typeof asked === 'number' && asked > 0 ? Math.min(asked, WAIT_MAX_MS) : WAIT_DEFAULT_MS

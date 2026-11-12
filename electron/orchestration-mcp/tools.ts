@@ -114,7 +114,7 @@ const TOOL_TO_METHOD: Record<string, OrchMethod> = {
   nest_report: 'worker.report',
 }
 
-/** Lanza si la tool no existe (el caller lo devuelve como error de tool). */
+/** Lanza si la tool no existe (el servidor lo devuelve como error JSON-RPC -32602). */
 export function toolToMethod(name: string): OrchMethod {
   const method = TOOL_TO_METHOD[name]
   if (!method) throw new Error(`Unknown tool: ${name}`)

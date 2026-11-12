@@ -1,10 +1,11 @@
 // Shim MCP de orquestación: manifiesto de tools, JSON-RPC a mano y los args que registran el
 // shim en claude / codex.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { makeTmpDir, cleanupTmp } from './setup'
 import { TOOL_MANIFEST, toolToMethod } from '../orchestration-mcp/tools'
+import { timeoutFor } from '../orchestration-mcp/client'
 import { handleRpc } from '../orchestration-mcp/servidor'
 import { orchestrationLaunchArgs } from '../orchestration/mcp-launch-args'
 import { COORDINATOR_INSTRUCTIONS } from '../orchestration/prompts'
@@ -34,10 +35,22 @@ describe('orchestrationLaunchArgs', () => {
   it('codex usa tres -c', () => {
     const args = orchestrationLaunchArgs('codex', paths(dir))
     expect(args).toEqual([
-      '-c', "mcp_servers.nest_orchestration.command='/Apps/Nest.app/MacOS/Nest'",
-      '-c', "mcp_servers.nest_orchestration.args=['/Apps/Nest.app/dist-electron/orchestration-mcp.js']",
-      '-c', "mcp_servers.nest_orchestration.env.ELECTRON_RUN_AS_NODE='1'",
+      '-c', 'mcp_servers.nest_orchestration.command="/Apps/Nest.app/MacOS/Nest"',
+      '-c', 'mcp_servers.nest_orchestration.args=["/Apps/Nest.app/dist-electron/orchestration-mcp.js"]',
+      '-c', 'mcp_servers.nest_orchestration.env.ELECTRON_RUN_AS_NODE="1"',
     ])
+  })
+
+  it('codex escapa un path con comilla simple, barra y comilla doble', () => {
+    const args = orchestrationLaunchArgs('codex', { ...paths(dir), execPath: "/Users/O'Brien/N\\est \"x\"/Nest" })
+    expect(args[1]).toBe('mcp_servers.nest_orchestration.command="/Users/O\'Brien/N\\\\est \\"x\\"/Nest"')
+  })
+
+  it('claude crea el configDir si no existe', () => {
+    const nuevo = join(dir, 'no', 'existe')
+    const args = orchestrationLaunchArgs('claude', paths(nuevo))
+    expect(args).toEqual(['--mcp-config', join(nuevo, 'orchestration-mcp.json')])
+    expect(existsSync(args[1])).toBe(true)
   })
 
   it('gemini da []', () => {
@@ -86,5 +99,17 @@ describe('shim MCP de orquestación', () => {
     const res = await handleRpc({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'nest_inbox', arguments: {} } }, roto)
     expect((res as { result: { isError: boolean } }).result.isError).toBe(true)
     expect(await handleRpc({ jsonrpc: '2.0', method: 'notifications/initialized' }, client)).toBeNull()
+  })
+})
+
+describe('timeoutFor', () => {
+  it('inbox.wait espera su timeout más 5 s, con default y tope', () => {
+    expect(timeoutFor('inbox.wait', {})).toBe(65_000)
+    expect(timeoutFor('inbox.wait', { timeoutMs: 10_000 })).toBe(15_000)
+    expect(timeoutFor('inbox.wait', { timeoutMs: 999_999 })).toBe(245_000)
+  })
+  it('el resto de los métodos 5 s', () => {
+    expect(timeoutFor('inbox.read', {})).toBe(5_000)
+    expect(timeoutFor('worker.launch', { timeoutMs: 100_000 })).toBe(5_000)
   })
 })
