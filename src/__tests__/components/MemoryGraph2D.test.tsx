@@ -5,9 +5,10 @@ import { render, screen, fireEvent } from '@testing-library/react'
 const distance = vi.fn()
 const reheat = vi.fn()
 const recibido: unknown[] = []
+const soltado: Array<Record<string, unknown>> = []
 
 vi.mock('react-force-graph-2d', () => ({
-  default: forwardRef(function FG({ graphData, onNodeClick }: { graphData: { nodes: Array<{ id: string; label: string }> }; onNodeClick: (n: { id: string }, e: MouseEvent) => void }, ref) {
+  default: forwardRef(function FG({ graphData, onNodeClick, onNodeDragEnd }: { graphData: { nodes: Array<{ id: string; label: string }> }; onNodeClick: (n: { id: string }, e: MouseEvent) => void; onNodeDragEnd?: (n: Record<string, unknown>) => void }, ref) {
     useImperativeHandle(ref, () => ({ d3Force: () => ({ distance }), d3ReheatSimulation: reheat }))
     recibido.push(graphData)
     return (
@@ -15,6 +16,12 @@ vi.mock('react-force-graph-2d', () => ({
         {graphData.nodes.map((n) => (
           <button key={n.id} type="button" onClick={(e) => onNodeClick(n, e.nativeEvent)}>{n.label}</button>
         ))}
+        <button type="button" onClick={() => {
+          // Lo que deja la librería al terminar un arrastre: el nodo fijo donde se soltó.
+          const n = { id: 'arrastrado', x: 10, y: 20, fx: 10, fy: 20 }
+          onNodeDragEnd?.(n)
+          soltado.push(n)
+        }}>soltar</button>
       </div>
     )
   }),
@@ -34,6 +41,14 @@ describe('MemoryGraph2D', () => {
     expect(onOpen).toHaveBeenLastCalledWith('a', { background: true })
     fireEvent.click(screen.getByRole('button', { name: 'hueco' }))
     expect(onOpen).toHaveBeenCalledTimes(2)
+  })
+
+  it('al soltar un nodo arrastrado vuelve a la física, no queda clavado (como en Obsidian)', async () => {
+    soltado.length = 0
+    render(<MemoryGraph2D modo="global" onOpen={vi.fn()} data={{ nodes: [nodo('a')], links: [], orphansHidden: 0 }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'soltar' }))
+    expect(soltado[0].fx).toBeUndefined()
+    expect(soltado[0].fy).toBeUndefined()
   })
 
   it('aplica la distancia de links al montar y al cambiarla, y recalienta', async () => {

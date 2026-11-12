@@ -1,6 +1,8 @@
-// El grafo de Memories en 2D, como el de Obsidian: puntos chicos, líneas finas, etiquetas que
-// aparecen con el zoom y hover que deja a pleno sólo al nodo y sus vecinos. El mismo
-// componente dibuja el grafo global (pestaña Graph) y el local (panel derecho).
+// El grafo de Memories en 2D, como el de Obsidian: líneas finas, etiquetas horizontales que
+// aparecen con el zoom, nodos que se arrastran y vuelven a la física al soltarlos, y hover que
+// deja a pleno sólo al nodo y sus vecinos. Los nodos son esferas con luz y sombra (el estilo B
+// que eligió Gero el 2026-11-12 entre cuatro prototipos). El mismo componente dibuja el grafo
+// global (pestaña Graph) y el local (panel derecho).
 //
 // Presentación pura: no conoce `window.memory`.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -40,23 +42,67 @@ function token(nombre: string, porDefecto: string): string {
  * es más visible, nunca invisible).
  */
 function conAlfa(color: string, alfa: number): string {
+  const c = rgbDe(color)
+  return c ? `rgba(${c.join(', ')}, ${alfa})` : color
+}
+
+/** `#rgb`, `#rrggbb` o `rgb()/rgba()` a sus tres canales; null para cualquier otra forma. */
+function rgbDe(color: string): [number, number, number] | null {
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color)
   if (hex) {
     const h = hex[1].length === 3 ? hex[1].split('').map((c) => c + c).join('') : hex[1]
     const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16))
-    return `rgba(${r}, ${g}, ${b}, ${alfa})`
+    return [r, g, b]
   }
   const rgb = /^rgba?\(([^)]+)\)$/i.exec(color)
   if (rgb) {
-    const partes = rgb[1].split(/[\s,/]+/).filter(Boolean).slice(0, 3)
-    if (partes.length === 3) return `rgba(${partes.join(', ')}, ${alfa})`
+    const partes = rgb[1].split(/[\s,/]+/).filter(Boolean).slice(0, 3).map(Number)
+    if (partes.length === 3 && partes.every((p) => Number.isFinite(p))) return partes as [number, number, number]
   }
-  return color
+  return null
 }
 
-/** El tamaño del punto en px de PANTALLA a zoom 1. Crece poco con el grado. */
+/** El color llevado hacia blanco (`k > 0`) o hacia negro (`k < 0`): la luz y la sombra de la esfera. */
+function tono(c: [number, number, number], k: number, alfa = 1): string {
+  const v = c.map((x) => Math.round(k >= 0 ? x + (255 - x) * k : x * (1 + k)))
+  return `rgba(${v.join(', ')}, ${alfa})`
+}
+
+/** Debajo de este radio en pantalla el volumen no se distingue: se pinta plano, que es más barato. */
+const RADIO_MINIMO_CON_VOLUMEN = 3
+
+/**
+ * Una esfera iluminada desde arriba a la izquierda: sombra en el piso, degradé del color del tipo
+ * (luz → color → sombra) y un brillo especular. `r` y `escala` en unidades del grafo, como el
+ * resto del canvas. Un color que no se sabe descomponer se pinta plano.
+ */
+function dibujarEsfera(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, escala: number): void {
+  const c = rgbDe(color)
+  if (!c || r * escala < RADIO_MINIMO_CON_VOLUMEN) {
+    ctx.fillStyle = color
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill()
+    return
+  }
+  // Sombra y brillo salen del mismo color llevado a negro y a blanco: sin literales.
+  ctx.fillStyle = tono(c, -1, 0.32)
+  ctx.beginPath(); ctx.ellipse(x + r * 0.15, y + r * 1.05, r * 0.85, r * 0.28, 0, 0, 2 * Math.PI); ctx.fill()
+  const cuerpo = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r)
+  cuerpo.addColorStop(0, tono(c, 0.55))
+  cuerpo.addColorStop(0.45, tono(c, 0))
+  cuerpo.addColorStop(1, tono(c, -0.45))
+  ctx.fillStyle = cuerpo
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill()
+  const brillo = ctx.createRadialGradient(x - r * 0.38, y - r * 0.42, 0, x - r * 0.38, y - r * 0.42, r * 0.45)
+  brillo.addColorStop(0, tono(c, 1, 0.55))
+  brillo.addColorStop(1, tono(c, 1, 0))
+  ctx.fillStyle = brillo
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill()
+}
+
+/** El tamaño del nodo en px de PANTALLA a zoom 1. Crece poco con el grado. Más grande que un
+ *  punto plano: con menos de ~5 px la esfera no se lee como esfera. */
 function tamanoBase(n: Nodo, escalaDeNodo: number): number {
-  return (2 + Math.sqrt(n.degree + 1) * 0.9) * escalaDeNodo
+  return (3.5 + Math.sqrt(n.degree + 1) * 1.6) * escalaDeNodo
 }
 
 /**
@@ -212,8 +258,17 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
       lineaVecina: conAlfa(token('--foreground', '#f0f0f0'), 0.75),
       lineaAtenuada: conAlfa(tenue, 0.07),
       fuente: token('--font-ui', 'system-ui, sans-serif'),
+      fondo: token('--background', '#0a0a0a'),
     }
   }, [])
+  // El contorno de las etiquetas tiene que ser el color de lo que hay DETRÁS del canvas (que es
+  // transparente): el primer ancestro con fondo propio. Se lee al montar, cuando ya hay caja.
+  useEffect(() => {
+    for (let el = caja.current?.parentElement; el; el = el.parentElement) {
+      const bg = getComputedStyle(el).backgroundColor
+      if (bg && bg !== 'transparent' && !/rgba\([^)]*,\s*0\)$/.test(bg)) { colores.fondo = bg; return }
+    }
+  }, [colores])
 
   const tocaAlHover = (l: GraphLinkDatum) => idDe(l.source) === hover || idDe(l.target) === hover
 
@@ -251,7 +306,9 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
               if ((n as Nodo).pending) return
               onOpen((n as Nodo).id, { background: e.ctrlKey || e.metaKey })
             }}
-            onNodeDragEnd={(n) => { n.fx = n.x; n.fy = n.y }}
+            // Como en Obsidian: al soltarlo, el nodo vuelve a la física y se reacomoda con sus
+            // vecinos. La librería lo deja fijo donde se soltó; acá se lo libera.
+            onNodeDragEnd={(n) => { n.fx = undefined; n.fy = undefined }}
             // Hover: las aristas del nodo a pleno y las demás atenuadas, no ocultas.
             linkColor={(raw) => {
               const l = raw as GraphLinkDatum
@@ -263,12 +320,17 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
             nodeCanvasObject={(raw, ctx, escala) => {
               const n = raw as Nodo
               const r = radioDe(n, escalaDeNodo, escala, modo)
+              const [x, y] = [n.x ?? 0, n.y ?? 0]
               ctx.globalAlpha = opacidadDeNodo(n.id, hover, vecinosDelHover, resaltados)
-              ctx.beginPath()
-              ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, 2 * Math.PI)
-              if (n.pending) { ctx.strokeStyle = colores.texto; ctx.lineWidth = 1 / escala; ctx.stroke() }
-              else { ctx.fillStyle = n.color; ctx.fill() }
+              if (n.pending) {
+                ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI)
+                ctx.strokeStyle = colores.texto; ctx.lineWidth = 1 / escala; ctx.stroke()
+              } else {
+                dibujarEsfera(ctx, x, y, r, n.color, escala)
+              }
               if (n.id === foco || n.id === hover) {
+                // Un anillo separado de la esfera: pegado al borde se confunde con el sombreado.
+                ctx.beginPath(); ctx.arc(x, y, r + 2.5 / escala, 0, 2 * Math.PI)
                 ctx.strokeStyle = colores.textoFuerte; ctx.lineWidth = 1.5 / escala; ctx.stroke()
               }
               const conEtiqueta = muestraEtiqueta({
@@ -277,11 +339,19 @@ export default function MemoryGraph2D({ data, foco = null, resaltados = null, mo
               if (conEtiqueta) {
                 const fs = 11 / escala
                 const max = MAX_LETRAS[modo]
+                const texto = n.label.length > max ? `${n.label.slice(0, max - 1)}…` : n.label
+                // Debajo de la sombra de la esfera, no encima.
+                const ty = y + r * 1.35 + 3 / escala
                 ctx.font = `${fs}px ${colores.fuente}`
                 ctx.textAlign = 'center'
                 ctx.textBaseline = 'top'
+                // Contorno del color del fondo: la etiqueta se lee aunque la cruce una línea.
+                ctx.lineJoin = 'round'
+                ctx.lineWidth = 3 / escala
+                ctx.strokeStyle = colores.fondo
+                ctx.strokeText(texto, x, ty)
                 ctx.fillStyle = n.id === hover || n.id === foco ? colores.textoFuerte : colores.texto
-                ctx.fillText(n.label.length > max ? `${n.label.slice(0, max - 1)}…` : n.label, n.x ?? 0, (n.y ?? 0) + r + 2 / escala)
+                ctx.fillText(texto, x, ty)
               }
               ctx.globalAlpha = 1
             }}

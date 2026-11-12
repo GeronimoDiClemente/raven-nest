@@ -17,7 +17,11 @@ import MemoryGraph2D from '../../components/memories/MemoryGraph2D'
 
 const nodo = { id: 'a', label: 'Alfa', color: '#fff', val: 1, degree: 1, superseded: false, type: 'decision', projectKey: 'p', projectLabel: 'p', tags: [], gitBranch: null, pending: false, x: 0, y: 0 }
 const data = { nodes: [nodo], links: [], orphansHidden: 0 }
-const ctx = () => ({ beginPath: vi.fn(), arc: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn(), globalAlpha: 1, fillStyle: '', strokeStyle: '', lineWidth: 0, font: '', textAlign: '', textBaseline: '' })
+const ctx = () => ({
+  beginPath: vi.fn(), arc: vi.fn(), ellipse: vi.fn(), fill: vi.fn(), stroke: vi.fn(), fillText: vi.fn(), strokeText: vi.fn(),
+  createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+  globalAlpha: 1, fillStyle: '', strokeStyle: '', lineWidth: 0, lineJoin: '', font: '', textAlign: '', textBaseline: '',
+})
 const ultima = () => recibidas[recibidas.length - 1]
 
 beforeEach(() => { recibidas.length = 0 })
