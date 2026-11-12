@@ -25,7 +25,12 @@ export function useXterm(
   /** Subir al piso de 3:1 lo que no lo alcance. Opcional: el gris de un comentario esta
    *  atenuado a proposito, y un tema importado tiene que seguir pareciendose al original. */
   ajustarContrasteDelTema = false,
+  /** `autofocus: false` = no tomar el foco al montar. Lo usa el pane de un worker de
+   *  orquestación: aparece solo mientras Gero escribe en el coordinador. Default: true. */
+  opciones?: { autofocus?: boolean },
 ) {
+  const autofocusRef = useRef(opciones?.autofocus !== false)
+  autofocusRef.current = opciones?.autofocus !== false
   const temaActivo = useMemo(() => {
     const base = temaPorId(temaId, temasImportados)
     return ajustarContrasteDelTema ? ajustarContraste(base) : base
@@ -94,7 +99,7 @@ export function useXterm(
           if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows)
           onResizeRef.current?.(term.cols, term.rows)
         } catch { /* ignore */ }
-        term.focus()
+        if (autofocusRef.current) term.focus()
       })
     })
 

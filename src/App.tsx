@@ -20,7 +20,7 @@ import { useIntervaloVisible } from './hooks/useIntervaloVisible'
 import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
 import { temaPorId } from './lib/terminal-themes'
-import { placeWorkerPane } from './orchestration/place-worker-pane'
+import { handleLaunchPane } from './orchestration/place-worker-pane'
 import { groupAITypesByRepoPath } from './lib/repo-ai-logos'
 import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
@@ -1128,11 +1128,12 @@ export default function App() {
   useEffect(() => {
     const orq = window.orchestration
     if (!orq) return
-    const bajaLaunch = orq.onLaunchPane((req) => {
-      const { reply } = placeWorkerPane(tabsRef.current, req, ansiDelTemaRef.current)
-      if (reply.ok) setTabs(prev => placeWorkerPane(prev, req, ansiDelTemaRef.current).tabs)
-      void orq.replyLaunchPane(reply)
-    })
+    const bajaLaunch = orq.onLaunchPane((req) => handleLaunchPane(req, {
+      tabsRef,
+      setTabs,
+      reply: (r) => { void orq.replyLaunchPane(r) },
+      ansi: () => ansiDelTemaRef.current,
+    }))
     // `stop` del coordinador, o el coordinador que se cierra: el main ya mató el PTY.
     const bajaClose = orq.onClosePane(({ paneId }) => removePaneAnywhere(paneId))
     return () => { bajaLaunch(); bajaClose() }

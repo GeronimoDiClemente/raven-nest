@@ -40,3 +40,26 @@ export function placeWorkerPane(
     reply: { requestId: req.requestId, ok: true, tabPaneCount: nextPanes.length },
   }
 }
+
+export interface LaunchPaneHost {
+  tabsRef: { current: WorkspaceTab[] }
+  setTabs(updater: (prev: WorkspaceTab[]) => WorkspaceTab[]): void
+  reply(r: OrchestrationLaunchPaneReply): void
+  ansi(): readonly string[] | undefined
+}
+
+/**
+ * El handler de `onLaunchPane` de App.tsx. Decide con `tabsRef` y lo actualiza EN EL ACTO: dos
+ * pedidos que llegan antes de un render verían el mismo tab, y en el borde de MAX_PANES los dos
+ * recibirían ok mientras el segundo updater no agrega nada — un worker `working` sin pane que
+ * ocupa un cupo para siempre.
+ */
+export function handleLaunchPane(req: OrchestrationLaunchPaneRequest, host: LaunchPaneHost): void {
+  const ansi = host.ansi()
+  const { tabs, reply } = placeWorkerPane(host.tabsRef.current, req, ansi)
+  if (reply.ok) {
+    host.tabsRef.current = tabs
+    host.setTabs((prev) => placeWorkerPane(prev, req, ansi).tabs)
+  }
+  host.reply(reply)
+}

@@ -228,4 +228,13 @@ describe('wireOrchestration', () => {
     await expect(p).rejects.toThrow('no_tab')
     expect(pty.orch!.tokens.resolve(token)).toBeNull()
   })
+
+  it('stop borra el socket del disco', async () => {
+    const { w, deps } = mk()
+    for (let i = 0; i < 100 && !existsSync(deps.socketPath); i++) await new Promise((r) => setTimeout(r, 10))
+    expect(existsSync(deps.socketPath)).toBe(true)
+    w.stop()
+    wiring = null
+    expect(existsSync(deps.socketPath)).toBe(false)
+  })
 })

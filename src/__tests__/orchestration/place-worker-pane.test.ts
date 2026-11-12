@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { placeWorkerPane } from '../../orchestration/place-worker-pane'
+import { placeWorkerPane, handleLaunchPane } from '../../orchestration/place-worker-pane'
 import { workerSwatch } from '../../lib/worker-palette'
 import { MAX_PANES, type OrchestrationLaunchPaneRequest, type PaneNode, type WorkspaceTab } from '../../types'
 
@@ -56,5 +56,23 @@ describe('placeWorkerPane', () => {
     const { tabs: t, reply } = placeWorkerPane(t0, REQ, undefined)
     expect(reply).toEqual({ requestId: 'r1', ok: false, error: 'tab_full' })
     expect(t).toBe(t0)
+  })
+})
+
+describe('handleLaunchPane', () => {
+  it('dos pedidos antes de un render en el borde de MAX_PANES: el segundo da tab_full', () => {
+    const casiLleno = Array.from({ length: MAX_PANES - 1 }, (_, i) => pane(i === 0 ? 'coord' : `p${i}`))
+    const tabsRef = { current: [{ id: 'x', name: 'X', layoutId: '12G', panes: casiLleno }] as WorkspaceTab[] }
+    const replies: unknown[] = []
+    const updaters: Array<(prev: WorkspaceTab[]) => WorkspaceTab[]> = []
+    // setTabs NO aplica (React todavía no renderizó): sólo encola.
+    const host = { tabsRef, setTabs: (u: (p: WorkspaceTab[]) => WorkspaceTab[]) => { updaters.push(u) }, reply: (r: unknown) => replies.push(r), ansi: () => undefined }
+    handleLaunchPane({ ...REQ, requestId: 'a', paneId: 'wa' }, host)
+    handleLaunchPane({ ...REQ, requestId: 'b', paneId: 'wb' }, host)
+    expect(replies).toEqual([
+      { requestId: 'a', ok: true, tabPaneCount: MAX_PANES },
+      { requestId: 'b', ok: false, error: 'tab_full' },
+    ])
+    expect(updaters).toHaveLength(1)
   })
 })

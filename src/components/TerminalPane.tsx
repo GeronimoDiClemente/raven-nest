@@ -84,6 +84,8 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       terminalShareService.broadcastSize(pane.id, cols, rows)
     }, [pane.id]),
     temaDeTerminal, temasImportados, ajustarContrasteDelTema,
+    // Un worker de orquestación no roba el foco al aparecer (Gero escribe en el coordinador).
+    { autofocus: !pane.orchestration },
   )
   const { setNodeRef, attributes, listeners, isOver } = useSortable({ id: pane.id })
   const outputBuf = useRef('')       // notification buffer (last 2000 chars)
