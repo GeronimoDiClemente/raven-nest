@@ -16,6 +16,9 @@ import { safeWriteText } from '../lib/clipboard'
 import { useSortable } from '@dnd-kit/sortable'
 import { stripAnsi, PROMPT_RE, UI_CHROME_RE, filterChrome } from '../lib/terminal-chrome'
 import { crearEscrituraDiferida, type EscrituraDiferida } from '../lib/escritura-diferida'
+import { useOrchestration } from '../orchestration/useOrchestration'
+import WorkerPaneBadge from './orchestration/WorkerPaneBadge'
+import WorkerAutoCloseBanner from './orchestration/WorkerAutoCloseBanner'
 
 const BUSY_THRESHOLD_MS = 2000
 const MAX_CONV_BUFFER = 500_000 // ~500KB
@@ -452,6 +455,13 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
    * limpian de ANSI antes de mirarlos, porque un `[?25h` pegado al final haria que ningun
    * patron anclado en el fin de linea matchee.
    */
+  // Pane de un worker de orquestación: su estado sale del snapshot de main (sólo los panes
+  // worker se suscriben).
+  const workers = useOrchestration(!!pane.orchestration)
+  const worker = pane.orchestration
+    ? workers.find((w) => w.workerId === pane.orchestration!.workerId)
+    : undefined
+
   const estado = estadoDePane({
     ocupado: isBusy,
     colaDeSalida: stripAnsi(outputBuf.current),
@@ -500,7 +510,11 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         hasNextStep={hasNextStep}
         onHandoff={onHandoff}
         onRename={onRename}
+        workerBadge={worker && (
+          <WorkerPaneBadge status={worker.status} colorIndex={worker.colorIndex} ansi={temaActivo.ansi} label={worker.label} />
+        )}
       />
+      {worker && <WorkerAutoCloseBanner worker={worker} busy={isBusy} />}
       {searchOpen && (
         <div className="search-bar">
           <input

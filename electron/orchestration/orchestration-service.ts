@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { OrchestrationState, type WorkerRecord } from './orchestration-state'
+import type { ReviewEntry } from './review-store'
 import { workerPreamble } from './prompts'
 import { branchName } from './branch-name'
 import { typeThenSubmit } from './submit'
@@ -65,7 +66,18 @@ export interface OrchestrationDeps {
   /** El pane del worker quedó aceptado y el worker pasó a `working` (el cableado arma ahí el
    *  vigía de "esperando input"). No se llama si el launch falla. */
   onWorkerStarted?(w: WorkerRecord): void
+  /** Donde quedan las ramas terminadas (done / exited / stopped) para que Gero decida. */
+  review?: { upsert(e: ReviewEntry): void }
+  /** El worker quedó esperando a alguien (§6.9: aviso de escritorio). Nunca se llama por done. */
+  onNeedsInput?(w: WorkerRecord, kind: 'question' | 'blocked' | 'waiting_permission'): void
 }
+
+/** Un worker del snapshot que ve el renderer: el registro más si Gero pidió "Keep open". */
+export type WorkerSnapshot = WorkerRecord & { keepOpen?: boolean }
+
+export type AutoCloseResult =
+  | { ok: true }
+  | { ok: false; error: 'unknown_worker' | 'not_done' | 'kept_open' | 'worktree_dirty' }
 
 const WAIT_DEFAULT_MS = 60_000
 const WAIT_MAX_MS = 240_000
@@ -85,6 +97,12 @@ const fail = (code: string): never => {
 
 export class OrchestrationService {
   private readonly waiters = new Map<string, Waiter[]>()
+  // workerId -> repo del coordinador (su cwd al lanzar): la revisión lo necesita y el
+  // registro del worker no lo guarda.
+  private readonly repoOf = new Map<string, string>()
+  // Workers cuyo pane Gero pidió no cerrar nunca ("Keep open"). Vive acá y no en el
+  // renderer para que el banner lo refleje después de un re-render o de cambiar de tab.
+  private readonly kept = new Set<string>()
 
   // El estado se puede pasar de afuera: PointerDelivery lee la MISMA bandeja.
   constructor(
@@ -125,18 +143,51 @@ export class OrchestrationService {
     }
   }
 
-  snapshot(): WorkerRecord[] {
-    // El estado no expone "todos": se junta por coordinadores conocidos vía workerByPane no existe,
-    // así que se lleva un índice aparte.
-    return [...this.coordinators].flatMap((c) => this.state.workersOf(c))
+  snapshot(): WorkerSnapshot[] {
+    return this.state.all().map((w) => (this.kept.has(w.workerId) ? { ...w, keepOpen: true } : { ...w }))
   }
   private readonly coordinators = new Set<string>()
+
+  /** "Keep open": el pane de este worker no se cierra solo. false si el worker no existe. */
+  keepOpen(workerId: string): boolean {
+    if (!this.byId(workerId)) return false
+    this.kept.add(workerId)
+    this.deps.onChange()
+    return true
+  }
+
+  /** La cuenta del banner llegó a 0. Se vuelve a validar acá: el renderer puede tener un
+   *  estado viejo, y cerrar con cambios sin commitear sería perder trabajo (§4). */
+  async autoClose(workerId: string): Promise<AutoCloseResult> {
+    const w = this.byId(workerId)
+    if (!w) return { ok: false, error: 'unknown_worker' }
+    if (w.status !== 'done') return { ok: false, error: 'not_done' }
+    if (this.kept.has(workerId)) return { ok: false, error: 'kept_open' }
+    if (!(await this.deps.isClean(w.worktreePath))) return { ok: false, error: 'worktree_dirty' }
+    this.deps.killPane(w.paneId)
+    this.deps.closePane(w.paneId)
+    return { ok: true }
+  }
+
+  /** La rama ya se decidió (merge / discard): se cierra el pane si seguía abierto y el
+   *  worker sale del snapshot. */
+  forgetWorker(workerId: string): void {
+    const w = this.byId(workerId)
+    if (!w) return
+    this.deps.killPane(w.paneId)
+    this.deps.closePane(w.paneId)
+    this.state.removeWorker(workerId)
+    this.kept.delete(workerId)
+    this.repoOf.delete(workerId)
+    this.deps.onChange()
+  }
 
   onPaneExit(paneId: string, exitCode: number): void {
     const w = this.state.workerByPane(paneId)
     if (w) {
       if (!FINALES.has(w.status)) {
         this.state.setStatus(w.workerId, 'exited', this.deps.now())
+        this.paraRevision(w)
         this.pushMsg(w, 'exited', `exit code ${exitCode}`)
         this.deps.onChange()
       }
@@ -150,15 +201,21 @@ export class OrchestrationService {
     if (!w || !VIVOS.has(w.status) || w.status === 'needs_input') return
     this.state.setStatus(w.workerId, 'needs_input', this.deps.now())
     this.pushMsg(w, 'waiting_permission', 'the agent is waiting for permission or input')
+    this.deps.onNeedsInput?.(w, 'waiting_permission')
     this.deps.onChange()
   }
 
   stopCoordinator(paneId: string): void {
     for (const w of this.state.workersOf(paneId)) {
       if (VIVOS.has(w.status)) {
+        // Queda como stopped en la revisión: la rama y el worktree siguen para que Gero decida.
+        this.state.setStatus(w.workerId, 'stopped', this.deps.now())
+        this.paraRevision(w)
         this.deps.killPane(w.paneId)
         this.deps.closePane(w.paneId)
       }
+      this.kept.delete(w.workerId)
+      this.repoOf.delete(w.workerId)
     }
     // No se borran worktrees ni ramas: el trabajo del worker queda.
     this.state.dropCoordinator(paneId)
@@ -217,6 +274,7 @@ export class OrchestrationService {
       this.deps.now()
     )
     this.coordinators.add(callerPaneId)
+    this.repoOf.set(workerId, info.cwd)
 
     const res = await this.deps.requestPane({
       coordinatorPaneId: callerPaneId,
@@ -234,6 +292,7 @@ export class OrchestrationService {
     if (!res.ok) {
       // El worktree ya existe: no se borra nada, sólo se descarta el registro.
       this.state.removeWorker(workerId)
+      this.repoOf.delete(workerId)
       return fail(res.error)
     }
     // Durante el await el coordinador pudo cerrarse (stopCoordinator) o el worker detenerse:
@@ -259,10 +318,12 @@ export class OrchestrationService {
     if (p.kind === 'done') {
       if (!(await this.deps.isClean(w.worktreePath))) return fail('worktree_dirty')
       this.state.setStatus(w.workerId, 'done', this.deps.now())
+      this.paraRevision(w)
     } else {
       this.state.setStatus(w.workerId, 'needs_input', this.deps.now())
     }
     this.pushMsg(w, p.kind, p.text)
+    if (p.kind !== 'done') this.deps.onNeedsInput?.(w, p.kind as 'question' | 'blocked')
     this.deps.onChange()
     return { ok: true }
   }
@@ -289,6 +350,7 @@ export class OrchestrationService {
     const stopped: string[] = []
     for (const w of vivos) {
       this.state.setStatus(w.workerId, 'stopped', this.deps.now())
+      this.paraRevision(w)
       this.deps.killPane(w.paneId)
       this.deps.closePane(w.paneId)
       stopped.push(w.workerId)
@@ -320,6 +382,32 @@ export class OrchestrationService {
   }
 
   // ---- helpers ----
+
+  private byId(workerId: unknown): WorkerRecord | undefined {
+    if (typeof workerId !== 'string') return undefined
+    return this.state.all().find((w) => w.workerId === workerId)
+  }
+
+  /** Un worker llegó a done / exited / stopped: su rama entra a la revisión. Un fallo al
+   *  escribir el archivo no corta el flujo del agente. */
+  private paraRevision(w: WorkerRecord): void {
+    if (!this.deps.review) return
+    try {
+      this.deps.review.upsert({
+        workerId: w.workerId,
+        label: w.label,
+        colorIndex: w.colorIndex,
+        branch: w.branch,
+        worktreePath: w.worktreePath,
+        baseBranch: w.baseBranch,
+        status: w.status,
+        finishedAt: w.finishedAt,
+        repoPath: this.repoOf.get(w.workerId) ?? w.worktreePath
+      })
+    } catch (err) {
+      console.error('[orchestration] review store write failed', err instanceof Error ? err.message : err)
+    }
+  }
 
   private owned(callerPaneId: string, workerId: unknown): WorkerRecord {
     const w =

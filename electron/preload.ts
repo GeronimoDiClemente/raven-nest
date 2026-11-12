@@ -244,6 +244,18 @@ contextBridge.exposeInMainWorld('orchestration', {
     ipcRenderer.on('orchestration:changed', handler)
     return () => { ipcRenderer.removeListener('orchestration:changed', handler) }
   },
+  // Revisión y cierre (Task 9). main valida cada workerId antes de actuar.
+  reviewList: () => ipcRenderer.invoke('orchestration:reviewList'),
+  keepOpen: (workerId: string) => ipcRenderer.invoke('orchestration:keepOpen', workerId),
+  autoClose: (workerId: string) => ipcRenderer.invoke('orchestration:autoClose', workerId),
+  merge: (workerId: string) => ipcRenderer.invoke('orchestration:merge', workerId),
+  openPr: (workerId: string) => ipcRenderer.invoke('orchestration:openPr', workerId),
+  discard: (workerId: string) => ipcRenderer.invoke('orchestration:discard', workerId),
+  // Duración del cierre automático. Sólo un e2e (RAVEN_E2E=1) la puede acortar, con
+  // RAVEN_E2E_WORKER_AUTO_CLOSE_MS; en un build normal es siempre null → 120 s.
+  autoCloseMs: process.env.RAVEN_E2E === '1' && /^\d+$/.test(process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS ?? '')
+    ? Number(process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS)
+    : null,
 })
 
 contextBridge.exposeInMainWorld('pty', {

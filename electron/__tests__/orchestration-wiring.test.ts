@@ -8,6 +8,7 @@ import { wireOrchestration, type OrchestrationWiring, type WireOrchestrationDeps
 import type { PaneInfo } from '../orchestration/orchestration-service'
 import type { PtyOrchestration } from '../pty-manager'
 import { pointerLine } from '../orchestration/prompts'
+import { ReviewStore } from '../orchestration/review-store'
 
 const COORD: PaneInfo = { paneId: 'coord', cmd: 'claude', accountDir: '/acc/claude/main', aiType: 'claude', cwd: '/repo' }
 
@@ -27,12 +28,14 @@ class FakePty extends EventEmitter {
 
 let wiring: OrchestrationWiring | null = null
 let dir: string | null = null
+const extraDirs: string[] = []
 
 afterEach(() => {
   wiring?.stop()
   wiring = null
   if (dir) rmSync(dir, { recursive: true, force: true })
   dir = null
+  for (const d of extraDirs.splice(0)) rmSync(d, { recursive: true, force: true })
   vi.useRealTimers()
 })
 
@@ -236,5 +239,71 @@ describe('wireOrchestration', () => {
     w.stop()
     wiring = null
     expect(existsSync(deps.socketPath)).toBe(false)
+  })
+
+  // ---- Task 9: revisión ----
+
+  const conRevision = () => {
+    const removeWorktree = vi.fn(async () => ({ ok: true as const }))
+    const pushBranch = vi.fn(async () => ({ ok: true as const }))
+    const openExternal = vi.fn()
+    const notifyDesktop = vi.fn()
+    const sdir = mkdtempSync(join(tmpdir(), 'orq-review-'))
+    extraDirs.push(sdir)
+    const store = new ReviewStore(join(sdir, 'review.json'))
+    const r = mk({ reviewStore: store, removeWorktree, pushBranch, openExternal, notifyDesktop })
+    return { ...r, store, removeWorktree, pushBranch, openExternal, notifyDesktop }
+  }
+
+  it('done guarda la rama en el store de revisión y la lista la devuelve', async () => {
+    const { pty, sent, w, store } = conRevision()
+    const { req, r } = await lanzar(pty, sent, w)
+    await w.service.handle(req.paneId, 'worker.report', { kind: 'done', text: 'ok' })
+    expect(w.review.list().map((e) => [e.workerId, e.status, e.repoPath])).toEqual([[r.workerId, 'done', '/repo']])
+    expect(store.list()).toHaveLength(1)
+  })
+
+  it('merge / openPr / discard con un workerId que no está en el store no tocan nada', async () => {
+    const { w, runGit, removeWorktree, pushBranch } = conRevision()
+    runGit.mockClear()
+    for (const accion of ['merge', 'openPr', 'discard'] as const) {
+      expect(await w.review[accion]('nadie')).toEqual({ ok: false, error: 'unknown_worker' })
+      expect(await w.review[accion](42 as unknown as string)).toEqual({ ok: false, error: 'unknown_worker' })
+    }
+    expect(runGit).not.toHaveBeenCalled()
+    expect(removeWorktree).not.toHaveBeenCalled()
+    expect(pushBranch).not.toHaveBeenCalled()
+  })
+
+  it('discard ok olvida al worker, cierra su pane y avisa al renderer', async () => {
+    const { pty, sent, w, store } = conRevision()
+    const { req, r } = await lanzar(pty, sent, w)
+    await w.service.handle(req.paneId, 'worker.report', { kind: 'done', text: 'ok' })
+    sent.length = 0
+    expect(await w.review.discard(r.workerId)).toEqual({ ok: true })
+    expect(store.list()).toEqual([])
+    expect(w.service.snapshot()).toEqual([])
+    expect(sent.map(([c]) => c)).toContain('orchestration:close-pane')
+    expect(sent.map(([c]) => c)).toContain('orchestration:changed')
+  })
+
+  it('keepOpen valida el workerId', async () => {
+    const { pty, sent, w } = conRevision()
+    const { r } = await lanzar(pty, sent, w)
+    expect(w.review.keepOpen(r.workerId)).toEqual({ ok: true })
+    expect(w.review.keepOpen('nadie')).toEqual({ ok: false, error: 'unknown_worker' })
+  })
+
+  it('aviso de escritorio cuando un worker pregunta, no cuando termina', async () => {
+    const { pty, sent, w, notifyDesktop } = conRevision()
+    const { req } = await lanzar(pty, sent, w)
+    await w.service.handle(req.paneId, 'worker.report', { kind: 'question', text: 'which db?' })
+    expect(notifyDesktop).toHaveBeenCalledTimes(1)
+    expect(notifyDesktop.mock.calls[0][0]).toBe('Worker needs input')
+    expect(notifyDesktop.mock.calls[0][1]).toContain('api')
+    sent.length = 0
+    const { req: req2 } = await lanzar(pty, sent, w)
+    await w.service.handle(req2.paneId, 'worker.report', { kind: 'done', text: 'ok' })
+    expect(notifyDesktop).toHaveBeenCalledTimes(1)
   })
 })

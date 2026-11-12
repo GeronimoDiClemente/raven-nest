@@ -21,6 +21,9 @@ import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
 import { temaPorId } from './lib/terminal-themes'
 import { handleLaunchPane } from './orchestration/place-worker-pane'
+import { useReviewEntries } from './orchestration/useOrchestration'
+import { reviewEntriesForTab } from './orchestration/review-for-tab'
+import WorkerReviewPanel from './components/orchestration/WorkerReviewPanel'
 import { groupAITypesByRepoPath } from './lib/repo-ai-logos'
 import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
@@ -1139,6 +1142,9 @@ export default function App() {
     return () => { bajaLaunch(); bajaClose() }
   }, [removePaneAnywhere])
 
+  // Revisión de ramas de workers (spec §6.7): las del repo del tab activo, arriba del grid.
+  const reviewEntries = useReviewEntries()
+
   const cycleTab = useCallback((isPrev: boolean) => {
     const allTabs = tabsRef.current
     if (allTabs.length <= 1) return
@@ -1990,6 +1996,7 @@ export default function App() {
         // dejaría el outline de drop-target colgado (handleDrop nunca corre).
         onDropCapture={() => setDropActive(false)}
       >
+        <WorkerReviewPanel entries={reviewEntriesForTab(reviewEntries, activeTab)} ansi={ansiDelTemaRef.current} />
         {activeTab.isHub ? (
           <HubWorkspace
             panes={filteredView.panes}

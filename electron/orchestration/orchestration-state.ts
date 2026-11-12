@@ -83,6 +83,10 @@ export class OrchestrationState {
     return undefined
   }
 
+  all(): WorkerRecord[] {
+    return [...this.workers.values()]
+  }
+
   workersOf(coordinatorPaneId: string): WorkerRecord[] {
     return [...this.workers.values()].filter((w) => w.coordinatorPaneId === coordinatorPaneId)
   }

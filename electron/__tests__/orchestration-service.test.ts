@@ -386,4 +386,99 @@ describe('OrchestrationService', () => {
     expect(state.workersOf('coord')[0].workerId).toBe(r.workerId)
     expect(state.pending('coord').map((m) => m.kind)).toEqual(['exited'])
   })
+
+  // ---- Task 9: revisión, keep open, cierre automático y aviso de escritorio ----
+
+  const conReview = () => {
+    const review = { upsert: vi.fn() }
+    const onNeedsInput = vi.fn()
+    const r = mk({ review, onNeedsInput } as Partial<OrchestrationDeps>)
+    return { ...r, review, onNeedsInput }
+  }
+
+  it('done limpio guarda la rama para revisión, con el repo del coordinador', async () => {
+    const { svc, deps, review } = conReview()
+    const r = await launch(svc, 'api')
+    await svc.handle(deps.requestPane.mock.calls[0][0].paneId, 'worker.report', { kind: 'done', text: 'ok' })
+    expect(review.upsert).toHaveBeenCalledTimes(1)
+    expect(review.upsert.mock.calls[0][0]).toEqual({
+      workerId: r.workerId, label: 'api', colorIndex: 0, branch: r.branch,
+      worktreePath: `/wt/${r.branch.replace('/', '_')}`, baseBranch: 'feat/x', status: 'done',
+      finishedAt: 1000, repoPath: '/repo',
+    })
+  })
+
+  it('exited y stopped también se guardan para revisión; working no', async () => {
+    const { svc, deps, review } = conReview()
+    await launch(svc, 'a')
+    await launch(svc, 'b')
+    expect(review.upsert).not.toHaveBeenCalled()
+    svc.onPaneExit(deps.requestPane.mock.calls[0][0].paneId, 1)
+    await svc.handle('coord', 'worker.stop', {})
+    expect(review.upsert.mock.calls.map((c) => [c[0].label, c[0].status])).toEqual([['a', 'exited'], ['b', 'stopped']])
+  })
+
+  it('stopCoordinator deja sus workers vivos en stopped y los guarda (las ramas quedan)', async () => {
+    const { svc, deps, review } = conReview()
+    await launch(svc, 'a')
+    await launch(svc, 'b')
+    await svc.handle(deps.requestPane.mock.calls[0][0].paneId, 'worker.report', { kind: 'done', text: 'ok' })
+    review.upsert.mockClear()
+    svc.stopCoordinator('coord')
+    expect(review.upsert.mock.calls.map((c) => [c[0].label, c[0].status])).toEqual([['b', 'stopped']])
+  })
+
+  it('keepOpen marca al worker en el snapshot; uno desconocido da false', async () => {
+    const { svc, deps } = conReview()
+    const r = await launch(svc)
+    deps.onChange.mockClear()
+    expect(svc.keepOpen(r.workerId)).toBe(true)
+    expect(svc.snapshot()[0].keepOpen).toBe(true)
+    expect(deps.onChange).toHaveBeenCalled()
+    expect(svc.keepOpen('nadie')).toBe(false)
+  })
+
+  it('autoClose cierra sólo un worker done, no mantenido y con el worktree limpio', async () => {
+    const { svc, deps } = conReview()
+    const a = await launch(svc, 'a')
+    const b = await launch(svc, 'b')
+    const pa = deps.requestPane.mock.calls[0][0].paneId
+    const pb = deps.requestPane.mock.calls[1][0].paneId
+    expect(await svc.autoClose(a.workerId)).toEqual({ ok: false, error: 'not_done' })
+    await svc.handle(pa, 'worker.report', { kind: 'done', text: 'ok' })
+    await svc.handle(pb, 'worker.report', { kind: 'done', text: 'ok' })
+    svc.keepOpen(b.workerId)
+    expect(await svc.autoClose(b.workerId)).toEqual({ ok: false, error: 'kept_open' })
+    deps.isClean.mockResolvedValueOnce(false)
+    expect(await svc.autoClose(a.workerId)).toEqual({ ok: false, error: 'worktree_dirty' })
+    expect(deps.closePane).not.toHaveBeenCalled()
+    expect(await svc.autoClose(a.workerId)).toEqual({ ok: true })
+    expect(deps.killPane).toHaveBeenCalledWith(pa)
+    expect(deps.closePane).toHaveBeenCalledWith(pa)
+    expect(await svc.autoClose('nadie')).toEqual({ ok: false, error: 'unknown_worker' })
+  })
+
+  it('forgetWorker cierra el pane si sigue abierto y lo saca del snapshot', async () => {
+    const { svc, deps } = conReview()
+    const r = await launch(svc)
+    const wp = deps.requestPane.mock.calls[0][0].paneId
+    await svc.handle(wp, 'worker.report', { kind: 'done', text: 'ok' })
+    svc.forgetWorker(r.workerId)
+    expect(deps.killPane).toHaveBeenCalledWith(wp)
+    expect(deps.closePane).toHaveBeenCalledWith(wp)
+    expect(svc.snapshot()).toEqual([])
+  })
+
+  it('aviso de escritorio con needs_input (pregunta, bloqueo, permiso), nunca con done', async () => {
+    const { svc, deps, onNeedsInput } = conReview()
+    await launch(svc, 'a')
+    await launch(svc, 'b')
+    await launch(svc, 'c')
+    const [pa, pb, pc] = deps.requestPane.mock.calls.map((c) => c[0].paneId)
+    await svc.handle(pa, 'worker.report', { kind: 'done', text: 'ok' })
+    expect(onNeedsInput).not.toHaveBeenCalled()
+    await svc.handle(pb, 'worker.report', { kind: 'question', text: '?' })
+    svc.onAgentNeedsInput(pc)
+    expect(onNeedsInput.mock.calls.map((c) => [c[0].label, c[1]])).toEqual([['b', 'question'], ['c', 'waiting_permission']])
+  })
 })

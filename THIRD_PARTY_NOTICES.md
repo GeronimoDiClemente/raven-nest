@@ -68,3 +68,4 @@ Each entry: Raven Nest file <- upstream source. Append new entries at the end of
 - electron/orchestration/prompts.ts <- orca worker-dispatch-preamble.ts and skill-guides/orchestration.md; t3code orchestrationInstructions.ts
 - electron/orchestration/pointer-delivery.ts <- orca mailbox/terminal-pointer (mailbox-pointer-eligibility.ts, mailbox-pointer-delivery.ts, mailbox-pointer-stage.ts, mailbox-pointer-submit.ts)
 - electron/orchestration-mcp/tools.ts <- t3code apps/server/src/mcp/toolkits/orchestrator/tools.ts (descripciones de las tools)
+- src/orchestration/worker-auto-close.ts <- orca src/shared/orchestration/workers/worker-auto-close.ts (countdown format) and src/main/runtime/orchestration/terminal-authority/release/worker-terminal-auto-release-working-yield.ts (auto-close yields to a working agent)

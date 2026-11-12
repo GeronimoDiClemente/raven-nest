@@ -87,7 +87,28 @@ export interface OrchestrationWorker {
   status: OrchestrationWorkerStatus
   createdAt: number
   finishedAt?: number
+  /** Gero pidió "Keep open": el pane no se cierra solo. */
+  keepOpen?: boolean
 }
+
+/** Espejo de `ReviewEntry` (electron/orchestration/review-store.ts): una rama terminada
+ *  esperando la decisión de Gero. */
+export interface OrchestrationReviewEntry {
+  workerId: string
+  label: string
+  colorIndex: number
+  branch: string
+  worktreePath: string
+  baseBranch: string
+  status: OrchestrationWorkerStatus
+  finishedAt?: number
+  repoPath: string
+}
+
+/** Espejo de `ReviewActionResult` (wire-orchestration.ts / review-actions.ts). */
+export type OrchestrationReviewResult =
+  | { ok: true }
+  | { ok: false; error: string; detail?: string }
 
 /** Espejo de `LaunchPaneRequest` (orchestration-service.ts) + el id del pedido. */
 export interface OrchestrationLaunchPaneRequest {
@@ -1002,6 +1023,15 @@ declare global {
       onClosePane: (cb: (msg: { paneId: string }) => void) => () => void
       /** Cambió el estado de los workers; sin payload, se vuelve a pedir `snapshot()`. */
       onChanged: (cb: () => void) => () => void
+      reviewList: () => Promise<OrchestrationReviewEntry[]>
+      keepOpen: (workerId: string) => Promise<OrchestrationReviewResult>
+      /** La cuenta del banner llegó a 0; main revalida (done, no mantenido, worktree limpio). */
+      autoClose: (workerId: string) => Promise<OrchestrationReviewResult>
+      merge: (workerId: string) => Promise<OrchestrationReviewResult>
+      openPr: (workerId: string) => Promise<OrchestrationReviewResult>
+      discard: (workerId: string) => Promise<OrchestrationReviewResult>
+      /** Override del cierre automático, sólo bajo RAVEN_E2E=1; null = 120 s. */
+      autoCloseMs: number | null
     }
     pty: {
       create: (paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => Promise<{ ok: true } | { ok: false; error: string }>

@@ -14,6 +14,8 @@ import {
   type PaneInfo
 } from './orchestration-service'
 import { PointerDelivery } from './pointer-delivery'
+import type { ReviewEntry, ReviewStore } from './review-store'
+import { createReviewActions, type ReviewResult } from './review-actions'
 import type { PtyOrchestration } from '../pty-manager'
 
 /** Lo que el cableado usa del PtyManager (los eventos y las escrituras internas). */
@@ -44,6 +46,27 @@ export interface WireOrchestrationDeps {
   send(channel: string, payload?: unknown): boolean
   now?: () => number
   requestPaneTimeoutMs?: number
+  /** Revisión de ramas (Task 9). Sin store, la revisión queda apagada (lista vacía). */
+  reviewStore?: ReviewStore
+  /** Borra el worktree de un worker: en main, la lógica de `worktree:remove`. */
+  removeWorktree?(e: ReviewEntry): Promise<{ ok: true } | { ok: false; error: string }>
+  /** Empuja la rama de un worktree: en main, la lógica de `git:pushBranch`. */
+  pushBranch?(worktreePath: string): Promise<{ ok: true } | { ok: false; error: string }>
+  openExternal?(url: string): Promise<void> | void
+  /** Notificación de escritorio (§6.9): sólo cuando un worker queda esperando a alguien. */
+  notifyDesktop?(title: string, body: string): void
+}
+
+export type ReviewActionResult = ReviewResult | { ok: false; error: 'busy' }
+
+/** Lo que el renderer puede pedir sobre la revisión; cada id se valida contra el store. */
+export interface OrchestrationReview {
+  list(): ReviewEntry[]
+  keepOpen(workerId: unknown): { ok: true } | { ok: false; error: 'unknown_worker' }
+  autoClose(workerId: unknown): ReturnType<OrchestrationService['autoClose']>
+  merge(workerId: unknown): Promise<ReviewActionResult>
+  openPr(workerId: unknown): Promise<ReviewActionResult>
+  discard(workerId: unknown): Promise<ReviewActionResult>
 }
 
 export interface LaunchPaneReply {
@@ -55,12 +78,15 @@ export interface LaunchPaneReply {
 
 export interface OrchestrationWiring {
   service: OrchestrationService
+  /** La bandeja y los workers compartidos (los e2e la siembran; ver main.ts). */
+  state: OrchestrationState
   delivery: PointerDelivery
   tokens: PaneTokenRegistry
   /** `orchestration:launch-pane-result` del renderer. */
   replyLaunchPane(res: unknown): void
   /** El renderer cerró (o mató) un pane: se suelta lo que el puntero tenga de él. */
   paneClosed(paneId: string): void
+  review: OrchestrationReview
   stop(): void
 }
 
@@ -162,6 +188,12 @@ export function wireOrchestration(deps: WireOrchestrationDeps): OrchestrationWir
         try { deps.send('orchestration:changed') } catch { /* sin ventana */ }
       },
       notifyCoordinator: (coordinatorPaneId) => delivery.notify(coordinatorPaneId),
+      review: deps.reviewStore,
+      onNeedsInput: (w) => {
+        try {
+          deps.notifyDesktop?.('Worker needs input', `${w.label} is waiting for your input.`)
+        } catch { /* una notificación que falla no corta al worker */ }
+      },
       onWorkerStarted: (w: WorkerRecord) => {
         const armar = (): void => {
           bajasDeVigia.get(w.paneId)?.()
@@ -221,8 +253,51 @@ export function wireOrchestration(deps: WireOrchestrationDeps): OrchestrationWir
   server.start()
   deps.pty.setOrchestration({ socketPath: deps.socketPath, tokens, launchArgs: (bin) => deps.launchArgs(bin) })
 
+  const sinGit = async (): Promise<{ ok: false; error: string }> => ({ ok: false, error: 'not available' })
+  const actions = createReviewActions({
+    runGit: deps.runGit,
+    store: { remove: (id) => deps.reviewStore?.remove(id) },
+    removeWorktree: deps.removeWorktree ?? sinGit,
+    pushBranch: deps.pushBranch ?? sinGit,
+    openExternal: (url) => deps.openExternal?.(url)
+  })
+  // Un doble click no corre dos merges del mismo worker a la vez.
+  const enCurso = new Set<string>()
+  const conEntrada = async (
+    workerId: unknown,
+    accion: (e: ReviewEntry) => Promise<ReviewResult>,
+    olvidar: boolean
+  ): Promise<ReviewActionResult> => {
+    const e = typeof workerId === 'string' ? deps.reviewStore?.get(workerId) : undefined
+    if (!e) return { ok: false, error: 'unknown_worker' }
+    if (enCurso.has(e.workerId)) return { ok: false, error: 'busy' }
+    enCurso.add(e.workerId)
+    try {
+      const r = await accion(e)
+      if (r.ok && olvidar) service.forgetWorker(e.workerId)
+      // El panel vuelve a pedir la lista con este aviso (también tras un error: puede haber
+      // quedado a medio camino, p. ej. mergeado pero sin poder borrar el worktree).
+      try { deps.send('orchestration:changed') } catch { /* sin ventana */ }
+      return r
+    } finally {
+      enCurso.delete(e.workerId)
+    }
+  }
+  const review: OrchestrationReview = {
+    list: () => deps.reviewStore?.list() ?? [],
+    keepOpen: (workerId) =>
+      typeof workerId === 'string' && service.keepOpen(workerId) ? { ok: true } : { ok: false, error: 'unknown_worker' },
+    autoClose: (workerId) =>
+      typeof workerId === 'string' ? service.autoClose(workerId) : Promise.resolve({ ok: false, error: 'unknown_worker' }),
+    merge: (workerId) => conEntrada(workerId, actions.merge, true),
+    openPr: (workerId) => conEntrada(workerId, actions.openPr, false),
+    discard: (workerId) => conEntrada(workerId, actions.discard, true)
+  }
+
   let parado = false
   return {
+    review,
+    state,
     service,
     delivery,
     tokens,
