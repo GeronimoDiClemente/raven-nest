@@ -18,6 +18,8 @@
 - UI en inglés: etiquetas, botones, mensajes al agente, textos de error.
 - Componentes nuevos con shadcn (`src/components/ui/*`) + utilidades Tailwind; **ninguna clase nueva en `global.css`**. Cada cambio de UI pasa `e2e/04-contraste.spec.ts`.
 - Color por worker = leyenda categórica (allow-list, §5); estado del worker sólo con `--ok`/`--warn`/`--destructive`.
+- **La UI de orquestación se ve como Memories** [Gero, 12-nov]. Antes de escribir un componente, leer `src/components/MemoriesStatusRow.tsx`, `MemoriesItem.tsx`, `MemoriesWorkspace.tsx` y `src/components/memories/settings/` (`SettingsSection`, `SettingRow`) y reusar su vocabulario: `Badge variant="outline"` con punto + texto y `text-ok`/`text-warn`/`text-destructive` para estado; `microlabel text-muted-foreground` para etiquetas; `font-mono tabular-nums` para números (diffstat, contadores); fila de estado chica arriba; secciones con `SettingsSection`/`SettingRow`. Las clases que ya existen en `global.css` para Memories se pueden reusar; no se crean nuevas. Si algo de Memories se repite tal cual, extraerlo a un componente compartido en vez de copiarlo.
+- El trabajo se hace sobre la rama de Memories: el worktree sale de `feat/memories-settings` y la integración vuelve a `feat/memories-settings` (la hace la sesión dueña de esa carpeta). Antes de Tasks 8 y 9, `git merge feat/memories-settings` en el worktree para tomar los últimos cambios visuales de Memories.
 - Orquestación funciona con Memories apagado, desconectado o `memory === null` (§6.8). Ningún import de `memory-*` en `electron/orchestration/` salvo utilidades puras (`writeFileAtomic`, `quoteShellArg`).
 - Límites: máx **4** workers vivos por coordinador; sin anidar; **12** panes por tab (`MAX_PANES`, `src/types.ts:19`) (§6.5).
 - Nest nunca agrega ni saca flags de permisos al comando del agente (§6.3).
@@ -269,7 +271,7 @@ Portado de Orca `mailbox/terminal-pointer/` (`-eligibility.ts`, `-delivery.ts`, 
 
 **Files:**
 - Modify: `electron/main.ts` (crear registry, server, service, delivery **fuera** del `try` de Memories, cerca de `main.ts:640`; handlers IPC), `electron/preload.ts`, `src/types.ts` (`PaneNode`), `src/App.tsx`
-- Create: `src/orchestration/useOrchestration.ts`, `src/orchestration/worker-palette.ts`
+- Create: `src/orchestration/useOrchestration.ts`, `src/lib/worker-palette.ts`
 - Test: `electron/__tests__/orchestration-wiring.test.ts` (si el cableado de main se puede aislar en una función `wireOrchestration(deps)`; si no, cubierto por el e2e de Task 10)
 
 **Interfaces:**
@@ -277,8 +279,8 @@ Portado de Orca `mailbox/terminal-pointer/` (`-eligibility.ts`, `-delivery.ts`, 
 - IPC main→renderer: `orchestration:launch-pane` (`LaunchPaneRequest` + `requestId`), respuesta por `ipcMain.handle('orchestration:launch-pane-result', {requestId, ok, error?, tabPaneCount?})`; `orchestration:close-pane {paneId}`; `orchestration:changed` (sin payload; el renderer pide `orchestration:snapshot`).
 - Preload: `window.orchestration = { onLaunchPane(cb), replyLaunchPane(res), onClosePane(cb), onChanged(cb), snapshot(): Promise<WorkerRecord[]>, keepOpen(workerId), merge(workerId), openPr(workerId), discard(workerId) }`.
 - `PaneNode` suma `orchestration?: { role: 'worker'; workerId: string; coordinatorPaneId: string; colorIndex: number }`.
-- `worker-palette.ts`: `WORKER_COLORS: readonly [string, string, string, string]` como **tokens CSS** (`var(--worker-1)`…`var(--worker-4)`, definidos en el bloque de tokens existente de `global.css` para claro y oscuro, expuestos en `@theme inline`), con el comentario de allow-list de §5 al estilo de `memory-type-legend.ts`.
-- App.tsx: handler de `onLaunchPane` busca el tab que contiene `coordinatorPaneId` (no el activo), responde `tab_full` si `panes.length >= MAX_PANES`, agrega el pane con `id = req.paneId`, `customLabel = label`, `borderColor = WORKER_COLORS[colorIndex]`, `repoPath`, `initialInput`, **sin** `setAddingPane`/`NewPaneDialog` y **sin cambiar el foco**. `onClosePane` → `removePaneAnywhere`. Cerrar a mano un pane coordinador ya termina en `pty exit` → `stopCoordinator` (no hace falta handler extra).
+- `src/lib/worker-palette.ts`, **igual que Memories** (`src/lib/memory-type-legend.ts`): el color sale del **índice ANSI del tema de terminal del usuario**, no de un hex ni de tokens nuevos. `WORKER_ANSI: readonly [number, number, number, number] = [4, 2, 5, 3]` (azul, verde, magenta, amarillo: evita el 1 rojo, que se lee como error). `workerSwatch(colorIndex: number, ansi?: readonly string[]): string` = `subirContraste(paleta[WORKER_ANSI[i]], FONDO_DE_LA_TARJETA)` con el fallback `TEMA_NEST.ansi`, como `memoryTypeSwatch`. Comentario de allow-list de §5 al estilo de ese archivo.
+- App.tsx: handler de `onLaunchPane` busca el tab que contiene `coordinatorPaneId` (no el activo), responde `tab_full` si `panes.length >= MAX_PANES`, agrega el pane con `id = req.paneId`, `customLabel = label`, `borderColor = workerSwatch(colorIndex, ansiDelTema)`, `repoPath`, `initialInput`, **sin** `setAddingPane`/`NewPaneDialog` y **sin cambiar el foco**. `onClosePane` → `removePaneAnywhere`. Cerrar a mano un pane coordinador ya termina en `pty exit` → `stopCoordinator` (no hace falta handler extra).
 
 - [ ] **Step 1: Write the failing tests** para lo aislable: `orquestación arranca con memory null`; `launch-pane sin respuesta en 10 s da error al agente`.
 - [ ] **Step 2: Run** → FAIL.
