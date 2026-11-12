@@ -251,9 +251,10 @@ contextBridge.exposeInMainWorld('orchestration', {
   merge: (workerId: string) => ipcRenderer.invoke('orchestration:merge', workerId),
   openPr: (workerId: string) => ipcRenderer.invoke('orchestration:openPr', workerId),
   discard: (workerId: string) => ipcRenderer.invoke('orchestration:discard', workerId),
-  // Duración del cierre automático. Sólo un e2e (RAVEN_E2E=1) la puede acortar, con
-  // RAVEN_E2E_WORKER_AUTO_CLOSE_MS; en un build normal es siempre null → 120 s.
-  autoCloseMs: process.env.RAVEN_E2E === '1' && /^\d+$/.test(process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS ?? '')
+  // Duración del cierre automático. Sólo un e2e la puede acortar, con
+  // RAVEN_E2E_WORKER_AUTO_CLOSE_MS, y sólo si main lo permitió (NEST_E2E_HOOKS: RAVEN_E2E=1 y
+  // un build sin empaquetar). En un build normal es siempre null → 120 s.
+  autoCloseMs: process.env.NEST_E2E_HOOKS === '1' && /^\d+$/.test(process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS ?? '')
     ? Number(process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS)
     : null,
 })

@@ -14,7 +14,7 @@ import type { OrchestrationWorkerStatus } from '../types'
 export const WORKER_AUTO_CLOSE_MS = 120_000
 const TICK_MS = 250
 
-/** 120 s, salvo el override de un e2e (preload: sólo con RAVEN_E2E=1). */
+/** 120 s, salvo el override de un e2e (preload: sólo con RAVEN_E2E=1 y un build sin empaquetar). */
 export function autoCloseDurationMs(): number {
   const o = typeof window !== 'undefined' ? window.orchestration?.autoCloseMs : null
   return typeof o === 'number' && Number.isFinite(o) && o > 0 ? o : WORKER_AUTO_CLOSE_MS

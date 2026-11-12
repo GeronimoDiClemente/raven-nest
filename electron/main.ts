@@ -302,6 +302,21 @@ function getMemorySyncBaseUrl(): string {
  */
 const E2E_HEADLESS = process.env.RAVEN_E2E_HEADLESS === '1'
 
+/**
+ * Ganchos de la orquestación que sólo existen para los e2e (`__nestOrchestrationE2E` y el
+ * cierre automático acortado). RAVEN_E2E=1 no alcanza: un build empaquetado nunca los tiene,
+ * aunque alguien lance la app con esa variable. El preload no ve `app.isPackaged`: main le
+ * pasa la decisión por NEST_E2E_HOOKS (el renderer hereda el entorno de main) y, si no hay
+ * ganchos, borra el override para que no llegue a ningún lado.
+ */
+const E2E_HOOKS = process.env.RAVEN_E2E === '1' && !app.isPackaged
+if (E2E_HOOKS) {
+  process.env.NEST_E2E_HOOKS = '1'
+} else {
+  delete process.env.NEST_E2E_HOOKS
+  delete process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS
+}
+
 import { ensureKeyMaterial, saveKeyMaterial, type KeyMaterial } from './memory-key-store'
 import { tomarCandadoDeSync, lockPathParaBase, candadoDepsDelProceso } from './memory-sync-lock'
 import { deriveKeys } from './memory-crypto'
@@ -752,8 +767,9 @@ try {
     },
   })
   // Sólo e2e: deja sembrar workers y ramas en revisión desde `app.evaluate` (contraste, capturas,
-  // y el e2e de Task 10) sin lanzar agentes de verdad. Fuera de RAVEN_E2E=1 no existe.
-  if (process.env.RAVEN_E2E === '1') {
+  // y el e2e de Task 10) sin lanzar agentes de verdad. Fuera de RAVEN_E2E=1, o en un build
+  // empaquetado, no existe (E2E_HOOKS).
+  if (E2E_HOOKS) {
     (globalThis as unknown as { __nestOrchestrationE2E?: unknown }).__nestOrchestrationE2E = {
       wiring: orchestration, reviewStore: orchReviewStore, pty: ptyManager,
     }
