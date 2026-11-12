@@ -251,4 +251,111 @@ describe('OrchestrationService', () => {
     expect(svc.snapshot()[0].status).toBe('needs_input')
     expect(deps.notifyCoordinator).toHaveBeenCalled()
   })
+
+  it('wait vencido no se lleva el mensaje que llega después', async () => {
+    const { svc, deps } = mk()
+    await launch(svc)
+    const p = svc.handle('coord', 'inbox.wait', { timeoutMs: 1000 })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(await p).toEqual({ timedOut: true })
+    svc.onPaneExit(deps.requestPane.mock.calls[0][0].paneId, 1)
+    const msgs = (await svc.handle('coord', 'inbox.read', {})) as unknown[]
+    expect(msgs).toHaveLength(1)
+  })
+
+  it('stopCoordinator con un wait pendiente lo resuelve con timedOut', async () => {
+    const { svc } = mk()
+    await launch(svc)
+    const p = svc.handle('coord', 'inbox.wait', {})
+    svc.stopCoordinator('coord')
+    expect(await p).toEqual({ timedOut: true })
+  })
+
+  it('inbox.wait sin timeoutMs vence a los 60 s', async () => {
+    const { svc } = mk()
+    const p = svc.handle('coord', 'inbox.wait', {})
+    let done = false
+    void p.then(() => (done = true))
+    await vi.advanceTimersByTimeAsync(59_999)
+    expect(done).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await p).toEqual({ timedOut: true })
+  })
+
+  it('5 launches concurrentes: 4 ok y el quinto worker_limit', async () => {
+    const { svc } = mk()
+    const r = await Promise.allSettled([1, 2, 3, 4, 5].map((i) => launch(svc, `w${i}`)))
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(4)
+    const rej = r.filter((x) => x.status === 'rejected') as PromiseRejectedResult[]
+    expect(rej).toHaveLength(1)
+    expect(rej[0].reason.message).toBe('worker_limit')
+  })
+
+  it('coordinador detenido durante requestPane: cierra el pane y da coordinator_gone', async () => {
+    const { svc, deps } = mk()
+    let release!: () => void
+    const base = deps.requestPane.getMockImplementation()!
+    deps.requestPane.mockImplementationOnce(async (req) => {
+      await new Promise<void>((r) => (release = r))
+      return base(req)
+    })
+    const p = launch(svc)
+    const settled = p.then(() => 'ok', (e: Error) => e.message)
+    await vi.advanceTimersByTimeAsync(0)
+    svc.stopCoordinator('coord')
+    deps.killPane.mockClear()
+    deps.closePane.mockClear()
+    release()
+    expect(await settled).toBe('coordinator_gone')
+    const paneId = deps.requestPane.mock.calls[0][0].paneId
+    expect(deps.killPane).toHaveBeenCalledWith(paneId)
+    expect(deps.closePane).toHaveBeenCalledWith(paneId)
+    expect(svc.snapshot()).toHaveLength(0)
+  })
+
+  it('stop con workerId no pisa un worker ya final ni lo re-mata', async () => {
+    const { svc, deps } = mk()
+    const a = await launch(svc)
+    await svc.handle(deps.requestPane.mock.calls[0][0].paneId, 'worker.report', { kind: 'done', text: 'x' })
+    await svc.handle('coord', 'worker.stop', { workerId: a.workerId })
+    expect(svc.snapshot()[0].status).toBe('done')
+    expect(deps.killPane).not.toHaveBeenCalled()
+  })
+
+  it('report tras un estado final da worker_finished y no revive', async () => {
+    const { svc, deps } = mk()
+    await launch(svc)
+    const wp = deps.requestPane.mock.calls[0][0].paneId
+    await svc.handle(wp, 'worker.report', { kind: 'done', text: 'x' })
+    await expect(svc.handle(wp, 'worker.report', { kind: 'question', text: 'q' })).rejects.toThrow('worker_finished')
+    expect(svc.snapshot()[0].status).toBe('done')
+    expect(await svc.handle('coord', 'inbox.read', {})).toHaveLength(1)
+  })
+
+  it('onAgentNeedsInput repetido no duplica mensajes', async () => {
+    const { svc, deps } = mk()
+    await launch(svc)
+    const wp = deps.requestPane.mock.calls[0][0].paneId
+    svc.onAgentNeedsInput(wp)
+    svc.onAgentNeedsInput(wp)
+    expect(await svc.handle('coord', 'inbox.read', {})).toHaveLength(1)
+  })
+
+  it('send a un worker no vivo da worker_finished', async () => {
+    const { svc, deps } = mk()
+    const a = await launch(svc)
+    svc.onPaneExit(deps.requestPane.mock.calls[0][0].paneId, 0)
+    await expect(svc.handle('coord', 'worker.send', { workerId: a.workerId, text: 'x' })).rejects.toThrow('worker_finished')
+    expect(deps.writePty).not.toHaveBeenCalled()
+  })
+
+  it('launch valida agent y label', async () => {
+    const { svc, deps } = mk()
+    await expect(launch(svc, 'x', { agent: 'gemini' })).rejects.toThrow('invalid_params')
+    await expect(launch(svc, '   ')).rejects.toThrow('invalid_params')
+    await expect(launch(svc, 'a'.repeat(61))).rejects.toThrow('invalid_params')
+    expect(deps.createWorktree).not.toHaveBeenCalled()
+    const r = await launch(svc, '  hola  ')
+    expect(r.label).toBe('hola')
+  })
 })

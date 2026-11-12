@@ -66,6 +66,7 @@ export interface OrchestrationDeps {
 
 const WAIT_DEFAULT_MS = 60_000
 const WAIT_MAX_MS = 240_000
+const MAX_LABEL = 60
 const READ_TAIL_CHARS = 4000
 const VIVOS = new Set(['starting', 'working', 'needs_input'])
 const FINALES = new Set(['done', 'exited', 'stopped'])
@@ -140,7 +141,7 @@ export class OrchestrationService {
 
   onAgentNeedsInput(paneId: string): void {
     const w = this.state.workerByPane(paneId)
-    if (!w || !VIVOS.has(w.status)) return
+    if (!w || !VIVOS.has(w.status) || w.status === 'needs_input') return
     this.state.setStatus(w.workerId, 'needs_input', this.deps.now())
     this.pushMsg(w, 'waiting_permission', 'the agent is waiting for permission or input')
     this.deps.onChange()
@@ -164,7 +165,12 @@ export class OrchestrationService {
 
   private async launch(callerPaneId: string, info: PaneInfo, p: LaunchParams) {
     if (!p || typeof p.task !== 'string' || !p.task.trim()) return fail('invalid_params')
-    if (typeof p.label !== 'string' || !p.label.trim()) return fail('invalid_params')
+    if (typeof p.label !== 'string') return fail('invalid_params')
+    const label = p.label.trim()
+    if (!label || label.length > MAX_LABEL) return fail('invalid_params')
+    if (p.agent !== undefined && p.agent !== 'claude' && p.agent !== 'codex') {
+      return fail('invalid_params')
+    }
 
     const pre = this.state.canLaunch(callerPaneId, 0)
     if (!pre.ok) return fail(pre.error)
@@ -182,7 +188,7 @@ export class OrchestrationService {
 
     const workerId = randomUUID()
     const paneId = randomUUID()
-    const branch = branchName(p.label, workerId)
+    const branch = branchName(label, workerId)
     const baseBranch = await this.deps.currentBranch(info.cwd)
     const wt = await this.deps.createWorktree(info.cwd, branch)
     if (!wt.ok) return fail(wt.error)
@@ -196,7 +202,7 @@ export class OrchestrationService {
         workerId,
         coordinatorPaneId: callerPaneId,
         paneId,
-        label: p.label,
+        label: label,
         branch,
         worktreePath: wt.worktreePath,
         baseBranch,
@@ -214,9 +220,9 @@ export class OrchestrationService {
       accountDir: acct.accountDir,
       cmd: acct.cmd,
       repoPath: wt.worktreePath,
-      label: p.label,
+      label: label,
       colorIndex: rec.colorIndex,
-      initialInput: workerPreamble({ label: p.label, branch, baseBranch, task: p.task }),
+      initialInput: workerPreamble({ label: label, branch, baseBranch, task: p.task }),
       workerId
     })
     if (!res.ok) {
@@ -224,13 +230,22 @@ export class OrchestrationService {
       this.state.removeWorker(workerId)
       return fail(res.error)
     }
+    // Durante el await el coordinador pudo cerrarse (stopCoordinator) o el worker detenerse:
+    // el pane recién creado quedaría huérfano. Se cierra y no se devuelve éxito.
+    const actual = this.state.workersOf(callerPaneId).find((x) => x.workerId === workerId)
+    if (!actual || !VIVOS.has(actual.status)) {
+      this.deps.killPane(paneId)
+      this.deps.closePane(paneId)
+      return fail('coordinator_gone')
+    }
     this.state.setStatus(workerId, 'working', this.deps.now())
     this.deps.onChange()
-    return { workerId, branch, label: p.label }
+    return { workerId, branch, label: label }
   }
 
   private async report(callerPaneId: string, p: ReportParams) {
     const w = this.state.workerByPane(callerPaneId)!
+    if (FINALES.has(w.status)) return fail('worker_finished')
     if (!p || !['done', 'question', 'blocked'].includes(p.kind) || typeof p.text !== 'string') {
       return fail('invalid_params')
     }
@@ -253,6 +268,7 @@ export class OrchestrationService {
   private send(callerPaneId: string, p: SendParams) {
     const w = this.owned(callerPaneId, p?.workerId)
     if (typeof p.text !== 'string') return fail('invalid_params')
+    if (!VIVOS.has(w.status)) return fail('worker_finished')
     typeThenSubmit(this.deps.writePty, (fn, ms) => setTimeout(fn, ms), w.paneId, p.text)
     return { ok: true }
   }
@@ -260,9 +276,11 @@ export class OrchestrationService {
   private stop(callerPaneId: string, p: StopParams) {
     const objetivo = p.workerId
       ? [this.owned(callerPaneId, p.workerId)]
-      : this.state.workersOf(callerPaneId).filter((w) => VIVOS.has(w.status))
+      : this.state.workersOf(callerPaneId)
+    // Sólo se transiciona a los vivos: no se pisa done/exited ni se re-mata.
+    const vivos = objetivo.filter((w) => VIVOS.has(w.status))
     const stopped: string[] = []
-    for (const w of objetivo) {
+    for (const w of vivos) {
       this.state.setStatus(w.workerId, 'stopped', this.deps.now())
       this.deps.killPane(w.paneId)
       this.deps.closePane(w.paneId)
