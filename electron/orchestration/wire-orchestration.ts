@@ -4,6 +4,7 @@
 // `try` de Memories, que puede dejar `memory === null`.
 
 import { randomUUID } from 'node:crypto'
+import { isAbsolute } from 'node:path'
 import { PaneTokenRegistry } from './pane-tokens'
 import { OrchestrationIpcServer } from './orchestration-ipc-server'
 import { OrchestrationState, type WorkerRecord } from './orchestration-state'
@@ -28,6 +29,8 @@ export interface OrchestrationPty {
   getBuffer(paneId: string): string
   kill(paneId: string): void
   exists(paneId: string): boolean
+  /** Proceso en primer plano del PTY (PtyManager.foregroundProcess). */
+  foregroundProcess?(paneId: string): string | undefined
 }
 
 export interface WireOrchestrationDeps {
@@ -97,6 +100,16 @@ const POINTER_TAIL_CHARS = 2_000
 // El `cmd` de un agente sin flags: lo mismo que AI_CONFIG[aiType].cmd del renderer. Sólo
 // claude y codex pueden ser workers (el servicio valida `agent`).
 const CMD_DE_AGENTE: Record<string, string> = { claude: 'claude', codex: 'codex' }
+// Un pane con uno de éstos en primer plano está en el prompt del shell, no en el agente.
+const SHELLS = new Set(['zsh', 'bash', 'sh', 'dash', 'ksh', 'fish', 'tcsh', 'csh', 'nu', 'pwsh', 'powershell', 'cmd'])
+
+/** ¿El nombre de proceso es un shell pelado? Un login shell aparece como `-zsh`; en Windows
+ *  node-pty da el nombre con `.exe`. Sin dato (undefined) no se bloquea nada. */
+export function esShellPelado(nombre: string | undefined): boolean {
+  if (!nombre) return false
+  const base = (nombre.split(/[\\/]/).pop() ?? '').replace(/^-/, '').toLowerCase().replace(/\.exe$/, '')
+  return SHELLS.has(base)
+}
 
 type PaneResult = Awaited<ReturnType<OrchestrationDeps['requestPane']>>
 
@@ -167,6 +180,15 @@ export function wireOrchestration(deps: WireOrchestrationDeps): OrchestrationWir
           throw new Error('not_a_git_repo')
         }
       },
+      repoRoot: async (cwd) => {
+        // currentBranch ya probó que es un repo: si esto falla igual, se sigue con el cwd.
+        try {
+          const raiz = (await deps.runGit(['-C', cwd, 'rev-parse', '--show-toplevel'], { timeout: GIT_TIMEOUT_MS })).trim()
+          return isAbsolute(raiz) ? raiz : cwd
+        } catch {
+          return cwd
+        }
+      },
       isClean: async (worktreePath) => {
         try {
           const out = await deps.runGit(['-C', worktreePath, 'status', '--porcelain'], { timeout: GIT_TIMEOUT_MS })
@@ -216,7 +238,11 @@ export function wireOrchestration(deps: WireOrchestrationDeps): OrchestrationWir
       writePty: (paneId, data) => deps.pty.writeInternal(paneId, data),
       bufferTail: (paneId) => deps.pty.getBuffer(paneId).slice(-POINTER_TAIL_CHARS),
       lastOutputAt: (paneId) => lastOutputAt.get(paneId) ?? null,
-      isAlive: (paneId) => deps.pty.exists(paneId)
+      isAlive: (paneId) => deps.pty.exists(paneId),
+      // En Windows node-pty devuelve el proceso lanzado (el shell siempre), no el de primer
+      // plano: ahí no se puede saber y no se bloquea.
+      isAgentForeground: (paneId) =>
+        process.platform === 'win32' || !esShellPelado(deps.pty.foregroundProcess?.(paneId))
     },
     state
   )
@@ -251,7 +277,12 @@ export function wireOrchestration(deps: WireOrchestrationDeps): OrchestrationWir
     handle: (caller, method, params) => service.handle(caller, method, params)
   })
   server.start()
-  deps.pty.setOrchestration({ socketPath: deps.socketPath, tokens, launchArgs: (bin) => deps.launchArgs(bin) })
+  deps.pty.setOrchestration({
+    socketPath: deps.socketPath,
+    tokens,
+    launchArgs: (bin) => deps.launchArgs(bin),
+    isWorker: (paneId) => state.workerByPane(paneId) !== undefined
+  })
 
   const sinGit = async (): Promise<{ ok: false; error: string }> => ({ ok: false, error: 'not available' })
   const actions = createReviewActions({
@@ -322,6 +353,11 @@ export function wireOrchestration(deps: WireOrchestrationDeps): OrchestrationWir
     stop() {
       if (parado) return
       parado = true
+      // Antes que nada: en los caminos de salida de main sigue killAll() + app.exit(0), y el
+      // exit de cada PTY no llega. Los vivos quedan stopped en la revisión acá.
+      try { service.stopAll() } catch (err) {
+        console.error('[orchestration] stopAll failed', err instanceof Error ? err.message : err)
+      }
       server.stop()
       tokens.revokeAll()
       for (const [id, p] of pendientes) {

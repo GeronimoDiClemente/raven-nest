@@ -481,4 +481,69 @@ describe('OrchestrationService', () => {
     svc.onAgentNeedsInput(pc)
     expect(onNeedsInput.mock.calls.map((c) => [c[0].label, c[1]])).toEqual([['b', 'question'], ['c', 'waiting_permission']])
   })
+
+  // ---- revisión final ----
+
+  it('stopAll deja a los vivos en stopped y en la revisión, y no toca a los terminados', async () => {
+    const { svc, deps, review } = conReview()
+    await launch(svc, 'a')
+    await launch(svc, 'b')
+    const pb = deps.requestPane.mock.calls[1][0].paneId
+    await svc.handle(pb, 'worker.report', { kind: 'done', text: 'ok' })
+    review.upsert.mockClear()
+    svc.stopAll()
+    expect(review.upsert.mock.calls.map((c) => [c[0].label, c[0].status])).toEqual([['a', 'stopped']])
+    expect(svc.snapshot().map((w) => [w.label, w.status])).toEqual([['a', 'stopped'], ['b', 'done']])
+  })
+
+  it('stopCoordinator cierra también el pane de un worker done (con cuenta o Keep open)', async () => {
+    const { svc, deps } = conReview()
+    const a = await launch(svc, 'a')
+    await launch(svc, 'b')
+    const [pa, pb] = deps.requestPane.mock.calls.map((c) => c[0].paneId)
+    await svc.handle(pa, 'worker.report', { kind: 'done', text: 'ok' })
+    await svc.handle(pb, 'worker.report', { kind: 'done', text: 'ok' })
+    svc.keepOpen(a.workerId)
+    svc.stopCoordinator('coord')
+    expect(deps.killPane.mock.calls.map((c) => c[0]).sort()).toEqual([pa, pb].sort())
+    expect(deps.closePane.mock.calls.map((c) => c[0]).sort()).toEqual([pa, pb].sort())
+    expect(svc.snapshot()).toEqual([])
+  })
+
+  it('stopCoordinator no vuelve a cerrar un pane que ya salió o que el servicio ya cerró', async () => {
+    const { svc, deps } = conReview()
+    const a = await launch(svc, 'a')
+    await launch(svc, 'b')
+    const [pa, pb] = deps.requestPane.mock.calls.map((c) => c[0].paneId)
+    svc.onPaneExit(pa, 1) // exited: el PTY ya no está
+    await svc.handle('coord', 'worker.stop', { workerId: svc.snapshot().find((w) => w.paneId === pb)!.workerId })
+    void a
+    deps.killPane.mockClear()
+    deps.closePane.mockClear()
+    svc.stopCoordinator('coord')
+    expect(deps.killPane).not.toHaveBeenCalled()
+    expect(deps.closePane).not.toHaveBeenCalled()
+  })
+
+  it('requestPane que falla después de crear el worktree deja la rama en la revisión como stopped', async () => {
+    const { svc, deps, review } = conReview()
+    deps.requestPane.mockResolvedValueOnce({ ok: false, error: 'tab_full' })
+    await expect(launch(svc, 'a')).rejects.toThrow('tab_full')
+    expect(review.upsert).toHaveBeenCalledTimes(1)
+    const e = review.upsert.mock.calls[0][0]
+    expect(e).toMatchObject({ label: 'a', status: 'stopped', repoPath: '/repo', baseBranch: 'feat/x' })
+    expect(e.branch).toMatch(/^nest\/a-/)
+    expect(e.worktreePath).toBe(`/wt/${e.branch.replace('/', '_')}`)
+    // No cuenta para el cupo ni queda en el snapshot.
+    expect(svc.snapshot()).toEqual([])
+  })
+
+  it('con el coordinador en una subcarpeta, el worktree sale de la raíz del repo', async () => {
+    const repoRoot = vi.fn(async () => '/repo')
+    const { svc, deps, panes } = mk({ repoRoot } as Partial<OrchestrationDeps>)
+    panes.set('coord', { ...COORD, cwd: '/repo/packages/app' })
+    const r = await launch(svc)
+    expect(repoRoot).toHaveBeenCalledWith('/repo/packages/app')
+    expect(deps.createWorktree).toHaveBeenCalledWith('/repo', r.branch)
+  })
 })

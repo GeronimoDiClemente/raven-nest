@@ -50,6 +50,10 @@ export interface OrchestrationDeps {
     branch: string
   ): Promise<{ ok: true; worktreePath: string } | { ok: false; error: string }>
   currentBranch(repoPath: string): Promise<string>
+  /** Raíz del repo (`git rev-parse --show-toplevel`) del cwd del coordinador: con el
+   *  coordinador en una subcarpeta, el worktree no puede salir de ahí (quedaría DENTRO del
+   *  repo). Sin la dep se usa el cwd tal cual. */
+  repoRoot?(cwd: string): Promise<string>
   isClean(worktreePath: string): Promise<boolean>
   requestPane(
     req: LaunchPaneRequest
@@ -103,6 +107,9 @@ export class OrchestrationService {
   // Workers cuyo pane Gero pidió no cerrar nunca ("Keep open"). Vive acá y no en el
   // renderer para que el banner lo refleje después de un re-render o de cambiar de tab.
   private readonly kept = new Set<string>()
+  // Panes de workers que ya no están: salieron (onPaneExit) o el servicio los cerró. Lo que no
+  // está acá sigue vivo, aunque el worker esté done (esperando la cuenta o "Keep open").
+  private readonly panesCerrados = new Set<string>()
 
   // El estado se puede pasar de afuera: PointerDelivery lee la MISMA bandeja.
   constructor(
@@ -164,8 +171,7 @@ export class OrchestrationService {
     if (w.status !== 'done') return { ok: false, error: 'not_done' }
     if (this.kept.has(workerId)) return { ok: false, error: 'kept_open' }
     if (!(await this.deps.isClean(w.worktreePath))) return { ok: false, error: 'worktree_dirty' }
-    this.deps.killPane(w.paneId)
-    this.deps.closePane(w.paneId)
+    this.cerrarPane(w.paneId)
     return { ok: true }
   }
 
@@ -176,6 +182,7 @@ export class OrchestrationService {
     if (!w) return
     this.deps.killPane(w.paneId)
     this.deps.closePane(w.paneId)
+    this.panesCerrados.delete(w.paneId)
     this.state.removeWorker(workerId)
     this.kept.delete(workerId)
     this.repoOf.delete(workerId)
@@ -185,6 +192,7 @@ export class OrchestrationService {
   onPaneExit(paneId: string, exitCode: number): void {
     const w = this.state.workerByPane(paneId)
     if (w) {
+      this.panesCerrados.add(paneId)
       if (!FINALES.has(w.status)) {
         this.state.setStatus(w.workerId, 'exited', this.deps.now())
         this.paraRevision(w)
@@ -211,9 +219,12 @@ export class OrchestrationService {
         // Queda como stopped en la revisión: la rama y el worktree siguen para que Gero decida.
         this.state.setStatus(w.workerId, 'stopped', this.deps.now())
         this.paraRevision(w)
-        this.deps.killPane(w.paneId)
-        this.deps.closePane(w.paneId)
       }
+      // Un worker done (esperando la cuenta o con "Keep open") todavía tiene el pane abierto:
+      // sin coordinador nadie lo cierra, y sin el registro el banner y el badge desaparecen.
+      // La rama ya está en la revisión.
+      if (!this.panesCerrados.has(w.paneId)) this.cerrarPane(w.paneId)
+      this.panesCerrados.delete(w.paneId)
       this.kept.delete(w.workerId)
       this.repoOf.delete(w.workerId)
     }
@@ -222,6 +233,21 @@ export class OrchestrationService {
     this.coordinators.delete(paneId)
     this.releaseWaiters(paneId, { timedOut: true })
     this.deps.onChange()
+  }
+
+  /** Nest se cierra: los workers vivos pasan a stopped y su rama entra a la revisión. Es
+   *  síncrono a propósito: en los caminos de salida `killAll()` va seguido de `app.exit(0)`, y
+   *  el exit asíncrono de cada PTY (onPaneExit) nunca llega a correr. */
+  stopAll(): void {
+    let alguno = false
+    for (const w of this.state.all()) {
+      if (!VIVOS.has(w.status)) continue
+      this.state.setStatus(w.workerId, 'stopped', this.deps.now())
+      this.paraRevision(w)
+      alguno = true
+    }
+    for (const coord of [...this.waiters.keys()]) this.releaseWaiters(coord, { timedOut: true })
+    if (alguno) this.deps.onChange()
   }
 
   // ---- métodos ----
@@ -253,12 +279,17 @@ export class OrchestrationService {
     const paneId = randomUUID()
     const branch = branchName(label, workerId)
     const baseBranch = await this.deps.currentBranch(info.cwd)
-    const wt = await this.deps.createWorktree(info.cwd, branch)
+    const raiz = this.deps.repoRoot ? await this.deps.repoRoot(info.cwd) : info.cwd
+    const wt = await this.deps.createWorktree(raiz, branch)
     if (!wt.ok) return fail(wt.error)
 
     // Se vuelve a chequear: durante los await otro launch pudo llenar el cupo.
     const post = this.state.canLaunch(callerPaneId, 0)
-    if (!post.ok) return fail(post.error)
+    if (!post.ok) {
+      // El worktree ya existe y no se borra (ruling R1): queda en la revisión para descartarlo.
+      this.huerfano({ workerId, label, colorIndex: 0, branch, worktreePath: wt.worktreePath, baseBranch }, info.cwd)
+      return fail(post.error)
+    }
 
     const rec = this.state.addWorker(
       {
@@ -290,9 +321,15 @@ export class OrchestrationService {
       workerId
     })
     if (!res.ok) {
-      // El worktree ya existe: no se borra nada, sólo se descarta el registro.
+      // El worktree ya existe: no se borra nada (ruling R1), pero tampoco puede quedar
+      // invisible. Entra a la revisión como stopped (Gero lo ve y lo descarta) y el registro
+      // se descarta, así no come cupo.
+      this.state.setStatus(workerId, 'stopped', this.deps.now())
+      const w = this.byId(workerId)
+      if (w) this.paraRevision(w)
       this.state.removeWorker(workerId)
       this.repoOf.delete(workerId)
+      this.deps.onChange()
       return fail(res.error)
     }
     // Durante el await el coordinador pudo cerrarse (stopCoordinator) o el worker detenerse:
@@ -351,8 +388,7 @@ export class OrchestrationService {
     for (const w of vivos) {
       this.state.setStatus(w.workerId, 'stopped', this.deps.now())
       this.paraRevision(w)
-      this.deps.killPane(w.paneId)
-      this.deps.closePane(w.paneId)
+      this.cerrarPane(w.paneId)
       stopped.push(w.workerId)
     }
     this.deps.onChange()
@@ -382,6 +418,26 @@ export class OrchestrationService {
   }
 
   // ---- helpers ----
+
+  private cerrarPane(paneId: string): void {
+    this.panesCerrados.add(paneId)
+    this.deps.killPane(paneId)
+    this.deps.closePane(paneId)
+  }
+
+  /** Un worktree creado para un worker que nunca llegó a tener registro: a la revisión. */
+  private huerfano(
+    w: Pick<WorkerRecord, 'workerId' | 'label' | 'colorIndex' | 'branch' | 'worktreePath' | 'baseBranch'>,
+    repoPath: string
+  ): void {
+    if (!this.deps.review) return
+    try {
+      this.deps.review.upsert({ ...w, status: 'stopped', finishedAt: this.deps.now(), repoPath })
+    } catch (err) {
+      console.error('[orchestration] review store write failed', err instanceof Error ? err.message : err)
+    }
+    this.deps.onChange()
+  }
 
   private byId(workerId: unknown): WorkerRecord | undefined {
     if (typeof workerId !== 'string') return undefined

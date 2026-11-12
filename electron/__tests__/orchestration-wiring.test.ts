@@ -18,6 +18,8 @@ class FakePty extends EventEmitter {
   buffers = new Map<string, string>()
   writes: Array<[string, string]> = []
   killed: string[] = []
+  foreground = new Map<string, string>()
+  foregroundProcess(id: string) { return this.foreground.get(id) }
   setOrchestration(o: PtyOrchestration) { this.orch = o }
   paneInfo(id: string) { return this.infos.get(id) }
   writeInternal(id: string, data: string) { this.writes.push([id, data]) }
@@ -43,7 +45,8 @@ function mk(over: Partial<WireOrchestrationDeps> = {}) {
   dir = mkdtempSync(join(tmpdir(), 'orq-wire-'))
   const pty = new FakePty()
   const sent: Array<[string, any]> = []
-  const runGit = vi.fn(async (args: string[]) => (args.includes('status') ? '' : 'feat/base'))
+  const runGit = vi.fn(async (args: string[]) =>
+    args.includes('status') ? '' : args.includes('--show-toplevel') ? args[1] : 'feat/base')
   const deps: WireOrchestrationDeps = {
     pty,
     socketPath: join(dir, 'o.sock'),
@@ -221,6 +224,17 @@ describe('wireOrchestration', () => {
     expect(runGit).toHaveBeenCalledWith(['-C', '/repo', 'rev-parse', '--abbrev-ref', 'HEAD'], expect.objectContaining({ timeout: expect.any(Number) }))
   })
 
+  it('el worktree se crea desde la raíz del repo aunque el coordinador esté en una subcarpeta', async () => {
+    const runGit = vi.fn(async (args: string[]) =>
+      args.includes('status') ? '' : args.includes('--show-toplevel') ? '/repo\n' : 'feat/base')
+    const { pty, sent, w, deps } = mk({ runGit })
+    pty.infos.set('coord', { ...COORD, cwd: '/repo/packages/app' })
+    const { r } = await lanzar(pty, sent, w)
+    expect(runGit).toHaveBeenCalledWith(['-C', '/repo/packages/app', 'rev-parse', '--show-toplevel'], expect.objectContaining({ timeout: expect.any(Number) }))
+    expect(deps.createWorktree).toHaveBeenCalledWith('/repo', expect.stringMatching(/^nest\//))
+    void r
+  })
+
   it('stop revoca tokens y libera los pedidos pendientes', async () => {
     const { pty, sent, w } = mk()
     const token = pty.orch!.tokens.issue('coord')
@@ -305,5 +319,52 @@ describe('wireOrchestration', () => {
     const { req: req2 } = await lanzar(pty, sent, w)
     await w.service.handle(req2.paneId, 'worker.report', { kind: 'done', text: 'ok' })
     expect(notifyDesktop).toHaveBeenCalledTimes(1)
+  })
+
+  // ---- revisión final ----
+
+  it('el PtyManager sabe qué pane es de un worker (para lanzarlo con exec)', async () => {
+    const { pty, sent, w } = mk()
+    const { req } = await lanzar(pty, sent, w)
+    expect(pty.orch!.isWorker!(req.paneId)).toBe(true)
+    expect(pty.orch!.isWorker!('coord')).toBe(false)
+  })
+
+  it('con un shell en primer plano del coordinador el puntero no se escribe', async () => {
+    vi.useFakeTimers()
+    const { pty, sent, w } = mk()
+    pty.foreground.set('coord', '-zsh')
+    const { req } = await lanzar(pty, sent, w)
+    pty.infos.delete(req.paneId)
+    pty.emit('exit', req.paneId, 1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(pty.writes.filter(([id]) => id === 'coord')).toEqual([])
+    pty.foreground.set('coord', 'claude')
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(pty.writes).toContainEqual(['coord', pointerLine(1)])
+  })
+
+  it('sin dato del primer plano (o en un proceso que no es shell) el puntero sale', async () => {
+    const { pty, sent, w } = mk()
+    pty.foreground.set('coord', 'node')
+    const { req } = await lanzar(pty, sent, w)
+    pty.infos.delete(req.paneId)
+    pty.emit('exit', req.paneId, 1)
+    expect(pty.writes).toContainEqual(['coord', pointerLine(1)])
+  })
+
+  // Al salir de Nest, killAll + app.exit(0) corren seguidos: el exit asíncrono de cada PTY
+  // nunca llega, así que stop() tiene que dejar a los vivos en la revisión ANTES.
+  it('stop() deja a los workers vivos como stopped en la revisión, de forma síncrona', async () => {
+    const { pty, sent, w, store } = conRevision()
+    const { r } = await lanzar(pty, sent, w)
+    sent.length = 0
+    const { req: req2, r: r2 } = await lanzar(pty, sent, w)
+    await w.service.handle(req2.paneId, 'worker.report', { kind: 'done', text: 'ok' })
+    w.stop()
+    wiring = null
+    const porId = new Map(store.list().map((e) => [e.workerId, e.status]))
+    expect(porId.get(r.workerId)).toBe('stopped')
+    expect(porId.get(r2.workerId)).toBe('done')
   })
 })
