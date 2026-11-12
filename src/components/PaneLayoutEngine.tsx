@@ -47,6 +47,18 @@ export function PaneLayoutEngine({
   // cada render, React la llamaría con null y de nuevo con el nodo cada vez,
   // y el setState del ref dispararía un render en bucle.
   const slotRefCbs = useRef<Map<number, (el: HTMLDivElement | null) => void>>(new Map())
+  // El foco que estaba adentro de un pane, leído en el render (ANTES del commit). Cuando la
+  // forma del layout cambia (p. ej. '1' → '2V' al aparecer el pane de un worker), el PanelGroup
+  // se re-keyea y React saca del DOM el slot viejo con el host adentro: el foco cae al body y
+  // el host recién se muda un render después (cuando llega el ref del slot nuevo). Se guarda
+  // hasta que todos los hosts vuelven a estar en el DOM.
+  const focoPendiente = useRef<HTMLElement | null>(null)
+  if (typeof document !== 'undefined') {
+    const a = document.activeElement
+    if (a instanceof HTMLElement && a !== document.body && [...hostsRef.current.values()].some((h) => h.contains(a))) {
+      focoPendiente.current = a
+    }
+  }
 
   const slotRef = (slot: number) => {
     let cb = slotRefCbs.current.get(slot)
@@ -81,7 +93,8 @@ export function PaneLayoutEngine({
       // estaba adentro (xterm, Monaco) se pierde y vuelve al body. Lo
       // restauramos para que arrastrar el pane activo no te deje tecleando en
       // la nada.
-      const focused = document.activeElement as HTMLElement | null
+      const actual = document.activeElement as HTMLElement | null
+      const focused = actual && actual !== document.body ? actual : focoPendiente.current
       const hadFocus = !!focused && host.contains(focused)
       target.appendChild(host)
       if (hadFocus && focused) focused.focus()
@@ -94,6 +107,7 @@ export function PaneLayoutEngine({
         hostsRef.current.delete(paneId)
       }
     }
+    if ([...hostsRef.current.values()].every((h) => h.isConnected)) focoPendiente.current = null
   })
 
   return (
