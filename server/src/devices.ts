@@ -2,6 +2,7 @@ import { createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, 
 import type { Pool, PoolClient } from 'pg'
 import { hashToken } from './auth'
 import { veredictoDeElegibilidad, type Elegibilidad } from './elegibilidad'
+import { borrarEnvolturasFueraDeEquipos } from './membership-sync'
 import { PLANES_PAGOS } from './plan-sync'
 import { UUID_RE } from './uuid'
 
@@ -518,6 +519,7 @@ export async function replaceTeamMemberships(
         [userId, m.teamId, m.teamName, m.role]
       )
     }
+    await borrarEnvolturasFueraDeEquipos(client, userId, memberships.map((m) => m.teamId))
     await client.query('update users set memberships_version = memberships_version + 1 where id = $1', [userId])
     await client.query('commit')
     return true
@@ -657,25 +659,37 @@ export async function revokeDevices(
     const id = opts.deviceId.toLowerCase()
     // La propia va por el revoke sin id: así la UI no cierra su sesión por un click ambiguo.
     if (id === caller.id) return { ok: false, status: 400, error: 'use_self_revoke' }
-    const { rowCount } = await pool.query(
-      'update devices set revoked_at = now() where id = $1 and user_id = $2 and revoked_at is null',
-      [id, caller.user_id]
+    const revocadas = await revocarYBorrarEnvolturas(
+      pool, 'id = $1 and user_id = $2 and revoked_at is null', [id, caller.user_id]
     )
-    if (!rowCount) return { ok: false, status: 404, error: 'not_found' }
-    return { ok: true, revoked: rowCount }
+    if (!revocadas) return { ok: false, status: 404, error: 'not_found' }
+    return { ok: true, revoked: revocadas }
   }
 
   // `all` es para un "cerrar sesión en todas las máquinas". El default revoca sólo la que
   // llama: desconectar una máquina no tiene por qué dejar al resto afuera.
-  const { rowCount } = opts.all
-    ? await pool.query(
-        'update devices set revoked_at = now() where user_id = $1 and revoked_at is null',
-        [caller.user_id]
-      )
-    : await pool.query(
-        'update devices set revoked_at = now() where id = $1 and revoked_at is null',
-        [caller.id]
-      )
+  const revocadas = opts.all
+    ? await revocarYBorrarEnvolturas(pool, 'user_id = $1 and revoked_at is null', [caller.user_id])
+    : await revocarYBorrarEnvolturas(pool, 'id = $1 and revoked_at is null', [caller.id])
 
-  return { ok: true, revoked: rowCount ?? 0 }
+  return { ok: true, revoked: revocadas }
+}
+
+/**
+ * Revoca las máquinas que cumplen `donde` y, en la misma sentencia, borra sus envolturas de
+ * equipo: la máquina revocada conserva su privado, y su envoltura en la base + un dump =
+ * la maestra del equipo (opción A de `2026-11-09-rotacion-clave-equipo-design.md`). Devuelve
+ * cuántas revocó.
+ */
+async function revocarYBorrarEnvolturas(pool: Pool, donde: string, params: unknown[]): Promise<number> {
+  const { rows } = await pool.query(
+    `with revocadas as (
+       update devices set revoked_at = now() where ${donde} returning id
+     ), borradas as (
+       delete from team_key_wraps w using revocadas r where w.slot = r.id::text
+     )
+     select count(*)::int as n from revocadas`,
+    params
+  )
+  return Number(rows[0].n)
 }

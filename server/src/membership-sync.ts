@@ -1,5 +1,27 @@
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 import { UUID_RE } from './uuid'
+
+/**
+ * Opción A de `docs/superpowers/specs/2026-11-09-rotacion-clave-equipo-design.md`: borra las
+ * envolturas de la maestra de equipo selladas para CUALQUIER máquina del usuario (viva o
+ * revocada) en los equipos que no están en `equiposActivos`. Sin esto, un dump de la base + el
+ * privado que el ex-miembro conserva en su disco = la maestra, y al volver a entrar la readopta
+ * sola sin pasar por `pendingDevices` del leader. Compara contra el set nuevo y no contra el
+ * espejo anterior: así también limpia a quien salió antes de que existiera este borrado. La
+ * envoltura `recovery` no se toca (su slot nunca es un device_id).
+ */
+export async function borrarEnvolturasFueraDeEquipos(
+  client: PoolClient,
+  userId: string,
+  equiposActivos: string[]
+): Promise<void> {
+  await client.query(
+    `delete from team_key_wraps w
+      using devices d
+      where d.user_id = $1 and w.slot = d.id::text and not (w.team_id = any($2::uuid[]))`,
+    [userId, equiposActivos]
+  )
+}
 
 /**
  * Hueco del 30-oct: `team_memberships` sólo se refrescaba en `registerDevice`, así que a un
@@ -68,6 +90,7 @@ export async function aplicarMembresias(pool: Pool, aviso: AvisoDeMembresias): P
         [aviso.userId, m.teamId, m.teamName, m.role]
       )
     }
+    await borrarEnvolturasFueraDeEquipos(client, aviso.userId, aviso.memberships.map((m) => m.teamId))
     // La versión sube para que un registro de máquina que leyó Supabase ANTES no pise esto
     // (`syncTeamMemberships` en devices.ts).
     await client.query(

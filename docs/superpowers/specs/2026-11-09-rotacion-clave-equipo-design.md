@@ -1,6 +1,12 @@
 # Rotación de la clave de equipo al salir o ser expulsado un miembro
 
-Estado: borrador de diseño, 2026-11-09. Sin código. Parte de
+Estado: borrador de diseño, 2026-11-09. **Opción A implementada el 2026-11-12** (puntos 1 y 2):
+reintentos del aviso en `supabase/migrations/20261112000000_membership_sync_reintentos.sql`
+(outbox + pg_cron cada 5 min sobre `net._http_response`), y borrado de envolturas en
+`borrarEnvolturasFueraDeEquipos` (`server/src/membership-sync.ts`, lo llaman el aviso y el
+registro) y en `revokeDevices`; tests en `server/__tests__/team-key-wraps-al-salir.test.ts`. El
+punto 3 (vaciar `teamMasterKeys` en el cliente) quedó afuera: un status calculado antes de una
+activación borraría la clave recién activada, y sin pull de equipo la maestra no abre nada. Parte de
 `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md` (en adelante "spec de equipo"),
 que en §8 dejó **afuera de v1** tanto la rotación como el re-cifrado al salir un miembro. Este
 documento mide qué cubre eso hoy de verdad y qué costaría cambiarlo.
