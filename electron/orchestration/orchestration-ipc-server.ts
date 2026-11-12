@@ -65,7 +65,9 @@ export class OrchestrationIpcServer {
     socket.on('close', () => this.sockets.delete(socket))
     socket.setEncoding('utf8')
     const idleMs = this.deps.idleTimeoutMs ?? CONNECTION_IDLE_TIMEOUT_MS
-    const armIdle = (): void => { socket.setTimeout(idleMs, () => socket.destroy()) }
+    // Un solo listener: setTimeout(ms, cb) agrega un once('timeout') por llamada y se acumularían.
+    socket.on('timeout', () => socket.destroy())
+    const armIdle = (): void => { socket.setTimeout(idleMs) }
     armIdle()
     // Mientras hay un request en vuelo (p. ej. inbox.wait, hasta 240 s) no pasan bytes:
     // el timer de inactividad no puede correr o mataría la espera y se perdería la respuesta.
@@ -124,12 +126,19 @@ export class OrchestrationIpcServer {
       // Un throw síncrono de handle no puede escapar del listener 'data' (sería uncaught en main).
       pending = Promise.reject(err)
     }
-    pending.then(
-      (result) => { this.reply(socket, { id, ok: true, result }); end() },
-      (err: unknown) => {
-        this.reply(socket, { id, ok: false, error: err instanceof Error ? err.message : String(err) })
+    const responder = (response: OrchResponse): void => {
+      try {
+        this.reply(socket, response)
+      } catch {
+        // p. ej. result no serializable (BigInt): se contesta con un error fijo
+        try { this.reply(socket, { id, ok: false, error: 'internal_error' }) } catch { /* nada más que hacer */ }
+      } finally {
         end()
       }
+    }
+    pending.then(
+      (result) => responder({ id, ok: true, result }),
+      (err: unknown) => responder({ id, ok: false, error: err instanceof Error ? err.message : String(err) })
     )
   }
 }

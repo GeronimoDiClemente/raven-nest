@@ -119,4 +119,57 @@ describe('OrchestrationIpcServer', () => {
     })
     expect(await cerrado).toBe(true)
   })
+
+  it('muchos requests secuenciales en una conexión no acumulan listeners de timeout', async () => {
+    const avisos: string[] = []
+    const onWarn = (w: Error) => avisos.push(w.name)
+    process.on('warning', onWarn)
+    try {
+      const { socketPath, tokens } = await levantar(async () => 'ok')
+      const token = tokens.issue('p')
+      await new Promise<void>((resolve, reject) => {
+        const s = connect(socketPath)
+        let n = 0
+        let buf = ''
+        s.setEncoding('utf8')
+        const enviar = () => s.write(`${JSON.stringify({ id: String(n), method: 'worker.list', params: {}, token })}\n`)
+        s.on('connect', enviar)
+        s.on('data', (c: string) => {
+          buf += c
+          while (buf.includes('\n')) {
+            buf = buf.slice(buf.indexOf('\n') + 1)
+            if (++n >= 25) { s.destroy(); resolve(); return }
+            enviar()
+          }
+        })
+        s.on('error', reject)
+      })
+      await new Promise((r) => setTimeout(r, 20))
+      expect(avisos).not.toContain('MaxListenersExceededWarning')
+    } finally {
+      process.off('warning', onWarn)
+    }
+  })
+
+  it('result no serializable no deja el request colgado ni sin rearmar el idle', async () => {
+    const { socketPath, tokens } = await levantar(async () => BigInt(1), 100)
+    const token = tokens.issue('p')
+    const r = await pedir(socketPath, { id: '9', method: 'worker.list', params: {}, token })
+    expect(r).toEqual({ id: '9', ok: false, error: 'internal_error' })
+  })
+
+  it('el idle se rearma tras responder: la conexión se cierra a los idleMs', async () => {
+    const { socketPath, tokens } = await levantar(async () => 'ok', 100)
+    const token = tokens.issue('p')
+    const t0 = Date.now()
+    const ms = await new Promise<number>((resolve, reject) => {
+      const s = connect(socketPath)
+      s.resume() // sin consumir, el cliente no ve el FIN del server
+      s.on('connect', () => s.write(`${JSON.stringify({ id: '10', method: 'worker.list', params: {}, token })}\n`))
+      s.on('close', () => resolve(Date.now() - t0))
+      s.on('error', reject)
+    })
+    expect(ms).toBeGreaterThanOrEqual(90)
+    expect(ms).toBeLessThan(1500)
+  })
 })
