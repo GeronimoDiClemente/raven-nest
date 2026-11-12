@@ -19,11 +19,11 @@ afterEach(() => {
   dir = null
 })
 
-async function levantar(handle: Handle) {
+async function levantar(handle: Handle, idleTimeoutMs?: number) {
   dir = mkdtempSync(join(tmpdir(), 'orq-'))
   const socketPath = join(dir, 's.sock')
   const tokens = new PaneTokenRegistry()
-  server = new OrchestrationIpcServer({ socketPath, tokens, handle })
+  server = new OrchestrationIpcServer({ socketPath, tokens, handle, idleTimeoutMs })
   server.start()
   for (let i = 0; i < 100 && !existsSync(socketPath); i++) await new Promise((r) => setTimeout(r, 10))
   return { socketPath, tokens }
@@ -92,5 +92,31 @@ describe('OrchestrationIpcServer', () => {
       s.on('error', () => { /* ECONNRESET/EPIPE esperado */ })
     })
     expect(cerrado).toBe(true)
+  })
+
+  it('un request en vuelo más largo que el idle timeout igual recibe su respuesta', async () => {
+    const { socketPath, tokens } = await levantar(
+      () => new Promise((r) => setTimeout(() => r('tarde'), 300)), 100)
+    const token = tokens.issue('p')
+    const r = await pedir(socketPath, { id: '7', method: 'inbox.wait', params: {}, token })
+    expect(r).toEqual({ id: '7', ok: true, result: 'tarde' })
+  })
+
+  it('un throw síncrono de handle vuelve como ok:false', async () => {
+    const { socketPath, tokens } = await levantar((() => { throw new Error('boom') }) as Handle)
+    const token = tokens.issue('p')
+    const r = await pedir(socketPath, { id: '8', method: 'worker.list', params: {}, token })
+    expect(r).toEqual({ id: '8', ok: false, error: 'boom' })
+  })
+
+  it('stop destruye las conexiones abiertas', async () => {
+    const { socketPath } = await levantar(async () => 'x')
+    const cerrado = new Promise<boolean>((resolve) => {
+      const s = connect(socketPath)
+      s.on('connect', () => setTimeout(() => server!.stop(), 20))
+      s.on('close', () => resolve(true))
+      s.on('error', () => {})
+    })
+    expect(await cerrado).toBe(true)
   })
 })
