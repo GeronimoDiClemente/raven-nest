@@ -125,6 +125,9 @@ export class PtyManager extends EventEmitter {
   private static readonly MIN_COLS = 20
   private static readonly MIN_ROWS = 5
   private static readonly RESIZE_SETTLE_MS = 150
+  private static readonly AGENT_QUIET_MS = 1500
+  private static readonly AGENT_SILENT_MS = 10_000
+  private static readonly ITEM_GAP_MS = 500
   private resizeTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private pendingSize = new Map<string, { cols: number; rows: number }>()
   // cwd at spawn time, per pane. Used by `killByCwdPrefix` so worktree:remove
@@ -140,6 +143,10 @@ export class PtyManager extends EventEmitter {
   // del comando: es input para el agente, nunca para el shell pelado (si no, el shell ejecuta
   // el `initialInput` de un worker línea por línea y el agente no recibe la tarea).
   private launchQueue = new Map<string, string[]>()
+  // La cola no se vacía al tipear el comando sino cuando el agente ya está escuchando: su TUI
+  // dibujó algo y se quedó quieto AGENT_QUIET_MS. Escrito antes, el agente lee la tarea y el
+  // Enter de un saque al arrancar, los toma como un pegado y la tarea queda sin enviar.
+  private agentReady = new Map<string, { quiet?: NodeJS.Timeout; tanda: string }>()
   private memory?: PtyMemoryIntegration
   // Spec §2.2: lo que Nest CREE que tiene memoria. memory-sessions.ts cruza esto contra lo
   // que el bridge vio de verdad (MemoryStore.listOpenSessions()); la diferencia entre los
@@ -412,10 +419,11 @@ export class PtyManager extends EventEmitter {
           // between scheduling and firing would otherwise write the cmd into
           // a fresh pty that wasn't asked to run it.
           if (this.ptys.get(paneId) === ptyProcess) {
-            const encolado = this.launchQueue.get(paneId) ?? []
-            this.launchQueue.delete(paneId)
             ptyProcess.write(`${launchCmd}\r`)
-            for (const data of encolado) ptyProcess.write(data)
+            const espera = { tanda: '' } as { quiet?: NodeJS.Timeout; tanda: string }
+            this.agentReady.set(paneId, espera)
+            // Un agente que no dibuja nada no puede dejar la cola trabada para siempre.
+            espera.quiet = setTimeout(() => this.drenarCola(paneId, ptyProcess), PtyManager.AGENT_SILENT_MS)
           }
         }
         this.launchQueue.set(paneId, [])
@@ -430,6 +438,18 @@ export class PtyManager extends EventEmitter {
       }
 
       ptyProcess.onData((data) => {
+        const espera = this.agentReady.get(paneId)
+        if (espera && this.ptys.get(paneId) === ptyProcess) {
+          espera.tanda = (espera.tanda + data).slice(-4000)
+          if (espera.quiet) clearTimeout(espera.quiet)
+          espera.quiet = setTimeout(() => {
+            // El diálogo de confianza de carpeta (claude y codex) también queda quieto, pero lo
+            // contesta la persona: un Enter de la cola lo aceptaría por ella. Se espera a que lo
+            // conteste y el agente redibuje.
+            if (/trust/i.test(espera.tanda)) { espera.tanda = ''; espera.quiet = undefined; return }
+            this.drenarCola(paneId, ptyProcess)
+          }, PtyManager.AGENT_QUIET_MS)
+        }
         this.emit('data', paneId, data)
         const lines = this.buffers.get(paneId) ?? []
         lines.push(data)
@@ -451,6 +471,7 @@ export class PtyManager extends EventEmitter {
           this.startupTimers.delete(paneId)
         }
         this.launchQueue.delete(paneId)
+        this.soltarEspera(paneId)
         this.ptys.delete(paneId)
         this.buffers.delete(paneId)
         this.lastSize.delete(paneId)
@@ -480,6 +501,7 @@ export class PtyManager extends EventEmitter {
       // El spawn falló: el token ya emitido no puede quedar vivo.
       this.orchestration?.tokens.revoke(paneId)
       this.launchQueue.delete(paneId)
+      this.soltarEspera(paneId)
       const message = err instanceof Error ? err.message : String(err)
       console.error('[pty-manager] spawn failed', { paneId, spawnBin, spawnArgs, error: message })
       return { ok: false, error: message }
@@ -501,6 +523,30 @@ export class PtyManager extends EventEmitter {
   /** Escritura del propio Nest en el pane: nunca emite `input`. */
   writeInternal(paneId: string, data: string): void {
     this.write(paneId, data)
+  }
+
+  private soltarEspera(paneId: string): void {
+    const espera = this.agentReady.get(paneId)
+    if (espera?.quiet) clearTimeout(espera.quiet)
+    this.agentReady.delete(paneId)
+  }
+
+  /** Escribe lo encolado de a un write, separados ITEM_GAP_MS: el renderer manda el texto y el
+   *  Enter por separado y así tienen que llegar (juntos, el TUI los toma como un pegado). Lo que
+   *  llega mientras tanto se suma al final de la misma cola, en orden. */
+  private drenarCola(paneId: string, proc: pty.IPty): void {
+    this.soltarEspera(paneId)
+    const siguiente = () => {
+      const cola = this.launchQueue.get(paneId)
+      if (!cola || this.ptys.get(paneId) !== proc) return
+      const data = cola.shift()
+      if (data === undefined) { this.launchQueue.delete(paneId); return }
+      proc.write(data)
+      if (cola.length === 0) { this.launchQueue.delete(paneId); return }
+      const t = setTimeout(siguiente, PtyManager.ITEM_GAP_MS)
+      this.startupTimers.set(paneId, t)
+    }
+    siguiente()
   }
 
   resize(paneId: string, cols: number, rows: number): void {
@@ -604,6 +650,7 @@ export class PtyManager extends EventEmitter {
       this.startupTimers.delete(paneId)
     }
     this.launchQueue.delete(paneId)
+    this.soltarEspera(paneId)
     const ptyProc = this.ptys.get(paneId)
     if (ptyProc) {
       try { ptyProc.kill() } catch { /* already dead */ }

@@ -122,9 +122,9 @@ describe('PtyManager — orquestación', () => {
     spawnMock.mockReturnValue(fake)
     const m = manager()
     await m.create('p1', 'claude', ACCOUNT, dir)
-    // Con el agente ya arrancado (antes, lo escrito se encola detrás del comando:
-    // pty-manager-launch-order.test.ts).
-    vi.advanceTimersByTime(600)
+    // Con el agente ya arrancado (antes, lo escrito se encola hasta que el agente dibuja y se
+    // queda quieto: pty-manager-launch-order.test.ts; este fake no emite, así que es a los 10 s).
+    vi.advanceTimersByTime(600 + 10_000)
     const seen: Array<[string, string]> = []
     m.on('input', (paneId: string, data: string) => seen.push([paneId, data]))
     m.write('p1', 'a', { fromUser: true })
