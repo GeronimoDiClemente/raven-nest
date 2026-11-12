@@ -73,6 +73,11 @@ export class OrchestrationState {
     return rec
   }
 
+  /** Descarta un worker que nunca llegó a tener pane (falló requestPane). */
+  removeWorker(workerId: string): void {
+    this.workers.delete(workerId)
+  }
+
   workerByPane(paneId: string): WorkerRecord | undefined {
     for (const w of this.workers.values()) if (w.paneId === paneId) return w
     return undefined
