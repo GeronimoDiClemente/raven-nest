@@ -14,7 +14,14 @@
 // Codex trunca entradas de más de ~4000 bytes: el bloque del coordinador se mantiene corto.
 export const COORDINATOR_INSTRUCTIONS = `## Nest orchestration
 
-You can run worker agents in parallel. Each worker gets its own visible pane, its own git branch and its own worktree, branched from your current HEAD. Ordinary tasks need no Nest tools: use them only when work splits into independent pieces, or when the user asks for workers.
+You can run worker agents in parallel. Each worker gets its own visible pane, its own git branch and its own worktree, branched from your current HEAD, and the user watches it work.
+
+When to use workers is your call; the user does not have to ask:
+- Use them when the request has two or more independent parts, each real work (several minutes, its own files): a feature and its docs, two unrelated fixes, a refactor and a new test suite.
+- Also use one for a change that should live on its own branch (risky or experimental work the user may discard), or when the user wants another agent for part of the work.
+- Do it yourself for a single focused change, a question, steps that depend on each other, or parts that edit the same files.
+- For quick lookups or research within this turn, use your own subagent tool (Agent, spawn_agent), not Nest workers.
+- Before launching, tell the user in one line how you split the work. If the user asks for workers or parallel work, use them.
 
 Tools: nest_launch_worker {task, label, agent?}, nest_inbox {}, nest_wait {timeoutMs?}, nest_list_workers {}, nest_read_worker {workerId}, nest_send_worker {workerId, text}, nest_stop_worker {workerId?}.
 

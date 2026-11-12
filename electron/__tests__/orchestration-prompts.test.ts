@@ -21,6 +21,16 @@ describe('prompts de orquestación', () => {
     expect(COORDINATOR_INSTRUCTIONS).toContain('nest_launch_worker')
   })
 
+  // Prueba real con Gero: con "úsalas sólo si el usuario pide workers" el coordinador no las
+  // lanzaba nunca por su cuenta. Como T3 Code, decide el agente; lo rápido va a su subagente nativo.
+  it('el coordinador decide solo cuándo lanzar workers, sin esperar el pedido', () => {
+    expect(COORDINATOR_INSTRUCTIONS).toMatch(/the user does not have to ask/)
+    expect(COORDINATOR_INSTRUCTIONS).toMatch(/two or more independent parts/)
+    expect(COORDINATOR_INSTRUCTIONS).toMatch(/Do it yourself for a single focused change/)
+    expect(COORDINATOR_INSTRUCTIONS).toMatch(/own subagent tool/)
+    expect(COORDINATOR_INSTRUCTIONS).not.toMatch(/use them only when/i)
+  })
+
   it('preámbulo nombra rama y base', () => {
     const t = workerPreamble(params)
     expect(t).toContain('nest/fix-login')
