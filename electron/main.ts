@@ -1796,7 +1796,7 @@ ipcMain.handle('dialog:openFolder', async () => {
 })
 
 ipcMain.on('pty:write', (_event, paneId: string, data: string) => {
-  ptyManager.write(paneId, data)
+  ptyManager.write(paneId, data, { fromUser: true })
 })
 
 ipcMain.on('pty:resize', (_event, paneId: string, cols: number, rows: number) => {

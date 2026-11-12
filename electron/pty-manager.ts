@@ -8,6 +8,8 @@ import { ravenHome, userHome } from './raven-home'
 import type { PaneWithMemory } from './memory-sessions'
 import { comandoDeLaTui, familiaDeShell, quoteShellArg } from './comando-de-la-tui'
 import { NEST_MEMORY_TUI_CMD } from '../src/types'
+import type { PaneTokenRegistry } from './orchestration/pane-tokens'
+import type { PaneInfo } from './orchestration/orchestration-service'
 
 async function cwdReachable(p: string): Promise<boolean> {
   try {
@@ -53,6 +55,18 @@ export interface PtyMemoryIntegration {
    * `dist-electron/memory-tui.js`. Sin esto, el centinela no tiene qué correr.
    */
   tui?: { execPath: string; scriptPath: string }
+}
+
+/**
+ * Orquestación de panes: socket + token por pane de agente, y los args que registran el shim
+ * MCP en el CLI. Independiente de Memories (no depende de `PtyMemoryIntegration`).
+ */
+export interface PtyOrchestration {
+  socketPath: string
+  tokens: PaneTokenRegistry
+  /** Args a insertar tras el binario (vacío si ese bin no se soporta). Lo calcula quien conoce
+   *  el execPath/shim/configDir; si lanza, el pane arranca sin el shim. */
+  launchArgs: (bin: string) => string[]
 }
 
 const BUFFER_MAX_LINES = 10_000
@@ -125,6 +139,11 @@ export class PtyManager extends EventEmitter {
   // dos conjuntos es el fallo mudo. Se limpia igual que `ptys`: en kill() y en onExit.
   private memoryPanes = new Map<string, PaneWithMemory>()
 
+  private orchestration?: PtyOrchestration
+  // Lo que el servicio de orquestación necesita saber de un pane vivo. `cmd` es el original,
+  // sin los args inyectados.
+  private paneInfos = new Map<string, PaneInfo>()
+
   constructor(memory?: PtyMemoryIntegration) {
     super()
     this.memory = memory
@@ -139,6 +158,15 @@ export class PtyManager extends EventEmitter {
    *  time (main.ts constructs ptyManager before the memory subsystem). */
   setMemoryIntegration(memory: PtyMemoryIntegration): void {
     this.memory = memory
+  }
+
+  /** Late-binding, igual que la memoria: main.ts crea el PtyManager antes que el servicio. */
+  setOrchestration(o: PtyOrchestration): void {
+    this.orchestration = o
+  }
+
+  paneInfo(paneId: string): PaneInfo | undefined {
+    return this.paneInfos.get(paneId)
   }
 
   async create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -171,6 +199,11 @@ export class PtyManager extends EventEmitter {
       const toAdd = extra.filter(p => !current.includes(p))
       if (toAdd.length) env.PATH = [...toAdd, ...current].join(':')
     }
+
+    // Lo heredado de un Nest lanzado desde el pane de otro Nest no pasa: sólo un pane de agente
+    // recibe SU token (más abajo).
+    delete env.NEST_ORCH_SOCKET
+    delete env.NEST_ORCH_TOKEN
 
     let launchCmd = cmd
 
@@ -296,6 +329,29 @@ export class PtyManager extends EventEmitter {
       }
     }
 
+    // Orquestación: va FUERA del bloque de memoria a propósito (un pane de agente la recibe con
+    // Memories deshabilitado o sin integrar). Un shell vacío o la TUI no son agentes.
+    let orchToken: string | undefined
+    if (cmd && !esTui && this.orchestration) {
+      const bin = cmd.split(' ')[0]
+      env.NEST_ORCH_SOCKET = this.orchestration.socketPath
+      orchToken = this.orchestration.tokens.issue(paneId)
+      env.NEST_ORCH_TOKEN = orchToken
+      let extra: string[] = []
+      try {
+        extra = this.orchestration.launchArgs(bin)
+      } catch (err) {
+        console.warn('[pty-manager] orchestration launchArgs failed', { paneId, error: err instanceof Error ? err.message : err })
+      }
+      if (extra.length > 0) {
+        // Misma regla de citado que los args de memoria. Se inserta tras el binario sobre
+        // `launchCmd` (que ya puede traer los args de memoria): ambos empiezan por `bin`.
+        const quoted = extra.map((a) => (a.startsWith('-') ? a : quoteShellArg(a, isWin)))
+        const rest = launchCmd.slice(bin.length).trimStart()
+        launchCmd = rest ? `${bin} ${quoted.join(' ')} ${rest}` : `${bin} ${quoted.join(' ')}`
+      }
+    }
+
     // El pane de la TUI usa siempre el shell por defecto (ver arriba).
     const spawnBin = esTui ? SHELL : shell?.bin ?? SHELL
     const spawnArgs = esTui ? SHELL_ARGS : shell?.args ?? SHELL_ARGS
@@ -376,6 +432,8 @@ export class PtyManager extends EventEmitter {
         this.buffers.delete(paneId)
         this.lastSize.delete(paneId)
         this.memoryPanes.delete(paneId)
+        this.orchestration?.tokens.revoke(paneId)
+        this.paneInfos.delete(paneId)
         this.clearPendingResize(paneId)
         // exitCode: forwarded so callers (graph orchestration) can distinguish
         // a clean exit from a crash without polling — see main.ts's paneExitCode.
@@ -384,16 +442,39 @@ export class PtyManager extends EventEmitter {
 
       this.ptys.set(paneId, ptyProcess)
       this.cwdByPaneId.set(paneId, cwd)
+      if (orchToken !== undefined) {
+        const bin = cmd.split(' ')[0]
+        this.paneInfos.set(paneId, {
+          paneId,
+          cmd,
+          accountDir,
+          aiType: (accountDir ? parseAccountDir(accountDir)?.aiType : undefined) ?? bin,
+          cwd,
+        })
+      }
       return { ok: true }
     } catch (err) {
+      // El spawn falló: el token ya emitido no puede quedar vivo.
+      this.orchestration?.tokens.revoke(paneId)
       const message = err instanceof Error ? err.message : String(err)
       console.error('[pty-manager] spawn failed', { paneId, spawnBin, spawnArgs, error: message })
       return { ok: false, error: message }
     }
   }
 
-  write(paneId: string, data: string): void {
+  /**
+   * `fromUser` lo pone sólo el handler `pty:write` del renderer (lo que tipea la persona):
+   * emite `input`, que el servicio de orquestación usa para saber que hubo actividad humana.
+   * Las escrituras internas (punteros del servicio, comandos de arranque) no emiten.
+   */
+  write(paneId: string, data: string, opts?: { fromUser?: boolean }): void {
     this.ptys.get(paneId)?.write(data)
+    if (opts?.fromUser) this.emit('input', paneId, data)
+  }
+
+  /** Escritura del propio Nest en el pane: nunca emite `input`. */
+  writeInternal(paneId: string, data: string): void {
+    this.write(paneId, data)
   }
 
   resize(paneId: string, cols: number, rows: number): void {
@@ -490,6 +571,8 @@ export class PtyManager extends EventEmitter {
     this.buffers.delete(paneId)
     this.lastSize.delete(paneId)
     this.memoryPanes.delete(paneId)
+    this.orchestration?.tokens.revoke(paneId)
+    this.paneInfos.delete(paneId)
     this.clearPendingResize(paneId)
     this.cwdByPaneId.delete(paneId)
   }
