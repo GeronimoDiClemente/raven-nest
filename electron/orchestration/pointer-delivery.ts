@@ -40,7 +40,9 @@ interface Watch {
 
 export class PointerDelivery {
   private readonly flights = new Map<string, Flight>()
-  private readonly drafts = new Map<string, number>() // paneId -> última tecla del usuario
+  // paneId -> borrador de la línea actual: cantidad de caracteres imprimibles, última tecla
+  // y si el último fue una barra invertida (\ + Enter es salto de línea, no envío).
+  private readonly drafts = new Map<string, { count: number; at: number; bs: boolean }>()
   private readonly watches = new Map<string, Watch>()
 
   constructor(
@@ -61,13 +63,70 @@ export class PointerDelivery {
 
   /** Lo que el usuario escribió en un pane (pty:write del renderer). */
   onUserInput(paneId: string, data: string): void {
-    const corte = Math.max(data.lastIndexOf('\r'), data.lastIndexOf('\n'))
-    if (corte < 0) {
-      this.drafts.set(paneId, this.deps.now())
-      return
+    const d = this.drafts.get(paneId) ?? { count: 0, at: 0, bs: false }
+    let submitted = false
+    let paste = false
+    const salto = (): void => {
+      // un salto de línea que no envía deja el borrador no vacío
+      d.count = Math.max(d.count, 1)
+      d.bs = false
     }
-    this.drafts.delete(paneId)
-    if (data.slice(corte + 1).length > 0) this.drafts.set(paneId, this.deps.now())
+    for (let i = 0; i < data.length; i++) {
+      const c = data[i]
+      if (c === '\x1b') {
+        const n = data[i + 1]
+        if (n === undefined) {
+          d.count = 0 // Esc suelto: cancela la línea
+          d.bs = false
+        } else if (n === '[') {
+          let j = i + 2
+          while (j < data.length && data.charCodeAt(j) >= 0x20 && data.charCodeAt(j) <= 0x3f) j++
+          const params = data.slice(i + 2, j)
+          const final = data[j]
+          if (final === '~' && params === '200') paste = true
+          else if (final === '~' && params === '201') paste = false
+          // reporte de mouse legacy: \x1b[M + 3 bytes crudos
+          if (final === 'M' && params === '') j += 3
+          i = Math.min(j, data.length)
+        } else if (n === 'O') {
+          i += 2 // SS3: \x1bO<x>
+        } else if (n === '\r') {
+          salto() // Alt+Enter: no envía
+          i += 1
+        } else {
+          i += 1 // Alt+tecla: se ignora el par
+        }
+        continue
+      }
+      if (c === '\r') {
+        if (!paste && !d.bs) {
+          d.count = 0
+          d.bs = false
+          submitted = true
+        } else salto()
+      } else if (c === '\n') salto()
+      else if (c === '\x7f' || c === '\b') {
+        d.count = Math.max(0, d.count - 1)
+        d.bs = false
+      } else if (c === '\x03' || c === '\x15') {
+        d.count = 0
+        d.bs = false
+      } else if (c.charCodeAt(0) >= 0x20) {
+        d.count++
+        d.bs = c === '\\'
+      }
+    }
+    d.at = this.deps.now()
+    if (d.count > 0 || d.bs) this.drafts.set(paneId, d)
+    else this.drafts.delete(paneId)
+    // El Enter real del usuario ya envió lo que había en la línea, puntero incluido.
+    if (submitted) {
+      const f = this.flights.get(paneId)
+      if (f && f.phase === 'enter') {
+        f.cancelTimer()
+        this.terminarVuelo(paneId, f)
+      }
+    }
   }
 
   onOutput(paneId: string): void {
@@ -77,6 +136,14 @@ export class PointerDelivery {
   cancel(coordinatorPaneId: string): void {
     this.flights.get(coordinatorPaneId)?.cancelTimer()
     this.flights.delete(coordinatorPaneId)
+    this.drafts.delete(coordinatorPaneId)
+  }
+
+  /** El pane se cerró: suelta vuelo, borrador y watch. */
+  forget(paneId: string): void {
+    this.cancel(paneId)
+    this.watches.get(paneId)?.cancelTimer()
+    this.watches.delete(paneId)
   }
 
   /** Avisa una vez por episodio de "esperando input" (quieto + prompt en pantalla). */
@@ -94,9 +161,9 @@ export class PointerDelivery {
   // --- internos ---
 
   private hayBorrador(paneId: string): boolean {
-    const desde = this.drafts.get(paneId)
-    if (desde === undefined) return false
-    if (this.deps.now() - desde >= DRAFT_HOLD_MAX_MS) {
+    const d = this.drafts.get(paneId)
+    if (d === undefined) return false
+    if (this.deps.now() - d.at >= DRAFT_HOLD_MAX_MS) {
       this.drafts.delete(paneId)
       return false
     }
@@ -118,10 +185,13 @@ export class PointerDelivery {
     const n = this.state.pending(coord).length
     if (n === 0) return this.cancel(coord)
     if (this.quieto(coord) && !this.diálogo(coord) && !this.hayBorrador(coord)) {
-      this.deps.writePty(coord, pointerLine(n))
+      if (!this.escribir(coord, pointerLine(n))) return
       this.state.markPointed(coord)
       flight.phase = 'enter'
-      flight.cancelTimer = this.deps.setTimer(() => this.intentarEnter(coord, flight), ENTER_DELAY_MS)
+      flight.cancelTimer = this.deps.setTimer(
+        () => this.intentarEnter(coord, flight),
+        ENTER_DELAY_MS
+      )
       return
     }
     flight.cancelTimer = this.deps.setTimer(() => this.intentarTexto(coord, flight), RECHECK_MS)
@@ -135,13 +205,34 @@ export class PointerDelivery {
       flight.cancelTimer = this.deps.setTimer(() => this.intentarEnter(coord, flight), RECHECK_MS)
       return
     }
-    this.deps.writePty(coord, '\r')
-    this.flights.delete(coord)
+    if (!this.escribir(coord, '\r')) return
+    this.terminarVuelo(coord, flight)
+  }
+
+  // Un write que tira = pane muerto: se cancela y no se reintenta.
+  private escribir(paneId: string, data: string): boolean {
+    try {
+      this.deps.writePty(paneId, data)
+      return true
+    } catch {
+      this.cancel(paneId)
+      return false
+    }
+  }
+
+  // Terminado el vuelo, lo que llegó mientras tanto ('pending') arma otro puntero.
+  private terminarVuelo(coord: string, flight: Flight): void {
+    if (this.flights.get(coord) === flight) this.flights.delete(coord)
+    this.notify(coord)
   }
 
   private programarWatch(paneId: string, w: Watch): void {
     w.cancelTimer = this.deps.setTimer(() => {
       if (this.watches.get(paneId) !== w) return
+      if (!this.deps.isAlive(paneId)) {
+        this.watches.delete(paneId) // pane muerto: se desuscribe solo
+        return
+      }
       this.evaluarWatch(paneId)
       this.programarWatch(paneId, w)
     }, RECHECK_MS)
@@ -156,6 +247,10 @@ export class PointerDelivery {
     }
     if (w.fired || !this.quieto(paneId)) return
     w.fired = true
-    w.onNeedsInput()
+    try {
+      w.onNeedsInput()
+    } catch {
+      // un callback que tira no corta la cadena de rechequeos
+    }
   }
 }

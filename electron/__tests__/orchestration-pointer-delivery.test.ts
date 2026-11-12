@@ -146,7 +146,9 @@ describe('PointerDelivery', () => {
     h.pd.onUserInput('c', 'x')
     h.advance(ENTER_DELAY_MS)
     expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1)])
-    h.pd.onUserInput('c', '\r') // el usuario envía su propio texto
+    h.advance(RECHECK_MS)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1)]) // sigue diferido
+    h.pd.onUserInput('c', '\x7f') // borra el borrador
     h.advance(RECHECK_MS)
     expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1), '\r'])
   })
@@ -169,13 +171,11 @@ describe('PointerDelivery', () => {
     h.pd.notify('c')
     h.push()
     h.pd.notify('c')
-    h.advance(RECHECK_MS * 3)
+    h.advance(ENTER_DELAY_MS - 1)
     expect(h.writes.filter((x) => x.data !== '\r')).toHaveLength(1)
-    // terminado el vuelo, el mensaje 'pending' nuevo sí habilita otro puntero
-    h.est.lastOut = null
-    h.pd.notify('c')
+    h.advance(ENTER_DELAY_MS * 3)
+    // terminado el vuelo, el mensaje 'pending' que llegó en el medio arma otro puntero
     expect(h.writes.filter((x) => x.data !== '\r')).toHaveLength(2)
-    expect(h.writes.filter((x) => x.data !== '\r')[1].data).toBe(pointerLine(2))
   })
 
   it('mensajes ya apuntados no disparan otro puntero', () => {
@@ -247,5 +247,121 @@ describe('PointerDelivery', () => {
     h.est.tail = PERMISO
     h.pd.onOutput('pw')
     expect(cb).toHaveBeenCalledTimes(2)
+  })
+
+  // --- inferencia del borrador ---
+  const bloquea = (h: ReturnType<typeof armar>, ...inputs: string[]): boolean => {
+    h.push()
+    for (const i of inputs) h.pd.onUserInput('c', i)
+    h.pd.notify('c')
+    h.advance(RECHECK_MS * 2)
+    return h.writes.length === 0
+  }
+
+  it('Ctrl-C, Ctrl-U y Esc suelto borran el borrador', () => {
+    for (const k of ['\x03', '\x15', '\x1b']) {
+      expect(bloquea(armar(), 'hola', k)).toBe(false)
+    }
+  })
+
+  it('borrar todo con backspace libera, borrar a medias no', () => {
+    expect(bloquea(armar(), 'ab', '\x7f', '\x7f')).toBe(false)
+    expect(bloquea(armar(), 'ab', '\x7f')).toBe(true)
+    expect(bloquea(armar(), '\x7f\x7f', 'a')).toBe(true) // piso en 0
+  })
+
+  it('Alt+Enter, barra+Enter y \\n no envían: el borrador sigue', () => {
+    expect(bloquea(armar(), 'hola', '\x1b\r')).toBe(true)
+    expect(bloquea(armar(), 'hola\\', '\r')).toBe(true)
+    expect(bloquea(armar(), 'hola', '\n')).toBe(true)
+    expect(bloquea(armar(), 'hola', '\r')).toBe(false)
+  })
+
+  it('las secuencias de escape del terminal no cuentan como borrador', () => {
+    for (const seq of [
+      '\x1b[I',
+      '\x1b[O',
+      '\x1b[A',
+      '\x1bOP',
+      '\x1b[12;40R',
+      '\x1b[<0;10;5M',
+      '\x1b[M ab',
+      '\x1b[200~\x1b[201~'
+    ]) {
+      expect(bloquea(armar(), seq)).toBe(false)
+    }
+  })
+
+  it('el texto pegado entre marcadores sí cuenta', () => {
+    expect(bloquea(armar(), '\x1b[200~pegado\x1b[201~')).toBe(true)
+    expect(bloquea(armar(), '\x1b[200~a\rb\x1b[201~')).toBe(true) // \r pegado no envía
+  })
+
+  it('mensaje que llega en la ventana del Enter arma un segundo puntero', () => {
+    const h = armar()
+    h.push()
+    h.pd.notify('c')
+    h.advance(ENTER_DELAY_MS - 100)
+    h.push()
+    h.pd.notify('c')
+    h.advance(RECHECK_MS * 3)
+    const textos = h.writes.filter((x) => x.data !== '\r').map((x) => x.data)
+    expect(textos).toEqual([pointerLine(1), pointerLine(2)])
+  })
+
+  it('si el usuario envía con Enter mientras el del puntero está pendiente, se descarta el \r propio', () => {
+    const h = armar()
+    h.push()
+    h.pd.notify('c')
+    h.pd.onUserInput('c', 'x') // difiere
+    h.advance(ENTER_DELAY_MS)
+    h.pd.onUserInput('c', '\r')
+    h.advance(RECHECK_MS * 3)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1)])
+  })
+
+  it('el watch se detiene con el pane muerto y sobrevive a un callback que tira', () => {
+    const h = armar()
+    const cb = vi.fn(() => {
+      throw new Error('boom')
+    })
+    h.pd.watchWorker('pw', cb)
+    h.est.tail = PERMISO
+    h.advance(RECHECK_MS)
+    expect(cb).toHaveBeenCalledTimes(1)
+    h.est.tail = ''
+    h.advance(RECHECK_MS)
+    h.est.tail = PERMISO
+    h.advance(RECHECK_MS)
+    expect(cb).toHaveBeenCalledTimes(2) // la cadena siguió viva
+    h.est.alive = false
+    h.advance(RECHECK_MS)
+    expect(h.timers).toHaveLength(0)
+  })
+
+  it('un writePty que tira cancela el vuelo sin reintentar', () => {
+    const h = armar()
+    let n = 0
+    const d = (h.pd as unknown as { deps: PointerDeps }).deps
+    d.writePty = () => {
+      n++
+      throw new Error('pty cerrado')
+    }
+    h.push()
+    expect(() => h.pd.notify('c')).not.toThrow()
+    h.advance(RECHECK_MS * 5)
+    expect(n).toBe(1)
+    expect(h.timers).toHaveLength(0)
+  })
+
+  it('forget y cancel limpian el borrador', () => {
+    for (const f of ['forget', 'cancel'] as const) {
+      const h = armar()
+      h.push()
+      h.pd.onUserInput('c', 'hola')
+      h.pd[f]('c')
+      h.pd.notify('c')
+      expect(h.writes).toHaveLength(1)
+    }
   })
 })
