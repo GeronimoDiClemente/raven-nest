@@ -14,7 +14,7 @@ builds de desarrollo, que ya cifran, y el paquete `@nestmux/memory`, que no est�
 
 Y la beta lo necesita: los links de descarga (`/beta/<link>`) los sirve el server, y los
 arreglos de seguridad de noviembre (ex-miembro de equipo, envolturas, carrera del espejo) sólo
-protegen con el server nuevo. Prod corre el deploy del 29-oct.
+protegen con el server nuevo. Prod corre el deploy del 29-oct (al 12-nov `/health/backup` da 404: es el server viejo).
 
 ## 1. Cloudflare R2: el bucket de betas
 
@@ -59,8 +59,8 @@ cd server && railway up --service sync --detach
 Verificar, en este orden:
 
 - Las migraciones corren solas al arrancar. En los logs tienen que aparecer hasta `016`.
-- `curl -s https://sync-production-54ba.up.railway.app/health` → `{"ok":true}`.
-- `curl -s https://sync-production-54ba.up.railway.app/health/backup` → 200. Un 503 quiere decir
+- `curl -s https://sync.nestmux.com/health` → `{"ok":true}`.
+- `curl -s https://sync.nestmux.com/health/backup` → 200. Un 503 quiere decir
   que no hay backup bueno en 26 h.
 - `POST /internal/plan` firmado con un cuerpo inválido → **400** (no 404). Un 404 quiere decir
   que falta `PLAN_SYNC_SECRET`.
@@ -73,7 +73,7 @@ Verificar, en este orden:
    Extensions y volver a correrla.
 2. El Vault: el mismo valor de `PLAN_SYNC_SECRET` que tiene Railway.
    ```sql
-   select vault.create_secret('https://sync-production-54ba.up.railway.app', 'plan_sync_url');
+   select vault.create_secret('https://sync.nestmux.com', 'plan_sync_url');
    select vault.create_secret('<PLAN_SYNC_SECRET>', 'plan_sync_secret');
    ```
 3. Si la beta cobra: los `STRIPE_PRICE_CLOUD_*` en los secretos de las edge functions
