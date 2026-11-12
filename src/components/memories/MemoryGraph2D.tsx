@@ -132,7 +132,7 @@ const MAX_LETRAS = { global: 40, local: 24 }
  *  arriba, punto + etiqueta abajo. */
 const MARGEN_LOCAL = { x: 64, arriba: 12, abajo: 28 }
 
-export default function MemoryGraph2D({ data, foco = null, resaltados = null, modo, escalaDeNodo = 1, distanciaDeLinks = 50, etiquetas = 'zoom', animar = true, onOpen }: MemoryGraph2DProps) {
+export default function MemoryGraph2D({ data, foco = null, resaltados = null, modo, escalaDeNodo = 1, distanciaDeLinks = 50, etiquetas = 'always', animar = true, onOpen }: MemoryGraph2DProps) {
   const caja = useRef<HTMLDivElement>(null)
   const [tam, setTam] = useState({ w: 0, h: 0 })
   const [hover, setHover] = useState<string | null>(null)

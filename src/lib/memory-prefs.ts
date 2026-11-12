@@ -26,7 +26,7 @@ export const TAMANOS_DE_LETRA = [12, 13, 14, 15, 16, 17, 18] as const
 export const DEFAULT_MEMORY_PREFS: MemoryPrefs = {
   // 13 = --fs, el cuerpo de la UI.
   editor: { livePreview: true, readableWidth: true, spellcheck: false, fontSize: 13 },
-  graph: { remember: true, labels: 'zoom', animate: true },
+  graph: { remember: true, labels: 'always', animate: true },
 }
 
 /** Los valores de arranque de useGraphFilters y del interruptor de inferidas del workspace. */

@@ -19,7 +19,7 @@ describe('normalizarMemoryPrefs', () => {
     const p = normalizarMemoryPrefs({ editor: { livePreview: 'yes', fontSize: 40 }, graph: { labels: 'nunca', animate: 0 } })
     expect(p.editor.livePreview).toBe(true)
     expect(p.editor.fontSize).toBe(13)
-    expect(p.graph.labels).toBe('zoom')
+    expect(p.graph.labels).toBe('always')
     expect(p.graph.animate).toBe(true)
   })
 
@@ -57,7 +57,7 @@ describe('conFiltros', () => {
   it('pone y saca los filtros sin tocar lo demás', () => {
     const con = conFiltros(DEFAULT_MEMORY_PREFS, FILTROS_POR_DEFECTO)
     expect(con.graph.filtros).toEqual(FILTROS_POR_DEFECTO)
-    expect(con.graph.labels).toBe('zoom')
+    expect(con.graph.labels).toBe('always')
     const sin = conFiltros(con, undefined)
     expect('filtros' in sin.graph).toBe(false)
   })
