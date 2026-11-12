@@ -17,7 +17,7 @@ function armar() {
   const timers: { id: number; at: number; fn: () => void }[] = []
   let seq = 0
   const writes: { paneId: string; data: string }[] = []
-  const est = { tail: '', lastOut: null as number | null, alive: true }
+  const est = { tail: '', lastOut: null as number | null, alive: true, agente: true }
   const deps: PointerDeps = {
     now: () => t,
     setTimer: (fn, ms) => {
@@ -31,7 +31,8 @@ function armar() {
     writePty: (paneId, data) => void writes.push({ paneId, data }),
     bufferTail: () => est.tail,
     lastOutputAt: () => est.lastOut,
-    isAlive: () => est.alive
+    isAlive: () => est.alive,
+    isAgentForeground: () => est.agente
   }
   const advance = (ms: number) => {
     const fin = t + ms
@@ -65,6 +66,37 @@ function armar() {
 }
 
 describe('PointerDelivery', () => {
+  // El agente del coordinador salió y el pane volvió al shell: el puntero lo ejecutaría el
+  // shell como un comando. No se escribe nada hasta que el agente vuelva a primer plano.
+  it('con el shell en primer plano no escribe el puntero y lo reintenta', () => {
+    const h = armar()
+    h.est.lastOut = h.now() - QUIET_MS
+    h.est.agente = false
+    h.push()
+    h.pd.notify('c')
+    h.advance(RECHECK_MS * 5)
+    expect(h.writes).toEqual([])
+    h.est.agente = true
+    h.advance(RECHECK_MS)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1)])
+    h.advance(ENTER_DELAY_MS)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1), '\r'])
+  })
+
+  it('si el agente sale entre el texto y el Enter, el Enter espera', () => {
+    const h = armar()
+    h.est.lastOut = h.now() - QUIET_MS
+    h.push()
+    h.pd.notify('c')
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1)])
+    h.est.agente = false
+    h.advance(ENTER_DELAY_MS + RECHECK_MS * 3)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1)])
+    h.est.agente = true
+    h.advance(RECHECK_MS)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1), '\r'])
+  })
+
   it('entrega cuando lleva 3 s quieto', () => {
     const h = armar()
     h.est.lastOut = h.now() - QUIET_MS

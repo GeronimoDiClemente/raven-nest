@@ -36,6 +36,9 @@ export interface PointerDeps {
   bufferTail(paneId: string): string
   lastOutputAt(paneId: string): number | null
   isAlive(paneId: string): boolean
+  /** El agente (y no un shell pelado) está en primer plano del PTY. Si el agente del
+   *  coordinador salió, el pane volvió al prompt y el puntero lo ejecutaría el shell. */
+  isAgentForeground(paneId: string): boolean
 }
 
 interface Flight {
@@ -258,6 +261,15 @@ export class PointerDelivery {
     return last === null || this.deps.now() - last >= QUIET_MS
   }
 
+  // Si la consulta tira, no se bloquea el puntero para siempre: se asume el agente.
+  private agenteAlFrente(paneId: string): boolean {
+    try {
+      return this.deps.isAgentForeground(paneId)
+    } catch {
+      return true
+    }
+  }
+
   private diálogo(paneId: string): boolean {
     return detectNeedsInput(this.deps.bufferTail(paneId))
   }
@@ -267,7 +279,7 @@ export class PointerDelivery {
     if (!this.deps.isAlive(coord)) return this.muerto(coord)
     const n = this.state.pending(coord).length
     if (n === 0) return this.cancel(coord)
-    if (this.quieto(coord) && !this.diálogo(coord) && !this.hayBorrador(coord)) {
+    if (this.agenteAlFrente(coord) && this.quieto(coord) && !this.diálogo(coord) && !this.hayBorrador(coord)) {
       if (!this.escribir(coord, pointerLine(n))) return
       this.state.markPointed(coord)
       flight.phase = 'enter'
@@ -283,8 +295,8 @@ export class PointerDelivery {
   private intentarEnter(coord: string, flight: Flight): void {
     if (this.flights.get(coord) !== flight) return
     if (!this.deps.isAlive(coord)) return this.muerto(coord)
-    // Re-chequeo: en estos 500 ms pudo aparecer un borrador o un diálogo.
-    if (this.diálogo(coord) || this.hayBorrador(coord)) {
+    // Re-chequeo: en estos 500 ms pudo aparecer un borrador o un diálogo, o salir el agente.
+    if (!this.agenteAlFrente(coord) || this.diálogo(coord) || this.hayBorrador(coord)) {
       flight.cancelTimer = this.deps.setTimer(() => this.intentarEnter(coord, flight), RECHECK_MS)
       return
     }

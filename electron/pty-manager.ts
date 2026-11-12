@@ -67,6 +67,9 @@ export interface PtyOrchestration {
   /** Args a insertar tras el binario (vacío si ese bin no se soporta). Lo calcula quien conoce
    *  el execPath/shim/configDir; si lanza, el pane arranca sin el shim. */
   launchArgs: (bin: string) => string[]
+  /** El pane es de un worker (el servicio lo registra antes de pedirle el pane al renderer).
+   *  Su agente se lanza con `exec`: si sale, el PTY sale con él en vez de volver al shell. */
+  isWorker?: (paneId: string) => boolean
 }
 
 const BUFFER_MAX_LINES = 10_000
@@ -360,6 +363,17 @@ export class PtyManager extends EventEmitter {
     const spawnBin = esTui ? SHELL : shell?.bin ?? SHELL
     const spawnArgs = esTui ? SHELL_ARGS : shell?.args ?? SHELL_ARGS
 
+    // Worker de orquestación: el agente reemplaza al shell (`exec`), así un agente que sale o
+    // se cae termina el PTY y el servicio lo marca 'exited'. Sin esto el pane vuelve al prompt,
+    // el worker sigue "working" y lo que le mande el coordinador lo ejecuta el shell.
+    // Sólo en shells POSIX fuera de Windows: PowerShell y cmd no tienen un `exec` equivalente,
+    // y en Windows (incluido WSL/bash.exe) el comportamiento queda como estaba.
+    if (orchToken !== undefined && !isWin && familiaDeShell(spawnBin) === 'posix') {
+      let esWorker = false
+      try { esWorker = this.orchestration?.isWorker?.(paneId) === true } catch { esWorker = false }
+      if (esWorker) launchCmd = `exec ${launchCmd}`
+    }
+
     // Resolve cwd with existence check. CreateProcess on Windows fails with
     // ERROR_DIRECTORY (code 267) if cwd is missing — common when a tab persists
     // a repoPath that was later deleted. Fall back to the real user home via
@@ -541,6 +555,20 @@ export class PtyManager extends EventEmitter {
 
   exists(paneId: string): boolean {
     return this.ptys.has(paneId)
+  }
+
+  /** Nombre del proceso en primer plano del PTY (node-pty `process`): en POSIX el del grupo
+   *  que tiene la terminal (`zsh` si el agente salió y volvió el prompt); en Windows, el que se
+   *  lanzó. undefined si el pane no existe o node-pty no lo puede leer. */
+  foregroundProcess(paneId: string): string | undefined {
+    const p = this.ptys.get(paneId)
+    if (!p) return undefined
+    try {
+      const nombre = p.process
+      return typeof nombre === 'string' && nombre !== '' ? nombre : undefined
+    } catch {
+      return undefined
+    }
   }
 
   getPid(paneId: string): number | undefined {
