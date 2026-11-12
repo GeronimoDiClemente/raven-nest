@@ -62,6 +62,9 @@ export interface OrchestrationDeps {
   onChange(): void
   /** Se llama tras cada push a la bandeja (después se cablea al módulo de punteros). */
   notifyCoordinator(coordinatorPaneId: string): void
+  /** El pane del worker quedó aceptado y el worker pasó a `working` (el cableado arma ahí el
+   *  vigía de "esperando input"). No se llama si el launch falla. */
+  onWorkerStarted?(w: WorkerRecord): void
 }
 
 const WAIT_DEFAULT_MS = 60_000
@@ -81,10 +84,13 @@ const fail = (code: string): never => {
 }
 
 export class OrchestrationService {
-  private readonly state = new OrchestrationState()
   private readonly waiters = new Map<string, Waiter[]>()
 
-  constructor(private readonly deps: OrchestrationDeps) {}
+  // El estado se puede pasar de afuera: PointerDelivery lee la MISMA bandeja.
+  constructor(
+    private readonly deps: OrchestrationDeps,
+    private readonly state: OrchestrationState = new OrchestrationState()
+  ) {}
 
   async handle(callerPaneId: string, method: OrchMethod, params: unknown): Promise<unknown> {
     const info = this.deps.paneInfo(callerPaneId)
@@ -240,6 +246,7 @@ export class OrchestrationService {
     }
     this.state.setStatus(workerId, 'working', this.deps.now())
     this.deps.onChange()
+    this.deps.onWorkerStarted?.({ ...actual, status: 'working' })
     return { workerId, branch, label: label }
   }
 

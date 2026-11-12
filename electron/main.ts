@@ -254,6 +254,9 @@ import { makeRunAutomation, type AutomationRunnerPorts } from './integrations/au
 import { bridgeEvent, bridgeDecision, type BridgeContext } from './integrations/memory-bridge'
 import { type MemorySink, type MemorySaveInput } from './integrations/memory-port'
 import { SwapWriteGate } from './memory-write-gate'
+import { wireOrchestration, type OrchestrationWiring } from './orchestration/wire-orchestration'
+import { orchestrationSocketPath } from './orchestration/protocol'
+import { orchestrationLaunchArgs } from './orchestration/mcp-launch-args'
 
 const ptyManager = new PtyManager()
 // Per-pane last-output timestamp. deriveAgentState (graph orchestrator sampling)
@@ -704,6 +707,40 @@ try {
   console.error('[main] Nest Memory subsystem failed to initialize — memory features disabled for this session', err instanceof Error ? err.message : err)
   memory = null
 }
+
+// ── Orquestación de panes (spec 2026-11-12-orquestacion-panes) ──────────────
+// FUERA del try de Memories a propósito (§6.8): con `memory === null`, Memories apagado o
+// desconectado, los panes de agente igual reciben el socket y el shim de orquestación.
+// Un fallo acá deja la app sin orquestación, nunca sin terminales.
+let orchestration: OrchestrationWiring | null = null
+try {
+  const orchConfigDir = pathJoin(ravenHome(), '.raven-nest', 'orchestration')
+  // dist-electron/orchestration-mcp.js, entry hermano de main.js (electron.vite.config.ts).
+  const orchShimPath = pathJoin(__dirname, 'orchestration-mcp.js')
+  orchestration = wireOrchestration({
+    pty: ptyManager,
+    // pipeId aleatorio por arranque (ruling R5): no se persiste.
+    socketPath: orchestrationSocketPath(ravenHome(), isWin, randomBytes(8).toString('hex')),
+    launchArgs: (bin) => orchestrationLaunchArgs(bin, { execPath: process.execPath, shimPath: orchShimPath, configDir: orchConfigDir }),
+    createWorktree: (repoPath, branch) => createWorktreeForBot(repoPath, branch),
+    runGit: (args, opts) => runGit(args, opts),
+    accounts: { list: (aiType) => accountStore.list(aiType), getDir: (aiType, name) => accountStore.getDir(aiType, name) },
+    send: (channel, payload) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!win || win.isDestroyed()) return false
+      win.webContents.send(channel, payload)
+      return true
+    },
+  })
+} catch (err) {
+  console.error('[main] orchestration failed to initialize — workers disabled for this session', err instanceof Error ? err.message : err)
+  orchestration = null
+}
+
+ipcMain.handle('orchestration:launch-pane-result', (_event, res: unknown) => {
+  orchestration?.replyLaunchPane(res)
+})
+ipcMain.handle('orchestration:snapshot', () => orchestration?.service.snapshot() ?? [])
 
 // A chained promise every call to swapMemoryStore() has to
 // pass through, so a rapid logout+login (two 'memory:setUser' invokes close together) can't
@@ -1805,6 +1842,8 @@ ipcMain.on('pty:resize', (_event, paneId: string, cols: number, rows: number) =>
 
 ipcMain.handle('pty:kill', (_event, paneId: string) => {
   ptyManager.kill(paneId)
+  // El renderer cerró el pane: el puntero suelta vuelo, borrador y vigía de ese pane.
+  orchestration?.paneClosed(paneId)
 })
 
 ipcMain.handle('pty:exists', (_event, paneId: string) => {
@@ -3220,6 +3259,7 @@ ipcMain.on('updater:install', () => {
   // portion of the push completes in whatever time is actually available is strictly
   // better than the push never being attempted at all.
   void finalizeMemoryBeforeQuit()
+  orchestration?.stop()
   if (isMac) {
     // quitAndInstall schedules the helper process then calls app.quit() internally.
     // On macOS, async before-quit work (spotlight watcher, browser panes) can keep
@@ -5992,6 +6032,7 @@ app.whenReady().then(async () => {
       // here is time-constrained the way the updater's quit path is.
       void (async () => {
         await finalizeMemoryBeforeQuit()
+        orchestration?.stop()
         ptyManager.killAll()
         app.exit(0)
       })()

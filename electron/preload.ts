@@ -223,6 +223,29 @@ contextBridge.exposeInMainWorld('memory', {
   },
 })
 
+// Orquestación de panes. Cada `on*` devuelve su propia baja (nunca `removeAllListeners`):
+// la app y la UI de workers se suscriben a la vez.
+contextBridge.exposeInMainWorld('orchestration', {
+  snapshot: () => ipcRenderer.invoke('orchestration:snapshot'),
+  replyLaunchPane: (res: { requestId: string; ok: boolean; error?: string; tabPaneCount?: number }) =>
+    ipcRenderer.invoke('orchestration:launch-pane-result', res),
+  onLaunchPane: (cb: (req: unknown) => void) => {
+    const handler = (_e: IpcRendererEvent, req: unknown) => cb(req)
+    ipcRenderer.on('orchestration:launch-pane', handler)
+    return () => { ipcRenderer.removeListener('orchestration:launch-pane', handler) }
+  },
+  onClosePane: (cb: (msg: { paneId: string }) => void) => {
+    const handler = (_e: IpcRendererEvent, msg: { paneId: string }) => cb(msg)
+    ipcRenderer.on('orchestration:close-pane', handler)
+    return () => { ipcRenderer.removeListener('orchestration:close-pane', handler) }
+  },
+  onChanged: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('orchestration:changed', handler)
+    return () => { ipcRenderer.removeListener('orchestration:changed', handler) }
+  },
+})
+
 contextBridge.exposeInMainWorld('pty', {
   create: (paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) =>
     ipcRenderer.invoke('pty:create', paneId, cmd, accountDir, repoPath, shellId),

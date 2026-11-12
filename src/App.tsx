@@ -20,6 +20,7 @@ import { useIntervaloVisible } from './hooks/useIntervaloVisible'
 import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
 import { temaPorId } from './lib/terminal-themes'
+import { placeWorkerPane } from './orchestration/place-worker-pane'
 import { groupAITypesByRepoPath } from './lib/repo-ai-logos'
 import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
@@ -1115,6 +1116,27 @@ export default function App() {
   tabsRef.current = tabs
   const activeTabIdRef = useRef(activeTabId)
   activeTabIdRef.current = activeTabId
+
+  // Orquestación: el main pide el pane de un worker. Cae en el tab que CONTIENE al
+  // coordinador (no en el activo), sin NewPaneDialog y sin mover el foco; la respuesta
+  // (ok / tab_full / no_tab) vuelve al main, que se la pasa al agente.
+  const ansiDelTemaRef = useRef<readonly string[] | undefined>(undefined)
+  ansiDelTemaRef.current = temaPorId(
+    userPrefs.prefs.ui_settings.terminalTheme,
+    userPrefs.prefs.ui_settings.terminalThemesImportados ?? [],
+  ).ansi
+  useEffect(() => {
+    const orq = window.orchestration
+    if (!orq) return
+    const bajaLaunch = orq.onLaunchPane((req) => {
+      const { reply } = placeWorkerPane(tabsRef.current, req, ansiDelTemaRef.current)
+      if (reply.ok) setTabs(prev => placeWorkerPane(prev, req, ansiDelTemaRef.current).tabs)
+      void orq.replyLaunchPane(reply)
+    })
+    // `stop` del coordinador, o el coordinador que se cierra: el main ya mató el PTY.
+    const bajaClose = orq.onClosePane(({ paneId }) => removePaneAnywhere(paneId))
+    return () => { bajaLaunch(); bajaClose() }
+  }, [removePaneAnywhere])
 
   const cycleTab = useCallback((isPrev: boolean) => {
     const allTabs = tabsRef.current

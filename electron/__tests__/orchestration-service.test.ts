@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { OrchestrationState } from '../orchestration/orchestration-state'
 import { OrchestrationService, branchName, type OrchestrationDeps, type PaneInfo, type LaunchPaneRequest } from '../orchestration/orchestration-service'
 
 const COORD: PaneInfo = {
@@ -357,5 +358,32 @@ describe('OrchestrationService', () => {
     expect(deps.createWorktree).not.toHaveBeenCalled()
     const r = await launch(svc, '  hola  ')
     expect(r.label).toBe('hola')
+  })
+  it('onWorkerStarted se llama una vez, con el worker ya working, y no si requestPane falla', async () => {
+    const onWorkerStarted = vi.fn()
+    const { svc, deps } = mk({ onWorkerStarted })
+    const r = await launch(svc)
+    expect(onWorkerStarted).toHaveBeenCalledTimes(1)
+    expect(onWorkerStarted.mock.calls[0][0]).toMatchObject({ workerId: r.workerId, status: 'working', paneId: deps.requestPane.mock.calls[0][0].paneId })
+    deps.requestPane.mockResolvedValueOnce({ ok: false, error: 'tab_full' })
+    await expect(launch(svc, 'y')).rejects.toThrow('tab_full')
+    expect(onWorkerStarted).toHaveBeenCalledTimes(1)
+  })
+
+  it('comparte el estado que se le pasa (el del puntero)', async () => {
+    const state = new OrchestrationState()
+    const panes = new Map<string, PaneInfo>([['coord', COORD]])
+    const svc = new OrchestrationService({
+      ...mk().deps,
+      paneInfo: (id: string) => panes.get(id),
+      requestPane: async (req: LaunchPaneRequest) => {
+        panes.set(req.paneId, { paneId: req.paneId, cmd: req.cmd, accountDir: req.accountDir, aiType: req.aiType, cwd: req.repoPath })
+        return { ok: true as const, tabPaneCount: 2 }
+      },
+    }, state)
+    const r = await launch(svc)
+    svc.onPaneExit(svc.snapshot()[0].paneId, 1)
+    expect(state.workersOf('coord')[0].workerId).toBe(r.workerId)
+    expect(state.pending('coord').map((m) => m.kind)).toEqual(['exited'])
   })
 })
