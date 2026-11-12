@@ -47,6 +47,11 @@ export function orchestrationLaunchArgs(bin: string, paths: OrchestrationLaunchP
       '-c', `mcp_servers.nest_orchestration.command=${toml(paths.execPath)}`,
       '-c', `mcp_servers.nest_orchestration.args=[${toml(paths.shimPath)}]`,
       '-c', `mcp_servers.nest_orchestration.env.ELECTRON_RUN_AS_NODE=${toml('1')}`,
+      // Codex (rmcp) arranca los servers stdio con una lista blanca de variables del entorno:
+      // sin nombrarlas, el shim no recibe el socket ni el token del pane y sale enseguida.
+      // Verificado con codex-cli 0.167.2 (`codex mcp get nest_orchestration --json` las lista
+      // en `env_vars`); que el shim las vea de verdad se prueba con un codex real (Task 11).
+      '-c', `mcp_servers.nest_orchestration.env_vars=[${toml('NEST_ORCH_SOCKET')},${toml('NEST_ORCH_TOKEN')}]`,
     ]
   }
   return []

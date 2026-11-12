@@ -32,12 +32,15 @@ describe('orchestrationLaunchArgs', () => {
     })
   })
 
-  it('codex usa tres -c', () => {
+  it('codex usa cuatro -c, y deja pasar al shim el socket y el token del pane', () => {
     const args = orchestrationLaunchArgs('codex', paths(dir))
     expect(args).toEqual([
       '-c', 'mcp_servers.nest_orchestration.command="/Apps/Nest.app/MacOS/Nest"',
       '-c', 'mcp_servers.nest_orchestration.args=["/Apps/Nest.app/dist-electron/orchestration-mcp.js"]',
       '-c', 'mcp_servers.nest_orchestration.env.ELECTRON_RUN_AS_NODE="1"',
+      // rmcp arranca los servers stdio con una lista blanca de variables: sin esto el shim no
+      // ve NEST_ORCH_SOCKET / NEST_ORCH_TOKEN y sale.
+      '-c', 'mcp_servers.nest_orchestration.env_vars=["NEST_ORCH_SOCKET","NEST_ORCH_TOKEN"]',
     ])
   })
 
