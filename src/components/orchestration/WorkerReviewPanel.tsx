@@ -10,13 +10,12 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { cn } from '@/lib/utils'
 import SettingRow from '../memories/settings/SettingRow'
 import { DiffViewerPanel } from '../DiffViewerPanel'
 import { useBridge } from '../../lib/bridge'
 import type { OrchestrationReviewEntry, OrchestrationReviewResult } from '../../types'
-import { CLASE_DE_WORKER, ETIQUETA_DE_WORKER } from '../../orchestration/worker-status'
 import WorkerDot from './WorkerDot'
+import WorkerPaneBadge from './WorkerPaneBadge'
 
 interface Props {
   /** Ya filtradas al repo del tab (`reviewEntriesForTab`). */
@@ -27,6 +26,9 @@ interface Props {
 }
 
 type Accion = 'merge' | 'openPr' | 'discard'
+
+/** Las ramas que se leen como "la principal" del repo: mergear ahí pide confirmación. */
+export const RAMAS_PROTEGIDAS: ReadonlySet<string> = new Set(['main', 'master'])
 
 /** El texto en línea para cada error que devuelve main. */
 export function reviewErrorText(e: OrchestrationReviewEntry, r: Extract<OrchestrationReviewResult, { ok: false }>): string {
@@ -67,7 +69,7 @@ function ReviewRow({ e, ansi, onDiff }: { e: OrchestrationReviewEntry; ansi?: re
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [confirmar, setConfirmar] = useState<'merge' | 'discard' | null>(null)
   const detached = e.baseBranch === 'HEAD'
-  const enMain = e.baseBranch === 'main'
+  const protegida = RAMAS_PROTEGIDAS.has(e.baseBranch)
 
   const correr = async (accion: Accion): Promise<void> => {
     const api = window.orchestration
@@ -90,9 +92,9 @@ function ReviewRow({ e, ansi, onDiff }: { e: OrchestrationReviewEntry; ansi?: re
       <SettingRow
         nombre={
           <span className="flex min-w-0 items-center gap-2">
-            <WorkerDot colorIndex={e.colorIndex} ansi={ansi} />
             <span className="truncate">{e.label}</span>
-            <Badge variant="outline" className={cn('gap-1.5', CLASE_DE_WORKER[e.status])}>{ETIQUETA_DE_WORKER[e.status]}</Badge>
+            {/* El mismo badge que el header del pane: punto del worker + estado con su token. */}
+            <WorkerPaneBadge status={e.status} colorIndex={e.colorIndex} ansi={ansi} label={e.label} />
           </span>
         }
         descripcion={
@@ -111,9 +113,9 @@ function ReviewRow({ e, ansi, onDiff }: { e: OrchestrationReviewEntry; ansi?: re
               variant="outline"
               disabled={detached || ocupado}
               title={detached ? 'Base branch unknown (detached HEAD)' : `Merge ${e.branch} into ${e.baseBranch} (local, no push)`}
-              onClick={() => (enMain ? setConfirmar('merge') : void correr('merge'))}
+              onClick={() => (protegida ? setConfirmar('merge') : void correr('merge'))}
             >
-              {corriendo === 'merge' ? 'Merging…' : enMain ? 'Merge into main' : 'Merge'}
+              {corriendo === 'merge' ? 'Merging…' : protegida ? `Merge into ${e.baseBranch}` : 'Merge'}
             </Button>
             <Button size="xs" variant="outline" disabled={ocupado} onClick={() => void correr('openPr')}>
               {corriendo === 'openPr' ? 'Pushing…' : 'Open PR'}
@@ -138,12 +140,12 @@ function ReviewRow({ e, ansi, onDiff }: { e: OrchestrationReviewEntry; ansi?: re
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {confirmar === 'merge' ? `Merge ${e.label} into main?` : `Discard ${e.label}?`}
+              {confirmar === 'merge' ? `Merge ${e.label} into ${e.baseBranch}?` : `Discard ${e.label}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmar === 'merge'
-                ? `This merges ${e.branch} into your local main with a merge commit and removes the worker's worktree. Nothing is pushed.`
-                : `This deletes the worktree and the branch ${e.branch}, including any commits that aren't merged anywhere. This can't be undone.`}
+                ? `This merges ${e.branch} into your local ${e.baseBranch} with a merge commit and removes the worker's worktree. Nothing is pushed.`
+                : `This deletes the worktree and the branch ${e.branch}: any uncommitted changes in the worktree and any commits that aren't merged anywhere are lost. This can't be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -156,7 +158,7 @@ function ReviewRow({ e, ansi, onDiff }: { e: OrchestrationReviewEntry; ansi?: re
                 if (a) void correr(a)
               }}
             >
-              {confirmar === 'merge' ? 'Merge into main' : 'Discard branch'}
+              {confirmar === 'merge' ? `Merge into ${e.baseBranch}` : 'Discard branch'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

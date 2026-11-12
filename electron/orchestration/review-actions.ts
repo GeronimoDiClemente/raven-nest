@@ -5,7 +5,8 @@
 // empuja la rama base: `merge` es local (nunca `git push`), y `openPr` empuja SÓLO la rama del
 // worker (anti-meta §4: nada llega a main sin una decisión de Gero).
 
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
+import { isAbsolute, resolve } from 'node:path'
 import type { ReviewEntry, ReviewStore } from './review-store'
 
 export type ReviewError =
@@ -55,105 +56,163 @@ export function parseGithubRepo(url: string): { owner: string; repo: string } | 
   return m ? { owner: m[1], repo: m[2] } : null
 }
 
-/** Parsea `git worktree list --porcelain`: path → rama (sin `refs/heads/`). */
-function worktreesPorRama(porcelain: string): Map<string, string> {
-  const out = new Map<string, string>()
+interface WorktreeListado { path: string; branch: string | null; principal: boolean }
+
+/** Parsea `git worktree list --porcelain`. El primer bloque es siempre el worktree principal. */
+function parsearWorktrees(porcelain: string): WorktreeListado[] {
+  const out: WorktreeListado[] = []
   for (const bloque of porcelain.split(/\n\s*\n/)) {
     const path = bloque.match(/^worktree (.+)$/m)?.[1]
+    if (!path) continue
     const rama = bloque.match(/^branch refs\/heads\/(.+)$/m)?.[1]
-    if (path && rama) out.set(rama.trim(), path.trim())
+    out.push({ path: path.trim(), branch: rama ? rama.trim() : null, principal: out.length === 0 })
   }
   return out
 }
 
+/** Para comparar carpetas: la real si existe (en macOS /var es /private/var), si no la resuelta. */
+function carpeta(p: string): string {
+  try {
+    return realpathSync(p)
+  } catch {
+    return resolve(p)
+  }
+}
+
+/** Nombre de rama que se puede pasar a git sin que se lea como opción. */
+const ramaSegura = (b: string): boolean => REF_VALIDO.test(b) && !b.startsWith('-') && b !== 'HEAD'
+
+/** Cola por clave: dos merges en el mismo worktree base corren de a uno. */
+function crearCandado() {
+  const colas = new Map<string, Promise<unknown>>()
+  return async <T>(clave: string, fn: () => Promise<T>): Promise<T> => {
+    const previa = colas.get(clave) ?? Promise.resolve()
+    const actual = previa.then(fn, fn)
+    const fin = actual.then(() => undefined, () => undefined)
+    colas.set(clave, fin)
+    try {
+      return await actual
+    } finally {
+      if (colas.get(clave) === fin) colas.delete(clave)
+    }
+  }
+}
+
 export function createReviewActions(deps: ReviewActionDeps) {
   const git = (args: string[], timeout = T_CORTO) => deps.runGit(args, { timeout })
+  const conCandado = crearCandado()
 
-  const entradaValida = (e: ReviewEntry): boolean =>
-    REF_VALIDO.test(e.branch) && (e.baseBranch === 'HEAD' || REF_VALIDO.test(e.baseBranch))
+  /**
+   * La entrada sale de un JSON en disco: no se le cree. Antes de tocar nada se cruza con
+   * `git worktree list` del repo: el worktree tiene que ser uno registrado que NO sea el
+   * principal y tener checked out justo la rama del worker. `ausente` = la carpeta ya no está
+   * (sólo Discard la acepta, para borrar la rama). Todo lo demás es `invalid_entry`, y ningún
+   * camino que mata panes o borra carpetas corre con un path que no pasó por acá.
+   */
+  const verificar = async (
+    e: ReviewEntry
+  ): Promise<{ ok: true; estado: 'registrado' | 'ausente'; worktrees: WorktreeListado[] } | { ok: false; r: ReviewResult }> => {
+    const invalida = { ok: false as const, r: falla('invalid_entry') }
+    if (!ramaSegura(e.branch)) return invalida
+    if (e.baseBranch !== 'HEAD' && (!REF_VALIDO.test(e.baseBranch) || e.baseBranch.startsWith('-'))) return invalida
+    if (e.branch === e.baseBranch) return invalida
+    if (!isAbsolute(e.repoPath) || !isAbsolute(e.worktreePath)) return invalida
+    let worktrees: WorktreeListado[]
+    try {
+      worktrees = parsearWorktrees(await git(['-C', e.repoPath, 'worktree', 'list', '--porcelain']))
+    } catch (err) {
+      return { ok: false, r: falla('git_failed', mensaje(err)) }
+    }
+    const objetivo = carpeta(e.worktreePath)
+    const registrado = worktrees.find((w) => carpeta(w.path) === objetivo)
+    if (registrado?.principal) return invalida
+    if (!existsSync(e.worktreePath)) {
+      // Una carpeta que ya no existe no se borra ni se mata nada adentro; a lo sumo la rama.
+      return { ok: true, estado: 'ausente', worktrees }
+    }
+    if (!registrado || registrado.branch !== e.branch) return invalida
+    return { ok: true, estado: 'registrado', worktrees }
+  }
 
   return {
     async merge(e: ReviewEntry): Promise<ReviewResult> {
       if (e.baseBranch === 'HEAD') return falla('detached_head')
-      if (!entradaValida(e)) return falla('invalid_entry')
+      const v = await verificar(e)
+      if (!v.ok) return v.r
+      if (v.estado !== 'registrado') return falla('invalid_entry')
 
       // Borrar el worktree con `--force` se lleva lo no commiteado: si el worker dejó algo
       // (incluidos archivos nuevos), no se mergea ni se borra nada.
-      if (existsSync(e.worktreePath)) {
+      try {
+        if ((await git(['-C', e.worktreePath, 'status', '--porcelain'])) !== '') return falla('worker_dirty')
+      } catch (err) {
+        return falla('git_failed', mensaje(err))
+      }
+
+      const baseWt = v.worktrees.find((w) => w.branch === e.baseBranch)?.path
+      if (!baseWt) return falla('base_not_checked_out')
+
+      return conCandado(carpeta(baseWt), async () => {
+        // Un merge que Gero dejó a medias en la base es suyo: no se toca (ni se aborta).
         try {
-          if ((await git(['-C', e.worktreePath, 'status', '--porcelain'])) !== '') return falla('worker_dirty')
+          await git(['-C', baseWt, 'rev-parse', '-q', '--verify', 'MERGE_HEAD'])
+          return falla('coordinator_dirty')
+        } catch {
+          /* sin MERGE_HEAD: se sigue */
+        }
+        // Sólo lo trackeado: un archivo suelto que no choca no bloquea, y si chocara git
+        // rechaza el merge antes de empezar (merge_failed, sin nada a medias).
+        try {
+          const sucio = await git(['-C', baseWt, 'status', '--porcelain', '--untracked-files=no'])
+          if (sucio !== '') return falla('coordinator_dirty')
         } catch (err) {
           return falla('git_failed', mensaje(err))
         }
-      }
 
-      let baseWt: string | undefined
-      try {
-        baseWt = worktreesPorRama(await git(['-C', e.repoPath, 'worktree', 'list', '--porcelain'])).get(e.baseBranch)
-      } catch (err) {
-        return falla('git_failed', mensaje(err))
-      }
-      if (!baseWt) return falla('base_not_checked_out')
-
-      // Sólo lo trackeado: un archivo suelto que no choca no bloquea, y si chocara git
-      // rechaza el merge antes de empezar (merge_failed, sin nada a medias).
-      try {
-        const sucio = await git(['-C', baseWt, 'status', '--porcelain', '--untracked-files=no'])
-        if (sucio !== '') return falla('coordinator_dirty')
-      } catch (err) {
-        return falla('git_failed', mensaje(err))
-      }
-
-      try {
-        await git(['-C', baseWt, 'merge', '--no-ff', '--no-edit', e.branch], T_MERGE)
-      } catch (err) {
-        let aMedias = false
         try {
-          await git(['-C', baseWt, 'rev-parse', '-q', '--verify', 'MERGE_HEAD'])
-          aMedias = true
-        } catch {
-          aMedias = false
-        }
-        if (aMedias) {
+          // La ref completa: nunca se puede leer como opción ni como otra cosa que esta rama.
+          await git(['-C', baseWt, 'merge', '--no-ff', '--no-edit', `refs/heads/${e.branch}`], T_MERGE)
+        } catch (err) {
+          let aMedias = false
           try {
-            await git(['-C', baseWt, 'merge', '--abort'])
-          } catch (abortErr) {
-            return falla('merge_failed', `merge --abort failed: ${mensaje(abortErr)}`)
+            await git(['-C', baseWt, 'rev-parse', '-q', '--verify', 'MERGE_HEAD'])
+            aMedias = true
+          } catch {
+            aMedias = false
           }
-          return falla('merge_conflict')
+          if (aMedias) {
+            try {
+              await git(['-C', baseWt, 'merge', '--abort'])
+            } catch (abortErr) {
+              return falla('merge_failed', `merge --abort failed: ${mensaje(abortErr)}`)
+            }
+            return falla('merge_conflict')
+          }
+          return falla('merge_failed', mensaje(err))
         }
-        return falla('merge_failed', mensaje(err))
-      }
 
-      if (existsSync(e.worktreePath)) {
         const r = await deps.removeWorktree(e)
         // Ya está mergeado: la entrada queda para reintentar (un merge repetido no hace nada).
         if (!r.ok) return falla('remove_failed', r.error)
-      }
-      deps.store.remove(e.workerId)
-      return { ok: true }
+        deps.store.remove(e.workerId)
+        return { ok: true } as ReviewResult
+      })
     },
 
     async openPr(e: ReviewEntry): Promise<ReviewResult> {
-      if (!entradaValida(e)) return falla('invalid_entry')
+      const v = await verificar(e)
+      if (!v.ok) return v.r
+      // pushBranch empuja lo que el worktree tenga checked out: verificar ya confirmó que es la
+      // rama del worker (y nunca la base ni el worktree principal).
+      if (v.estado !== 'registrado') return falla('invalid_entry')
       let origin = ''
       try {
-        const cwd = existsSync(e.worktreePath) ? e.worktreePath : e.repoPath
-        origin = await git(['-C', cwd, 'remote', 'get-url', 'origin'])
+        origin = await git(['-C', e.worktreePath, 'remote', 'get-url', 'origin'])
       } catch {
         origin = ''
       }
       const gh = parseGithubRepo(origin)
       if (!gh) return falla('no_github_remote')
-
-      // pushBranch empuja lo que el worktree tenga checked out: se confirma antes que es la rama
-      // del worker (y no, p. ej., algo que alguien hizo checkout a mano ahí).
-      try {
-        const actual = await git(['-C', e.worktreePath, 'rev-parse', '--abbrev-ref', 'HEAD'])
-        if (actual !== e.branch) return falla('push_failed', `worktree is on ${actual}, not ${e.branch}`)
-      } catch (err) {
-        return falla('push_failed', mensaje(err))
-      }
 
       const push = await deps.pushBranch(e.worktreePath)
       if (!push.ok) return falla('push_failed', push.error)
@@ -165,11 +224,16 @@ export function createReviewActions(deps: ReviewActionDeps) {
     },
 
     async discard(e: ReviewEntry): Promise<ReviewResult> {
-      if (!entradaValida(e)) return falla('invalid_entry')
-      if (existsSync(e.worktreePath)) {
+      const v = await verificar(e)
+      if (!v.ok) return v.r
+      if (v.estado === 'registrado') {
         const r = await deps.removeWorktree(e)
         if (!r.ok) return falla('remove_failed', r.error)
+      } else {
+        // La carpeta ya no está: se olvida su registro (si quedó) para que git suelte la rama.
+        try { await git(['-C', e.repoPath, 'worktree', 'prune']) } catch { /* sigue igual */ }
       }
+      // Rama a la que se llega sólo validada (sin `-` adelante, nunca HEAD ni la base).
       try {
         await git(['-C', e.repoPath, 'branch', '-D', e.branch])
       } catch (err) {

@@ -135,6 +135,34 @@ describe('WorkerReviewPanel', () => {
     await waitFor(() => expect(api.discard).toHaveBeenCalledWith('w1'))
   })
 
+  it('master también pide confirmación', async () => {
+    const api = orq()
+    render(<WorkerReviewPanel entries={[entry({ baseBranch: 'master' })]} defaultOpen />)
+    fireEvent.click(screen.getByRole('button', { name: 'Merge into master' }))
+    expect(api.merge).not.toHaveBeenCalled()
+    const d = await screen.findByRole('alertdialog')
+    fireEvent.click(within(d).getByRole('button', { name: 'Merge into master' }))
+    await waitFor(() => expect(api.merge).toHaveBeenCalledWith('w1'))
+  })
+
+  it('el diálogo de Discard avisa que se pierden los cambios sin commitear', async () => {
+    orq()
+    render(<WorkerReviewPanel entries={[entry()]} defaultOpen />)
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    const d = await screen.findByRole('alertdialog')
+    expect(d.textContent).toContain('uncommitted changes')
+  })
+
+  it('el estado en la fila es el badge del pane: punto del worker + texto con su token', () => {
+    orq()
+    render(<WorkerReviewPanel entries={[entry({ status: 'exited', colorIndex: 2 })]} defaultOpen />)
+    const fila = screen.getByTestId('worker-review-row')
+    const b = within(fila).getByTestId('worker-badge')
+    expect(b.textContent).toBe('Exited')
+    expect(b.className).toContain('text-destructive')
+    expect(within(b).getByTestId('worker-dot')).toBeTruthy()
+  })
+
   it('sin ramas no ocupa lugar', () => {
     const { container } = render(<WorkerReviewPanel entries={[]} />)
     expect(container.innerHTML).toBe('')

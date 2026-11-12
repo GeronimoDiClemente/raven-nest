@@ -239,8 +239,97 @@ describe('review actions (git real)', () => {
     git(f.repo, 'remote', 'add', 'origin', 'https://github.com/Gero/raven-nest')
     git(f.wt, 'checkout', '-q', '-b', 'otra')
     const r = await createReviewActions(f.deps).openPr(f.e)
-    expect(r).toEqual({ ok: false, error: 'push_failed', detail: 'worktree is on otra, not nest/api-w1' })
+    expect(r).toEqual({ ok: false, error: 'invalid_entry' })
     expect(f.deps.pushBranch).not.toHaveBeenCalled()
+  })
+
+  // ---- fix round 1: la entrada del JSON no se cree ----
+
+  it('una entrada que apunta al worktree principal se rechaza y no mata ni borra nada', async () => {
+    git(f.repo, 'remote', 'add', 'origin', 'https://github.com/Gero/raven-nest')
+    const remove = vi.fn(f.deps.removeWorktree)
+    const a = createReviewActions({ ...f.deps, removeWorktree: remove })
+    const mala = { ...f.e, worktreePath: f.repo }
+    expect(await a.merge(mala)).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(await a.openPr(mala)).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(await a.discard(mala)).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(remove).not.toHaveBeenCalled()
+    expect(f.deps.pushBranch).not.toHaveBeenCalled()
+    expect(existsSync(join(f.repo, 'a.txt'))).toBe(true)
+    expect(git(f.repo, 'branch', '--list', 'nest/api-w1')).toContain('nest/api-w1')
+    expect(f.store.list()).toHaveLength(1)
+  })
+
+  it('una entrada con branch main se rechaza en openPr y no empuja', async () => {
+    git(f.repo, 'remote', 'add', 'origin', 'https://github.com/Gero/raven-nest')
+    const a = createReviewActions(f.deps)
+    expect(await a.openPr({ ...f.e, branch: 'main' })).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(await a.openPr({ ...f.e, branch: 'main', worktreePath: f.repo })).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(await a.openPr({ ...f.e, branch: 'nest/api-w1', baseBranch: 'nest/api-w1' })).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(f.deps.pushBranch).not.toHaveBeenCalled()
+  })
+
+  it('una rama que empieza con - se rechaza sin llamar a git', async () => {
+    const a = createReviewActions(f.deps)
+    f.deps.runGit.mockClear()
+    expect(await a.discard({ ...f.e, branch: '-D' })).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(await a.merge({ ...f.e, branch: '--help' })).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(f.deps.runGit).not.toHaveBeenCalled()
+  })
+
+  it('una carpeta que no es un worktree registrado no se borra', async () => {
+    const remove = vi.fn(f.deps.removeWorktree)
+    const suelta = join(f.repo, '..', 'suelta')
+    execFileSync('mkdir', ['-p', suelta])
+    const r = await createReviewActions({ ...f.deps, removeWorktree: remove }).discard({ ...f.e, worktreePath: suelta })
+    expect(r).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(remove).not.toHaveBeenCalled()
+    expect(existsSync(suelta)).toBe(true)
+  })
+
+  it('entrada vieja cuyo worktree ya no está: discard borra sólo la rama', async () => {
+    rmSync(f.wt, { recursive: true, force: true })
+    const remove = vi.fn(f.deps.removeWorktree)
+    const r = await createReviewActions({ ...f.deps, removeWorktree: remove }).discard(f.e)
+    expect(r).toEqual({ ok: true })
+    expect(remove).not.toHaveBeenCalled()
+    expect(git(f.repo, 'branch', '--list', 'nest/api-w1')).toBe('')
+    expect(existsSync(join(f.repo, 'a.txt'))).toBe(true)
+    expect(f.store.list()).toEqual([])
+  })
+
+  it('un merge que Gero dejó a medias en la base no se aborta', async () => {
+    git(f.repo, 'branch', 'gero')
+    git(f.repo, 'checkout', '-q', 'gero')
+    git(f.repo, 'commit', '-q', '--allow-empty', '-m', 'vacío')
+    git(f.repo, 'checkout', '-q', 'main')
+    git(f.repo, 'merge', '--no-ff', '--no-commit', 'gero')
+    const r = await createReviewActions(f.deps).merge(f.e)
+    expect(r).toEqual({ ok: false, error: 'coordinator_dirty' })
+    expect(git(f.repo, 'rev-parse', '-q', '--verify', 'MERGE_HEAD')).not.toBe('')
+    expect(existsSync(f.wt)).toBe(true)
+  })
+
+  it('dos merges en la misma base corren de a uno', async () => {
+    const wt2 = join(f.repo, '..', 'repo-nest-ui')
+    git(f.repo, 'worktree', 'add', '-q', '-b', 'nest/ui-w2', wt2)
+    commit(wt2, 'c.txt', 'ui\n', 'ui')
+    const e2 = { ...f.e, workerId: 'w2', branch: 'nest/ui-w2', worktreePath: wt2 }
+    f.store.upsert(e2)
+    let enVuelo = 0
+    let maximo = 0
+    const lento = vi.fn(async (args: string[], opts: { timeout: number }) => {
+      const esMerge = args.includes('merge') && !args.includes('--abort')
+      if (esMerge) { enVuelo++; maximo = Math.max(maximo, enVuelo); await new Promise((r) => setTimeout(r, 80)) }
+      try { return await f.deps.runGit(args, opts) } finally { if (esMerge) enVuelo-- }
+    })
+    const a = createReviewActions({ ...f.deps, runGit: lento })
+    const [r1, r2] = await Promise.all([a.merge(f.e), a.merge(e2)])
+    expect(maximo).toBe(1)
+    expect(r1).toEqual({ ok: true })
+    expect(r2).toEqual({ ok: true })
+    expect(git(f.repo, 'show', 'HEAD:c.txt')).toBe('ui')
+    expect(git(f.repo, 'show', 'HEAD:b.txt')).toBe('del worker')
   })
 
   it('openPr con push fallido no abre el navegador', async () => {
