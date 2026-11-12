@@ -133,6 +133,10 @@ export class PtyManager extends EventEmitter {
   // kill() and on onExit so a teardown during the startup delay doesn't
   // fire a write into a dead (or recreated) PTY.
   private startupTimers = new Map<string, NodeJS.Timeout>()
+  // Lo escrito en un pane de agente antes de que se tipee su comando de arranque. Va DESPUÉS
+  // del comando: es input para el agente, nunca para el shell pelado (si no, el shell ejecuta
+  // el `initialInput` de un worker línea por línea y el agente no recibe la tarea).
+  private launchQueue = new Map<string, string[]>()
   private memory?: PtyMemoryIntegration
   // Spec §2.2: lo que Nest CREE que tiene memoria. memory-sessions.ts cruza esto contra lo
   // que el bridge vio de verdad (MemoryStore.listOpenSessions()); la diferencia entre los
@@ -394,9 +398,13 @@ export class PtyManager extends EventEmitter {
           // between scheduling and firing would otherwise write the cmd into
           // a fresh pty that wasn't asked to run it.
           if (this.ptys.get(paneId) === ptyProcess) {
+            const encolado = this.launchQueue.get(paneId) ?? []
+            this.launchQueue.delete(paneId)
             ptyProcess.write(`${launchCmd}\r`)
+            for (const data of encolado) ptyProcess.write(data)
           }
         }
+        this.launchQueue.set(paneId, [])
         if (isWin) {
           ptyProcess.onData(() => writeCmd())
           const timer = setTimeout(writeCmd, 5000)
@@ -428,6 +436,7 @@ export class PtyManager extends EventEmitter {
           clearTimeout(pending)
           this.startupTimers.delete(paneId)
         }
+        this.launchQueue.delete(paneId)
         this.ptys.delete(paneId)
         this.buffers.delete(paneId)
         this.lastSize.delete(paneId)
@@ -456,6 +465,7 @@ export class PtyManager extends EventEmitter {
     } catch (err) {
       // El spawn falló: el token ya emitido no puede quedar vivo.
       this.orchestration?.tokens.revoke(paneId)
+      this.launchQueue.delete(paneId)
       const message = err instanceof Error ? err.message : String(err)
       console.error('[pty-manager] spawn failed', { paneId, spawnBin, spawnArgs, error: message })
       return { ok: false, error: message }
@@ -468,7 +478,9 @@ export class PtyManager extends EventEmitter {
    * Las escrituras internas (punteros del servicio, comandos de arranque) no emiten.
    */
   write(paneId: string, data: string, opts?: { fromUser?: boolean }): void {
-    this.ptys.get(paneId)?.write(data)
+    const encolado = this.ptys.has(paneId) ? this.launchQueue.get(paneId) : undefined
+    if (encolado) encolado.push(data)
+    else this.ptys.get(paneId)?.write(data)
     if (opts?.fromUser) this.emit('input', paneId, data)
   }
 
@@ -563,6 +575,7 @@ export class PtyManager extends EventEmitter {
       clearTimeout(pending)
       this.startupTimers.delete(paneId)
     }
+    this.launchQueue.delete(paneId)
     const ptyProc = this.ptys.get(paneId)
     if (ptyProc) {
       try { ptyProc.kill() } catch { /* already dead */ }
