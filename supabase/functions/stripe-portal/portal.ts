@@ -3,7 +3,7 @@
  * `stripe-checkout/checkout.ts`. Lo que el portal deja hacer (cancelar al fin del período,
  * tarjeta, facturas, mensual <-> anual) se configura en el dashboard de Stripe, no acá.
  */
-import { esClienteInexistente } from '../stripe-checkout/checkout.ts'
+import { esClienteInexistente } from '../_shared/stripe-errores.ts'
 
 export const URL_DE_VUELTA = 'https://nestmux.com/checkout/portal-return'
 

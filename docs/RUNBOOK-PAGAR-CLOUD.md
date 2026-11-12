@@ -34,6 +34,16 @@ nombres.
    `checkout.session.completed`, `invoice.paid`, `customer.subscription.updated`,
    `customer.subscription.deleted`. Anotar el `whsec_…` en 1Password.
 
+   **Versión de API del endpoint.** La forma de los eventos la fija el endpoint (su
+   `api_version`; si no tiene, la versión por defecto de la cuenta, hoy `2026-03-25.dahlia`), no
+   el `apiVersion` del código, que sigue en `2024-11-20.acacia` y sólo afecta lo que devuelven
+   las llamadas. `stripe-webhook` lee las dos formas (hasta `acacia`, y desde `basil` hasta
+   `endive`), así que cualquier versión de ese rango sirve. Al crearlo, anotar qué versión quedó
+   en el detalle del destino y dejarla **fija**: si la cuenta se actualiza a una versión mayor
+   futura, un endpoint sin versión propia cambia de forma solo. Antes de mover el endpoint a
+   una versión mayor posterior a `endive`, revisar su changelog contra `eventos.ts`.
+   `stripe listen` reenvía con la versión por defecto de la cuenta (con `--latest`, la última).
+
 ## 2. Secrets y deploy en STAGING
 
 Generar `PLAN_SYNC_SECRET` (≥ 32 caracteres, p. ej. `openssl rand -hex 32`) y guardarlo en
@@ -83,6 +93,10 @@ servidor (corre la migración `011_kept_project.sql` sola al arrancar). Verifica
    próximo poll de status (hasta 15 min en Free): converge, pero no es instantáneo. Un toast sin
    proyectos subiendo no es un pago perdido; mirar los logs de `stripe-webhook` antes de tocar
    nada.
+   En esos logs, **`invoice.paid` también tiene que decir `plan activado`**, no `evento
+   ignorado` con `sin user_id en la metadata`: eso es un evento cuya forma el parser no
+   reconoce (ver la versión del endpoint en §1.3). Con sólo `checkout.session.completed` la
+   compra funciona, pero las renovaciones dependen de `invoice.paid`.
 3. En el servidor: `users.plan = 'cloud'` y la fila en `allowlist`.
 4. Manage subscription → cancelar en el portal. Con "al fin del período", Stripe manda
    `customer.subscription.deleted` recién al vencer: para probarlo ya, cancelar inmediatamente
@@ -261,6 +275,9 @@ Antes de activar, el webhook **relee la suscripción en Stripe**: si ya no está
 `trialing` ni `past_due` (un `invoice.paid` o `subscription.updated` viejo que Stripe reintentó
 después de la cancelación), no toca `profiles` ni avisa, y devuelve 200 con
 `activación descartada` en el log. Si esa lectura falla, devuelve 500 y Stripe reintenta.
+El plan y el período que se escriben salen de esa suscripción releída, no del evento; si su
+precio no está mapeado (falta un secret `STRIPE_PRICE_CLOUD_*`), también queda en
+`activación descartada` con el precio en el `motivo`.
 
 ## Recuperación
 

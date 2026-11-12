@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decidir, armarPrecioAPlan, PRECIOS_LEGACY, suscripcionSigueViva, periodoDeCobro, PERIODO_VACIO } from '../eventos.ts'
+import { decidir, armarPrecioAPlan, PRECIOS_LEGACY, suscripcionSigueViva, periodoDeCobro, PERIODO_VACIO, resolverActivacion } from '../eventos.ts'
 
 const PRO_MENSUAL = 'price_1TJmwsJarRYFmNbKh7G6JXnF'
 const TEAM_MENSUAL = 'price_1TJmyRJarRYFmNbKeiOLrXss'
@@ -178,6 +178,112 @@ describe('precios de Cloud (2b-2)', () => {
   })
 })
 
+// La cuenta de Stripe está en `2026-03-25.dahlia` y la versión de los eventos la fija el endpoint
+// de webhook, no el SDK. Desde `basil` cambió la forma de la factura: la suscripción y su
+// metadata pasaron a `parent.subscription_details`, y el precio de la línea a
+// `pricing.price_details.price` (un id). Las suscripciones mantienen `items.data[].price`, pero
+// `current_period_end` bajó a los items. Fixtures con la forma de `dahlia`:
+describe('eventos con la forma de la API dahlia (desde basil)', () => {
+  const lineaDahlia = (precio: unknown, extra: Record<string, unknown> = {}) => ({
+    object: 'line_item',
+    parent: {
+      type: 'subscription_item_details',
+      subscription_item_details: { subscription: 'sub_1', subscription_item: 'si_1', proration: false },
+    },
+    pricing: { type: 'price_details', price_details: { price: precio, product: 'prod_1' }, unit_amount_decimal: '1000' },
+    ...extra,
+  })
+  const facturaDahlia = (over: Record<string, unknown> = {}) => ({
+    type: 'invoice.paid',
+    data: {
+      object: {
+        object: 'invoice',
+        customer: 'cus_1',
+        parent: {
+          type: 'subscription_details',
+          subscription_details: { metadata: { user_id: 'u-1' }, subscription: 'sub_1' },
+        },
+        lines: { object: 'list', data: [lineaDahlia(CLOUD_MENSUAL)] },
+        ...over,
+      },
+    },
+  })
+
+  it('invoice.paid activa con la suscripción y el precio en su lugar nuevo', () => {
+    expect(decidir(facturaDahlia(), MAPA)).toEqual({
+      tipo: 'activar', userId: 'u-1', plan: 'cloud', customerId: 'cus_1', subscriptionId: 'sub_1',
+    })
+  })
+
+  it('invoice.paid acepta el precio y la suscripción expandidos', () => {
+    const e = facturaDahlia({
+      parent: { type: 'subscription_details', subscription_details: { metadata: { user_id: 'u-1' }, subscription: { id: 'sub_1' } } },
+      lines: { data: [lineaDahlia({ id: CLOUD_ANUAL, object: 'price' })] },
+    })
+    expect(decidir(e, MAPA)).toMatchObject({ tipo: 'activar', plan: 'cloud', subscriptionId: 'sub_1' })
+  })
+
+  it('invoice.paid sin user_id en parent se ignora', () => {
+    const e = facturaDahlia({ parent: { type: 'subscription_details', subscription_details: { metadata: {}, subscription: 'sub_1' } } })
+    expect(decidir(e, MAPA)).toEqual({ tipo: 'ignorar', motivo: 'sin user_id en la metadata' })
+  })
+
+  // Una factura suelta (sin suscripción) llega con `parent: null`: no hay nada que activar.
+  it('invoice.paid de una factura sin suscripción se ignora', () => {
+    expect(decidir(facturaDahlia({ parent: null }), MAPA).tipo).toBe('ignorar')
+  })
+
+  it('invoice.paid con precio desconocido no adivina el plan', () => {
+    const d = decidir(facturaDahlia({ lines: { data: [lineaDahlia('price_nuevo')] } }), MAPA)
+    expect(d.tipo === 'ignorar' && d.motivo).toContain('price_nuevo')
+  })
+
+  // Stripe pone los prorrateos antes que los items de la suscripción: la línea 0 no es
+  // necesariamente la del precio que se cobra.
+  it('invoice.paid no se queda con una primera línea de precio desconocido', () => {
+    const e = facturaDahlia({ lines: { data: [lineaDahlia('price_ajeno'), lineaDahlia(CLOUD_ANUAL)] } })
+    expect(decidir(e, MAPA)).toMatchObject({ tipo: 'activar', plan: 'cloud' })
+  })
+
+  it('checkout.session.completed no cambió de forma', () => {
+    const e = {
+      type: 'checkout.session.completed',
+      data: { object: { object: 'checkout.session', mode: 'subscription', status: 'complete', customer: 'cus_1', subscription: 'sub_1', metadata: { user_id: 'u-1' } } },
+    }
+    expect(decidir(e, MAPA, CLOUD_MENSUAL)).toEqual({
+      tipo: 'activar', userId: 'u-1', plan: 'cloud', customerId: 'cus_1', subscriptionId: 'sub_1',
+    })
+  })
+
+  const subDahlia = (tipo: string, status: string) => ({
+    type: tipo,
+    data: {
+      object: {
+        id: 'sub_1', object: 'subscription', customer: 'cus_1', status, metadata: { user_id: 'u-1' },
+        cancel_at_period_end: false,
+        items: { data: [{ id: 'si_1', current_period_end: 1795910400, price: { id: CLOUD_ANUAL, object: 'price' } }] },
+      },
+    },
+  })
+
+  it('customer.subscription.updated activa con la forma nueva', () => {
+    expect(decidir(subDahlia('customer.subscription.updated', 'active'), MAPA)).toEqual({
+      tipo: 'activar', userId: 'u-1', plan: 'cloud', customerId: 'cus_1', subscriptionId: 'sub_1',
+    })
+  })
+
+  it('customer.subscription.deleted baja a free con la forma nueva', () => {
+    expect(decidir(subDahlia('customer.subscription.deleted', 'canceled'), MAPA))
+      .toEqual({ tipo: 'bajar_a_free', subscriptionId: 'sub_1' })
+  })
+})
+
+// Un id de precio que coincide con una propiedad heredada de Object no puede dar un "plan".
+it('un precio llamado como una propiedad de Object no mapea', () => {
+  const d = decidir(invoicePagada({ lines: { data: [{ price: { id: 'toString' } }] } }), MAPA)
+  expect(d.tipo).toBe('ignorar')
+})
+
 describe('suscripcionSigueViva', () => {
   // Un `invoice.paid` o `subscription.updated` viejo que Stripe reintenta (días, sin orden) no
   // puede resucitar una suscripción que ya se canceló: el shell la relee y sólo activa si vive.
@@ -224,5 +330,54 @@ describe('periodoDeCobro', () => {
 
   it('PERIODO_VACIO es todo null y false', () => {
     expect(PERIODO_VACIO).toEqual({ billing_interval: null, current_period_end: null, cancel_at_period_end: false })
+  })
+
+  // Desde `basil` la suscripción no trae `current_period_end` arriba: está en cada item.
+  it('current_period_end se lee del item cuando la suscripción no lo trae arriba', () => {
+    const sub = { items: { data: [{ price: { id: CLOUD_ANUAL }, current_period_end: 1795910400 }] } }
+    expect(periodoDeCobro(sub, ENV)).toEqual({
+      billing_interval: 'annual', current_period_end: '2026-11-29T00:00:00.000Z', cancel_at_period_end: false,
+    })
+  })
+})
+
+describe('resolverActivacion', () => {
+  const ENV = { STRIPE_PRICE_CLOUD_MONTHLY: CLOUD_MENSUAL, STRIPE_PRICE_CLOUD_ANNUAL: CLOUD_ANUAL }
+  const decision = { tipo: 'activar' as const, userId: 'u-1', plan: 'team', customerId: 'cus_1', subscriptionId: 'sub_1' }
+  const releida = (precio: string, extra: Record<string, unknown> = {}) => ({
+    status: 'active', cancel_at_period_end: false, current_period_end: 1795910400,
+    items: { data: [{ price: { id: precio } }] }, ...extra,
+  })
+
+  // Un `subscription.updated` viejo (Team) reintentado después de pasar a Cloud anual: el plan y
+  // el período tienen que salir de la misma suscripción, la de ahora.
+  it('el plan sale del precio de la suscripción releída, no del evento', () => {
+    expect(resolverActivacion(decision, releida(CLOUD_ANUAL), MAPA, ENV)).toEqual({
+      tipo: 'aplicar',
+      fila: {
+        id: 'u-1', plan: 'cloud', stripe_customer_id: 'cus_1', stripe_subscription_id: 'sub_1',
+        billing_interval: 'annual', current_period_end: '2026-11-29T00:00:00.000Z', cancel_at_period_end: false,
+      },
+    })
+  })
+
+  it('una suscripción que ya no vive no se activa', () => {
+    const r = resolverActivacion(decision, releida(CLOUD_ANUAL, { status: 'canceled' }), MAPA, ENV)
+    expect(r.tipo === 'descartar' && r.motivo).toContain('canceled')
+  })
+
+  it('past_due sigue activando (Stripe está reintentando el cobro)', () => {
+    expect(resolverActivacion(decision, releida(CLOUD_MENSUAL, { status: 'past_due' }), MAPA, ENV).tipo).toBe('aplicar')
+  })
+
+  it('un precio desconocido en la suscripción releída no adivina el plan', () => {
+    const r = resolverActivacion(decision, releida('price_nuevo'), MAPA, ENV)
+    expect(r.tipo === 'descartar' && r.motivo).toContain('price_nuevo')
+  })
+
+  it('acepta la suscripción releída con la forma de basil en adelante', () => {
+    const sub = { status: 'trialing', items: { data: [{ price: { id: CLOUD_MENSUAL }, current_period_end: 1795910400 }] } }
+    const r = resolverActivacion(decision, sub, MAPA, ENV)
+    expect(r.tipo === 'aplicar' && r.fila).toMatchObject({ plan: 'cloud', billing_interval: 'monthly', current_period_end: '2026-11-29T00:00:00.000Z' })
   })
 })
