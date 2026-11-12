@@ -1,12 +1,13 @@
 import { forwardRef, useImperativeHandle } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 type Recibidas = { warmupTicks: number; cooldownTicks: number; nodeCanvasObject: (n: unknown, ctx: unknown, escala: number) => void }
 const recibidas: Recibidas[] = []
 vi.mock('react-force-graph-2d', () => ({
   default: forwardRef(function FG(props: Recibidas & { graphData: { nodes: Array<{ id: string }> } }, ref) {
-    useImperativeHandle(ref, () => ({ d3Force: () => ({ distance: () => {}, strength: () => {} }), d3ReheatSimulation: () => {} }))
+    // zoom(): el que la librería puso sola al cargar el grafo, antes de cualquier encuadre nuestro.
+    useImperativeHandle(ref, () => ({ d3Force: () => ({ distance: () => {}, strength: () => {} }), d3ReheatSimulation: () => {}, zoom: () => 2 }))
     recibidas.push(props)
     return <div data-testid="fg2d" />
   }),
@@ -39,5 +40,22 @@ describe('MemoryGraph2D — preferencias', () => {
     const c2 = ctx()
     ultima().nodeCanvasObject(nodo, c2, 1)
     expect(c2.fillText).not.toHaveBeenCalled()
+  })
+
+  it('When zoomed in: con zoom ANTES del primer encuadre, las etiquetas salen contra la vista de partida', async () => {
+    render(<MemoryGraph2D modo="global" data={data} onOpen={vi.fn()} etiquetas="zoom" />)
+    await screen.findByTestId('fg2d')
+    const conEtiqueta = (escala: number) => {
+      const c = ctx()
+      ultima().nodeCanvasObject(nodo, c, escala)
+      return c.fillText.mock.calls.length > 0
+    }
+    // Sin encuadre todavía no hay referencia: nada, ni con mucho zoom.
+    expect(conEtiqueta(10)).toBe(false)
+
+    fireEvent.wheel(screen.getByRole('group', { name: 'Memory graph' }))
+    // La vista de partida era zoom 2: el umbral queda en 2 × 1,5.
+    expect(conEtiqueta(2)).toBe(false)
+    expect(conEtiqueta(3)).toBe(true)
   })
 })

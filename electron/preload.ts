@@ -238,6 +238,9 @@ contextBridge.exposeInMainWorld('pty', {
     ipcRenderer.invoke('pty:getBuffer', paneId),
   getPid: (paneId: string) =>
     ipcRenderer.invoke('pty:pid', paneId),
+  // `onData`/`onExit` tienen un solo dueño a propósito: `src/pty-events.ts` es el bus que
+  // reparte a cada pane, y limpiar antes de suscribir evita duplicar la salida si ese módulo
+  // se re-evalúa (HMR).
   onData: (callback: (paneId: string, data: string) => void) => {
     ipcRenderer.removeAllListeners('pty:data')
     ipcRenderer.on('pty:data', (_event, paneId, data) => callback(paneId, data))
@@ -246,6 +249,7 @@ contextBridge.exposeInMainWorld('pty', {
     ipcRenderer.removeAllListeners('pty:exit')
     ipcRenderer.on('pty:exit', (_event, paneId) => callback(paneId))
   },
+  // El reset global del bus (stopListening, en beforeunload): ahí sí se quiere todo afuera.
   removeAllListeners: () => {
     ipcRenderer.removeAllListeners('pty:data')
     ipcRenderer.removeAllListeners('pty:exit')
@@ -301,24 +305,29 @@ contextBridge.exposeInMainWorld('appFlags', {
 contextBridge.exposeInMainWorld('windowControls', {
   send: (action: 'minimize' | 'maximize' | 'close') =>
     ipcRenderer.send(`window:${action}`),
+  // Como todo `on*` del puente salvo los de `pty`, devuelve su propia baja, que saca sólo ese
+  // oyente: una baja global deja sordos a los demás suscriptores del mismo canal.
   onShown: (callback: () => void) => {
-    ipcRenderer.removeAllListeners('window:shown')
-    ipcRenderer.on('window:shown', () => callback())
+    const handler = () => callback()
+    ipcRenderer.on('window:shown', handler)
+    return () => { ipcRenderer.removeListener('window:shown', handler) }
   },
   /**
    * Si la ventana está en pantalla completa. En macOS los semáforos se esconden ahí, y la
    * barra de pestañas les reserva 72px que quedarían vacíos.
    */
   onFullScreen: (callback: (full: boolean) => void) => {
-    ipcRenderer.removeAllListeners('window:fullscreen')
-    ipcRenderer.on('window:fullscreen', (_event, full: boolean) => callback(full))
+    const handler = (_event: IpcRendererEvent, full: boolean) => callback(full)
+    ipcRenderer.on('window:fullscreen', handler)
+    return () => { ipcRenderer.removeListener('window:fullscreen', handler) }
   },
 })
 
 contextBridge.exposeInMainWorld('updater', {
   onStatus: (cb: (status: 'downloading' | 'ready' | 'error', msg?: string) => void) => {
-    ipcRenderer.removeAllListeners('updater:status')
-    ipcRenderer.on('updater:status', (_event, status, msg) => cb(status, msg))
+    const handler = (_event: IpcRendererEvent, status: 'downloading' | 'ready' | 'error', msg?: string) => cb(status, msg)
+    ipcRenderer.on('updater:status', handler)
+    return () => { ipcRenderer.removeListener('updater:status', handler) }
   },
   install: () => ipcRenderer.send('updater:install'),
   checkForUpdates: () => ipcRenderer.invoke('updater:checkForUpdates'),
@@ -382,9 +391,11 @@ contextBridge.exposeInMainWorld('speech', {
   check: () => ipcRenderer.invoke('speech:check'),
   transcribe: (audio: Uint8Array, language?: string) => ipcRenderer.invoke('speech:transcribe', audio, language),
   onStatus: (cb: (status: 'loading' | 'ready') => void) => {
-    ipcRenderer.removeAllListeners('speech:status')
-    ipcRenderer.on('speech:status', (_event, status) => cb(status))
+    const handler = (_event: IpcRendererEvent, status: 'loading' | 'ready') => cb(status)
+    ipcRenderer.on('speech:status', handler)
+    return () => { ipcRenderer.removeListener('speech:status', handler) }
   },
+  /** @deprecated Borra los oyentes de TODAS las instancias: usá la baja de `onStatus`. */
   removeStatusListener: () => {
     ipcRenderer.removeAllListeners('speech:status')
   },
@@ -404,8 +415,9 @@ contextBridge.exposeInMainWorld('tempImages', {
 contextBridge.exposeInMainWorld('electronShell', {
   openExternal: (url: string) => ipcRenderer.send('shell:openExternal', url),
   onDeepLink: (cb: (url: string) => void) => {
-    ipcRenderer.removeAllListeners('auth:deeplink')
-    ipcRenderer.on('auth:deeplink', (_event, url) => cb(url))
+    const handler = (_event: IpcRendererEvent, url: string) => cb(url)
+    ipcRenderer.on('auth:deeplink', handler)
+    return () => { ipcRenderer.removeListener('auth:deeplink', handler) }
   },
   consumePendingDeepLink: (): Promise<string | null> => ipcRenderer.invoke('deeplink:consume'),
 })
@@ -423,9 +435,11 @@ contextBridge.exposeInMainWorld('safeStorage', {
 
 contextBridge.exposeInMainWorld('keybinds', {
   onTabCycle: (cb: (shift: boolean) => void) => {
-    ipcRenderer.removeAllListeners('keybind:tab-cycle')
-    ipcRenderer.on('keybind:tab-cycle', (_event, payload: { shift: boolean }) => cb(payload.shift))
+    const handler = (_event: IpcRendererEvent, payload: { shift: boolean }) => cb(payload.shift)
+    ipcRenderer.on('keybind:tab-cycle', handler)
+    return () => { ipcRenderer.removeListener('keybind:tab-cycle', handler) }
   },
+  /** @deprecated Borra TODOS los oyentes del canal: usá la baja de `onTabCycle`. */
   removeTabCycleListener: () => {
     ipcRenderer.removeAllListeners('keybind:tab-cycle')
   },
@@ -438,6 +452,8 @@ contextBridge.exposeInMainWorld('github', {
     ipcRenderer.on('github-oauth-code', handler)
     return () => ipcRenderer.removeListener('github-oauth-code', handler)
   },
+  // Global a propósito: hay un único flujo OAuth pendiente, y un Connect nuevo descarta el
+  // handler de un intento abandonado.
   removeOAuthListener: () => ipcRenderer.removeAllListeners('github-oauth-code'),
 })
 
@@ -448,6 +464,8 @@ contextBridge.exposeInMainWorld('gitlab', {
     ipcRenderer.on('gitlab-oauth-code', handler)
     return () => ipcRenderer.removeListener('gitlab-oauth-code', handler)
   },
+  // Global a propósito: hay un único flujo OAuth pendiente, y un Connect nuevo descarta el
+  // handler de un intento abandonado.
   removeOAuthListener: () => ipcRenderer.removeAllListeners('gitlab-oauth-code'),
 })
 
@@ -474,6 +492,7 @@ contextBridge.exposeInMainWorld('slack', {
     ipcRenderer.on('slack-oauth-code', handler)
     return () => ipcRenderer.removeListener('slack-oauth-code', handler)
   },
+  // Global a propósito, igual que GitHub y GitLab: un único flujo OAuth pendiente.
   removeOAuthListener: () => ipcRenderer.removeAllListeners('slack-oauth-code'),
   exchangeCode: (code: string) => ipcRenderer.invoke('slack:exchange-code', code),
 })
@@ -622,14 +641,19 @@ contextBridge.exposeInMainWorld('spotlight', {
   start: (worktreePath: string) => ipcRenderer.invoke('spotlight:start', worktreePath),
   stop: () => ipcRenderer.invoke('spotlight:stop'),
   status: () => ipcRenderer.invoke('spotlight:status'),
+  // Cada `on*` devuelve su baja: la de WorktreesSection al desmontarse no tiene que sacar a
+  // otro oyente del canal (un remontaje solapado, o un segundo consumidor).
   onStatus: (cb: (status: { active: boolean; worktreePath?: string; events?: number }) => void) => {
-    ipcRenderer.removeAllListeners('spotlight:status')
-    ipcRenderer.on('spotlight:status', (_e, s) => cb(s))
+    const handler = (_e: IpcRendererEvent, s: { active: boolean; worktreePath?: string; events?: number }) => cb(s)
+    ipcRenderer.on('spotlight:status', handler)
+    return () => { ipcRenderer.removeListener('spotlight:status', handler) }
   },
   onWarning: (cb: (msg: string) => void) => {
-    ipcRenderer.removeAllListeners('spotlight:warning')
-    ipcRenderer.on('spotlight:warning', (_e, msg) => cb(msg))
+    const handler = (_e: IpcRendererEvent, msg: string) => cb(msg)
+    ipcRenderer.on('spotlight:warning', handler)
+    return () => { ipcRenderer.removeListener('spotlight:warning', handler) }
   },
+  /** @deprecated Borra los oyentes de TODAS las secciones: usá la baja de `onStatus`/`onWarning`. */
   removeListeners: () => {
     ipcRenderer.removeAllListeners('spotlight:status')
     ipcRenderer.removeAllListeners('spotlight:warning')
@@ -687,14 +711,18 @@ contextBridge.exposeInMainWorld('preset', {
   trust: (repoPath: string, presetId: string, hash: string) =>
     ipcRenderer.invoke('preset:trust', repoPath, presetId, hash),
   cancel: (worktreePath: string) => ipcRenderer.invoke('preset:cancel', worktreePath),
+  // Igual que spotlight: cada `on*` devuelve su propia baja.
   onSetupProgress: (cb: (worktreePath: string, line: string) => void) => {
-    ipcRenderer.removeAllListeners('preset:setupProgress')
-    ipcRenderer.on('preset:setupProgress', (_e, wt, line) => cb(wt, line))
+    const handler = (_e: IpcRendererEvent, wt: string, line: string) => cb(wt, line)
+    ipcRenderer.on('preset:setupProgress', handler)
+    return () => { ipcRenderer.removeListener('preset:setupProgress', handler) }
   },
   onSetupState: (cb: (worktreePath: string, state: string) => void) => {
-    ipcRenderer.removeAllListeners('preset:setupState')
-    ipcRenderer.on('preset:setupState', (_e, wt, state) => cb(wt, state))
+    const handler = (_e: IpcRendererEvent, wt: string, state: string) => cb(wt, state)
+    ipcRenderer.on('preset:setupState', handler)
+    return () => { ipcRenderer.removeListener('preset:setupState', handler) }
   },
+  /** @deprecated Borra los oyentes de TODAS las secciones: usá la baja de `onSetupProgress`/`onSetupState`. */
   removeListeners: () => {
     ipcRenderer.removeAllListeners('preset:setupProgress')
     ipcRenderer.removeAllListeners('preset:setupState')
