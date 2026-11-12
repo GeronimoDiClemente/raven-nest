@@ -298,6 +298,32 @@ describe('review actions (git real)', () => {
     expect(f.store.list()).toEqual([])
   })
 
+  // Revisión final: una entrada vieja (o editada a mano) con el worktree ausente no puede
+  // borrar cualquier rama que nombre el JSON: sólo las de los workers (`nest/`).
+  it('una entrada ausente con una rama que no es nest/ se rechaza y la rama queda', async () => {
+    git(f.repo, 'branch', 'feature/x')
+    const remove = vi.fn(f.deps.removeWorktree)
+    const a = createReviewActions({ ...f.deps, removeWorktree: remove })
+    const ajena = { ...f.e, branch: 'feature/x', worktreePath: join(f.repo, '..', 'no-existe') }
+    expect(await a.discard(ajena)).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(await a.merge(ajena)).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(await a.openPr(ajena)).toEqual({ ok: false, error: 'invalid_entry' })
+    expect(git(f.repo, 'branch', '--list', 'feature/x')).toContain('feature/x')
+    expect(remove).not.toHaveBeenCalled()
+    expect(f.store.list()).toHaveLength(1)
+  })
+
+  it('removeWorktree recibe el path que registra git, no el del JSON', async () => {
+    const link = join(f.repo, '..', 'link-al-worktree')
+    execFileSync('ln', ['-s', f.wt, link])
+    const vistos: string[] = []
+    const remove = vi.fn(async (x: ReviewEntry) => { vistos.push(x.worktreePath); return f.deps.removeWorktree(x) })
+    const r = await createReviewActions({ ...f.deps, removeWorktree: remove }).discard({ ...f.e, worktreePath: link })
+    expect(r).toEqual({ ok: true })
+    expect(vistos).toEqual([f.wt])
+    expect(existsSync(f.wt)).toBe(false)
+  })
+
   it('un merge que Gero dejó a medias en la base no se aborta', async () => {
     git(f.repo, 'branch', 'gero')
     git(f.repo, 'checkout', '-q', 'gero')

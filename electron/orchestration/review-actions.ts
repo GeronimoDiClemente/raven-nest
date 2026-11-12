@@ -79,8 +79,11 @@ function carpeta(p: string): string {
   }
 }
 
-/** Nombre de rama que se puede pasar a git sin que se lea como opción. */
-const ramaSegura = (b: string): boolean => REF_VALIDO.test(b) && !b.startsWith('-') && b !== 'HEAD'
+/** Rama de un worker que se puede pasar a git: sin que se lea como opción, y sólo las que crea
+ *  la orquestación (`nest/…`, branch-name.ts). Una entrada del JSON que nombre otra rama
+ *  (`main`, `feature/x`) nunca se mergea, empuja ni borra, aunque su worktree ya no esté. */
+const ramaSegura = (b: string): boolean =>
+  REF_VALIDO.test(b) && !b.startsWith('-') && b !== 'HEAD' && b.startsWith('nest/') && b.length > 'nest/'.length
 
 /** Cola por clave: dos merges en el mismo worktree base corren de a uno. */
 function crearCandado() {
@@ -111,7 +114,11 @@ export function createReviewActions(deps: ReviewActionDeps) {
    */
   const verificar = async (
     e: ReviewEntry
-  ): Promise<{ ok: true; estado: 'registrado' | 'ausente'; worktrees: WorktreeListado[] } | { ok: false; r: ReviewResult }> => {
+  ): Promise<
+    | { ok: true; estado: 'registrado'; path: string; worktrees: WorktreeListado[] }
+    | { ok: true; estado: 'ausente'; worktrees: WorktreeListado[] }
+    | { ok: false; r: ReviewResult }
+  > => {
     const invalida = { ok: false as const, r: falla('invalid_entry') }
     if (!ramaSegura(e.branch)) return invalida
     if (e.baseBranch !== 'HEAD' && (!REF_VALIDO.test(e.baseBranch) || e.baseBranch.startsWith('-'))) return invalida
@@ -131,7 +138,9 @@ export function createReviewActions(deps: ReviewActionDeps) {
       return { ok: true, estado: 'ausente', worktrees }
     }
     if (!registrado || registrado.branch !== e.branch) return invalida
-    return { ok: true, estado: 'registrado', worktrees }
+    // De acá en más se usa el path que registra git, no el del JSON (que puede ser un symlink
+    // o tener otra forma): es el que se borra y dentro del cual se matan panes.
+    return { ok: true, estado: 'registrado', path: registrado.path, worktrees }
   }
 
   return {
@@ -140,11 +149,12 @@ export function createReviewActions(deps: ReviewActionDeps) {
       const v = await verificar(e)
       if (!v.ok) return v.r
       if (v.estado !== 'registrado') return falla('invalid_entry')
+      const wt = v.path
 
       // Borrar el worktree con `--force` se lleva lo no commiteado: si el worker dejó algo
       // (incluidos archivos nuevos), no se mergea ni se borra nada.
       try {
-        if ((await git(['-C', e.worktreePath, 'status', '--porcelain'])) !== '') return falla('worker_dirty')
+        if ((await git(['-C', wt, 'status', '--porcelain'])) !== '') return falla('worker_dirty')
       } catch (err) {
         return falla('git_failed', mensaje(err))
       }
@@ -191,7 +201,7 @@ export function createReviewActions(deps: ReviewActionDeps) {
           return falla('merge_failed', mensaje(err))
         }
 
-        const r = await deps.removeWorktree(e)
+        const r = await deps.removeWorktree({ ...e, worktreePath: wt })
         // Ya está mergeado: la entrada queda para reintentar (un merge repetido no hace nada).
         if (!r.ok) return falla('remove_failed', r.error)
         deps.store.remove(e.workerId)
@@ -207,14 +217,14 @@ export function createReviewActions(deps: ReviewActionDeps) {
       if (v.estado !== 'registrado') return falla('invalid_entry')
       let origin = ''
       try {
-        origin = await git(['-C', e.worktreePath, 'remote', 'get-url', 'origin'])
+        origin = await git(['-C', v.path, 'remote', 'get-url', 'origin'])
       } catch {
         origin = ''
       }
       const gh = parseGithubRepo(origin)
       if (!gh) return falla('no_github_remote')
 
-      const push = await deps.pushBranch(e.worktreePath)
+      const push = await deps.pushBranch(v.path)
       if (!push.ok) return falla('push_failed', push.error)
 
       // Con la base desconocida (detached HEAD) GitHub elige la rama por defecto.
@@ -227,7 +237,7 @@ export function createReviewActions(deps: ReviewActionDeps) {
       const v = await verificar(e)
       if (!v.ok) return v.r
       if (v.estado === 'registrado') {
-        const r = await deps.removeWorktree(e)
+        const r = await deps.removeWorktree({ ...e, worktreePath: v.path })
         if (!r.ok) return falla('remove_failed', r.error)
       } else {
         // La carpeta ya no está: se olvida su registro (si quedó) para que git suelte la rama.
