@@ -23,7 +23,7 @@ describe('EditorGraphSection', () => {
     expect(screen.getByText("Hide Markdown syntax except on the line you're editing.")).toBeInTheDocument()
     expect(screen.getByText('Turn off on slow machines: nodes appear already in place.')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Font size' })).toHaveTextContent('13 px')
-    expect(screen.getByRole('combobox', { name: 'Labels' })).toHaveTextContent('When zoomed in')
+    expect(screen.getByRole('combobox', { name: 'Labels' })).toHaveTextContent('Always')
   })
 
   it('cada switch cambia sólo su campo', () => {
