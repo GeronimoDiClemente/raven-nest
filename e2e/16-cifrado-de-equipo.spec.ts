@@ -481,6 +481,13 @@ async function escenario(): Promise<void> {
     const syncIdPosArranque = escribirDeEquipoConLaAppCerrada(homeDirA, a.projectKey, posArranque)
     expect(syncIdPosArranque).toBeTruthy()
 
+    // El device de A ya gastó en el último minuto los 12 pedidos de claves que deja
+    // `keysLimiter` (server/src/http.ts): enroll, keys, activar, migrar, la tarjeta. Relanzarlo
+    // ya hacía que la readopción del arranque (`GET /v1/teams/key`) volviera 429, y el reintento
+    // recién llega con el próximo status, después del poll de abajo (medido el 2026-11-12: falla
+    // siempre sin esta espera, pasa con ella). Un usuario real no relanza tan rápido.
+    await new Promise((r) => setTimeout(r, 61_000))
+
     h = await launchHarness({ homeDir: homeDirA })
     apuntarAlRemoto(h.repoDir, marca) // mismo remoto → mismo project_key que antes
     await conectar(h.page, cA)
