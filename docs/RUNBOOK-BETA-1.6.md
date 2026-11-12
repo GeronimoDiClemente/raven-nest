@@ -46,7 +46,7 @@ cd server
 railway variables --service sync --set R2_BETAS_BUCKET=<el bucket del paso 1>
 ```
 
-`betas.ts` usa `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` y `R2_SECRET_ACCESS_KEY`, las mismas de los
+`betas.ts` usa `R2_BETAS_ACCESS_KEY_ID` y `R2_BETAS_SECRET_ACCESS_KEY` si están (el mismo token que GitHub; recomendado: el de backups da 403 sobre `nest-betas`, medido el 12-nov), y si no, `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, las mismas de los
 backups: el token de esas variables tiene que poder **leer** el bucket de betas. Si es un token
 sólo del bucket de backups, ampliarlo o crear uno nuevo.
 

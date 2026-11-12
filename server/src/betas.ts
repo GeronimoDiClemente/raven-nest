@@ -33,8 +33,12 @@ export type BetasConfig = R2Config & { linkSecret: string }
 /** `null` cuando falta algo: sin bucket o sin secreto la beta no se reparte, y el resto del servicio anda igual. */
 export function betasConfigFromEnv(env: NodeJS.ProcessEnv = process.env): BetasConfig | null {
   const accountId = env.R2_ACCOUNT_ID
-  const accessKeyId = env.R2_ACCESS_KEY_ID
-  const secretAccessKey = env.R2_SECRET_ACCESS_KEY
+  // Un token propio del bucket de betas si está (el mismo que usa `release.yml` para subir), así
+  // el de los backups no necesita ver otro bucket. Sólo el par completo: un id de uno con el
+  // secreto del otro no abre nada.
+  const propio = env.R2_BETAS_ACCESS_KEY_ID && env.R2_BETAS_SECRET_ACCESS_KEY
+  const accessKeyId = propio ? env.R2_BETAS_ACCESS_KEY_ID : env.R2_ACCESS_KEY_ID
+  const secretAccessKey = propio ? env.R2_BETAS_SECRET_ACCESS_KEY : env.R2_SECRET_ACCESS_KEY
   const bucket = env.R2_BETAS_BUCKET
   const linkSecret = env.BETA_LINK_SECRET ?? ''
   // Un secreto corto se adivina por fuerza bruta offline a partir de un link cualquiera.

@@ -51,6 +51,15 @@ describe('el link personal', () => {
     expect(betasConfigFromEnv({ ...base, BETA_LINK_SECRET: SECRETO })).not.toBeNull()
     expect(betasConfigFromEnv({ BETA_LINK_SECRET: SECRETO })).toBeNull()
   })
+
+  it('con un token propio de betas usa ése y no el de los backups', () => {
+    const base = { R2_ACCOUNT_ID: 'a', R2_ACCESS_KEY_ID: 'backup-id', R2_SECRET_ACCESS_KEY: 'backup-secret', R2_BETAS_BUCKET: 'd', BETA_LINK_SECRET: SECRETO }
+    expect(betasConfigFromEnv(base)).toMatchObject({ accessKeyId: 'backup-id', secretAccessKey: 'backup-secret' })
+    const conPropio = { ...base, R2_BETAS_ACCESS_KEY_ID: 'betas-id', R2_BETAS_SECRET_ACCESS_KEY: 'betas-secret' }
+    expect(betasConfigFromEnv(conPropio)).toMatchObject({ accessKeyId: 'betas-id', secretAccessKey: 'betas-secret' })
+    // A medias no se mezcla: el id de uno con el secreto del otro no abre nada.
+    expect(betasConfigFromEnv({ ...base, R2_BETAS_ACCESS_KEY_ID: 'betas-id' })).toMatchObject({ accessKeyId: 'backup-id', secretAccessKey: 'backup-secret' })
+  })
 })
 
 describe('qué archivos se pueden pedir', () => {
