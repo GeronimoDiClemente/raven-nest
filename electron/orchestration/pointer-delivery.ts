@@ -16,6 +16,18 @@ export const QUIET_MS = 3_000
 export const ENTER_DELAY_MS = 500
 export const RECHECK_MS = 2_000
 export const DRAFT_HOLD_MAX_MS = 600_000
+// Un Esc al final de un chunk espera esto al chunk siguiente antes de tomarse por Esc suelto.
+const ESC_FLUSH_MS = 50
+const MAX_PEND = 4096
+
+interface Draft {
+  count: number
+  at: number
+  bs: boolean
+  paste: boolean // dentro de un pegado con marcadores (persiste entre chunks)
+  pend: string // escape incompleto a la espera del chunk siguiente
+  cancelEsc: () => void
+}
 
 export interface PointerDeps {
   now(): number
@@ -42,7 +54,7 @@ export class PointerDelivery {
   private readonly flights = new Map<string, Flight>()
   // paneId -> borrador de la línea actual: cantidad de caracteres imprimibles, última tecla
   // y si el último fue una barra invertida (\ + Enter es salto de línea, no envío).
-  private readonly drafts = new Map<string, { count: number; at: number; bs: boolean }>()
+  private readonly drafts = new Map<string, Draft>()
   private readonly watches = new Map<string, Watch>()
 
   constructor(
@@ -63,33 +75,104 @@ export class PointerDelivery {
 
   /** Lo que el usuario escribió en un pane (pty:write del renderer). */
   onUserInput(paneId: string, data: string): void {
-    const d = this.drafts.get(paneId) ?? { count: 0, at: 0, bs: false }
+    const d = this.draftDe(paneId)
+    d.cancelEsc()
+    d.cancelEsc = () => {}
+    // Lo que quedó a medias del chunk anterior se completa con éste.
+    const submitted = this.procesar(d, Array.from(d.pend + data))
+    this.guardarDraft(paneId, d)
+    // El Enter real del usuario ya envió lo que había en la línea, puntero incluido.
+    if (submitted) {
+      const f = this.flights.get(paneId)
+      if (f && f.phase === 'enter') {
+        f.cancelTimer()
+        this.terminarVuelo(paneId, f)
+      }
+    }
+    // Un Esc al final del chunk espera al siguiente; si no llega nada, era un Esc suelto.
+    if (d.pend === '\x1b') {
+      d.cancelEsc = this.deps.setTimer(() => {
+        d.cancelEsc = () => {}
+        if (d.pend !== '\x1b') return
+        d.pend = ''
+        d.count = 0
+        d.bs = false
+        d.at = this.deps.now()
+        this.guardarDraft(paneId, d)
+      }, ESC_FLUSH_MS)
+    }
+  }
+
+  private draftDe(paneId: string): Draft {
+    return (
+      this.drafts.get(paneId) ?? {
+        count: 0,
+        at: 0,
+        bs: false,
+        paste: false,
+        pend: '',
+        cancelEsc: () => {}
+      }
+    )
+  }
+
+  private guardarDraft(paneId: string, d: Draft): void {
+    d.at = this.deps.now()
+    if (d.count > 0 || d.bs || d.paste || d.pend !== '') this.drafts.set(paneId, d)
+    else this.drafts.delete(paneId)
+  }
+
+  // Devuelve true si hubo un Enter real (envío). Deja en d.pend un escape incompleto.
+  private procesar(d: Draft, cs: string[]): boolean {
     let submitted = false
-    let paste = false
+    d.pend = ''
     const salto = (): void => {
       // un salto de línea que no envía deja el borrador no vacío
       d.count = Math.max(d.count, 1)
       d.bs = false
     }
-    for (let i = 0; i < data.length; i++) {
-      const c = data[i]
+    const incompleto = (i: number): void => {
+      const resto = cs.slice(i).join('')
+      d.pend = resto.length > MAX_PEND ? '' : resto
+    }
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i]
       if (c === '\x1b') {
-        const n = data[i + 1]
-        if (n === undefined) {
-          d.count = 0 // Esc suelto: cancela la línea
-          d.bs = false
-        } else if (n === '[') {
+        const n = cs[i + 1]
+        if (n === undefined) return (incompleto(i), submitted)
+        if (n === '[') {
           let j = i + 2
-          while (j < data.length && data.charCodeAt(j) >= 0x20 && data.charCodeAt(j) <= 0x3f) j++
-          const params = data.slice(i + 2, j)
-          const final = data[j]
-          if (final === '~' && params === '200') paste = true
-          else if (final === '~' && params === '201') paste = false
+          while (j < cs.length && cs[j].charCodeAt(0) >= 0x20 && cs[j].charCodeAt(0) <= 0x3f) j++
+          if (j >= cs.length) return (incompleto(i), submitted)
+          const params = cs.slice(i + 2, j).join('')
+          const final = cs[j]
+          if (final === '~' && params === '200') d.paste = true
+          else if (final === '~' && params === '201') d.paste = false
           // reporte de mouse legacy: \x1b[M + 3 bytes crudos
-          if (final === 'M' && params === '') j += 3
-          i = Math.min(j, data.length)
+          if (final === 'M' && params === '') {
+            if (j + 3 >= cs.length) return (incompleto(i), submitted)
+            j += 3
+          }
+          i = j
         } else if (n === 'O') {
+          if (i + 2 >= cs.length) return (incompleto(i), submitted)
           i += 2 // SS3: \x1bO<x>
+        } else if (n === ']' || n === 'P') {
+          // OSC (termina en BEL o ST) y DCS (termina en ST): se saltea el payload
+          let j = i + 2
+          let fin = -1
+          for (; j < cs.length; j++) {
+            if (n === ']' && cs[j] === '\x07') {
+              fin = j
+              break
+            }
+            if (cs[j] === '\x1b' && cs[j + 1] === '\\') {
+              fin = j + 1
+              break
+            }
+          }
+          if (fin < 0) return (incompleto(i), submitted)
+          i = fin
         } else if (n === '\r') {
           salto() // Alt+Enter: no envía
           i += 1
@@ -99,9 +182,8 @@ export class PointerDelivery {
         continue
       }
       if (c === '\r') {
-        if (!paste && !d.bs) {
+        if (!d.paste && !d.bs) {
           d.count = 0
-          d.bs = false
           submitted = true
         } else salto()
       } else if (c === '\n') salto()
@@ -111,22 +193,12 @@ export class PointerDelivery {
       } else if (c === '\x03' || c === '\x15') {
         d.count = 0
         d.bs = false
-      } else if (c.charCodeAt(0) >= 0x20) {
+      } else if (c.codePointAt(0)! >= 0x20) {
         d.count++
         d.bs = c === '\\'
       }
     }
-    d.at = this.deps.now()
-    if (d.count > 0 || d.bs) this.drafts.set(paneId, d)
-    else this.drafts.delete(paneId)
-    // El Enter real del usuario ya envió lo que había en la línea, puntero incluido.
-    if (submitted) {
-      const f = this.flights.get(paneId)
-      if (f && f.phase === 'enter') {
-        f.cancelTimer()
-        this.terminarVuelo(paneId, f)
-      }
-    }
+    return submitted
   }
 
   onOutput(paneId: string): void {
@@ -136,12 +208,23 @@ export class PointerDelivery {
   cancel(coordinatorPaneId: string): void {
     this.flights.get(coordinatorPaneId)?.cancelTimer()
     this.flights.delete(coordinatorPaneId)
-    this.drafts.delete(coordinatorPaneId)
+  }
+
+  // Pane muerto: además del vuelo se descarta el borrador. En paths con el pane vivo
+  // (p.ej. n === 0) el borrador es real y se conserva.
+  private muerto(paneId: string): void {
+    this.cancel(paneId)
+    this.soltarDraft(paneId)
+  }
+
+  private soltarDraft(paneId: string): void {
+    this.drafts.get(paneId)?.cancelEsc()
+    this.drafts.delete(paneId)
   }
 
   /** El pane se cerró: suelta vuelo, borrador y watch. */
   forget(paneId: string): void {
-    this.cancel(paneId)
+    this.muerto(paneId)
     this.watches.get(paneId)?.cancelTimer()
     this.watches.delete(paneId)
   }
@@ -164,7 +247,7 @@ export class PointerDelivery {
     const d = this.drafts.get(paneId)
     if (d === undefined) return false
     if (this.deps.now() - d.at >= DRAFT_HOLD_MAX_MS) {
-      this.drafts.delete(paneId)
+      this.soltarDraft(paneId)
       return false
     }
     return true
@@ -181,7 +264,7 @@ export class PointerDelivery {
 
   private intentarTexto(coord: string, flight: Flight): void {
     if (this.flights.get(coord) !== flight) return
-    if (!this.deps.isAlive(coord)) return this.cancel(coord)
+    if (!this.deps.isAlive(coord)) return this.muerto(coord)
     const n = this.state.pending(coord).length
     if (n === 0) return this.cancel(coord)
     if (this.quieto(coord) && !this.diálogo(coord) && !this.hayBorrador(coord)) {
@@ -199,7 +282,7 @@ export class PointerDelivery {
 
   private intentarEnter(coord: string, flight: Flight): void {
     if (this.flights.get(coord) !== flight) return
-    if (!this.deps.isAlive(coord)) return this.cancel(coord)
+    if (!this.deps.isAlive(coord)) return this.muerto(coord)
     // Re-chequeo: en estos 500 ms pudo aparecer un borrador o un diálogo.
     if (this.diálogo(coord) || this.hayBorrador(coord)) {
       flight.cancelTimer = this.deps.setTimer(() => this.intentarEnter(coord, flight), RECHECK_MS)
@@ -215,7 +298,7 @@ export class PointerDelivery {
       this.deps.writePty(paneId, data)
       return true
     } catch {
-      this.cancel(paneId)
+      this.muerto(paneId)
       return false
     }
   }

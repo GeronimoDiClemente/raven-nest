@@ -354,14 +354,67 @@ describe('PointerDelivery', () => {
     expect(h.timers).toHaveLength(0)
   })
 
-  it('forget y cancel limpian el borrador', () => {
-    for (const f of ['forget', 'cancel'] as const) {
-      const h = armar()
-      h.push()
-      h.pd.onUserInput('c', 'hola')
-      h.pd[f]('c')
-      h.pd.notify('c')
-      expect(h.writes).toHaveLength(1)
-    }
+  it('forget limpia el borrador; cancel (pane vivo) lo conserva', () => {
+    const h = armar()
+    h.push()
+    h.pd.onUserInput('c', 'hola')
+    h.pd.cancel('c')
+    h.pd.notify('c')
+    h.advance(RECHECK_MS * 2)
+    expect(h.writes).toHaveLength(0)
+    h.pd.forget('c')
+    h.pd.notify('c')
+    expect(h.writes).toHaveLength(1)
+  })
+
+  it('el agente consume los mensajes (n=0) con un borrador vivo: el próximo notify no escribe', () => {
+    const h = armar()
+    h.push()
+    h.pd.onUserInput('c', 'hola')
+    h.pd.notify('c')
+    h.state.markDelivered('c') // el agente leyó la bandeja por su cuenta
+    h.advance(RECHECK_MS) // intentarTexto ve n === 0 y termina el vuelo
+    h.push()
+    h.pd.notify('c')
+    h.advance(RECHECK_MS * 3)
+    expect(h.writes).toEqual([])
+  })
+
+  it('un Esc partido en dos chunks no es un Esc suelto', () => {
+    const h = armar()
+    expect(bloquea(h, 'hola', '\x1b', '[I')).toBe(true)
+    const h2 = armar()
+    expect(bloquea(h2, 'hola', '\x1b[1', ';5R')).toBe(true)
+    expect(bloquea(armar(), '\x1b', '[I')).toBe(false)
+  })
+
+  it('un Esc suelto sin continuación borra el borrador tras ESC_FLUSH', () => {
+    const h = armar()
+    h.push()
+    h.pd.onUserInput('c', 'hola')
+    h.pd.onUserInput('c', '\x1b')
+    h.pd.notify('c')
+    h.advance(RECHECK_MS)
+    expect(h.writes[0]).toEqual({ paneId: 'c', data: pointerLine(1) })
+  })
+
+  it('un pegado partido en chunks con \\r adentro no envía', () => {
+    const h = armar()
+    expect(bloquea(h, '\x1b[200~uno', '\rdos', '\x1b[201~')).toBe(true)
+    expect(bloquea(armar(), '\x1b[200~uno', '\r')).toBe(true) // sigue en paste
+    // fuera del paste, un \r sí envía
+    expect(bloquea(armar(), '\x1b[200~uno\x1b[201~', '\r')).toBe(false)
+  })
+
+  it('los payloads OSC y DCS no cuentan como borrador', () => {
+    expect(bloquea(armar(), '\x1b]11;rgb:0000/0000/0000\x07')).toBe(false)
+    expect(bloquea(armar(), '\x1b]10;rgb:ffff\x1b\\')).toBe(false)
+    expect(bloquea(armar(), '\x1bP1$r0m\x1b\\')).toBe(false)
+    expect(bloquea(armar(), '\x1b]11;rgb:00', '00\x07')).toBe(false) // partido
+  })
+
+  it('cuenta por code point: un emoji se borra con un solo backspace', () => {
+    expect(bloquea(armar(), '😀', '\x7f')).toBe(false)
+    expect(bloquea(armar(), '😀😀', '\x7f')).toBe(true)
   })
 })
