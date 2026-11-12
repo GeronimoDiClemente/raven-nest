@@ -1,0 +1,251 @@
+import { describe, it, expect, vi } from 'vitest'
+import { OrchestrationState } from '../orchestration/orchestration-state'
+import {
+  PointerDelivery,
+  QUIET_MS,
+  ENTER_DELAY_MS,
+  RECHECK_MS,
+  DRAFT_HOLD_MAX_MS,
+  type PointerDeps
+} from '../orchestration/pointer-delivery'
+import { pointerLine } from '../orchestration/prompts'
+
+const PERMISO = 'Do you want to proceed? (yes/no)'
+
+function armar() {
+  let t = 100_000
+  const timers: { id: number; at: number; fn: () => void }[] = []
+  let seq = 0
+  const writes: { paneId: string; data: string }[] = []
+  const est = { tail: '', lastOut: null as number | null, alive: true }
+  const deps: PointerDeps = {
+    now: () => t,
+    setTimer: (fn, ms) => {
+      const id = ++seq
+      timers.push({ id, at: t + ms, fn })
+      return () => {
+        const i = timers.findIndex((x) => x.id === id)
+        if (i >= 0) timers.splice(i, 1)
+      }
+    },
+    writePty: (paneId, data) => void writes.push({ paneId, data }),
+    bufferTail: () => est.tail,
+    lastOutputAt: () => est.lastOut,
+    isAlive: () => est.alive
+  }
+  const advance = (ms: number) => {
+    const fin = t + ms
+    for (;;) {
+      timers.sort((a, b) => a.at - b.at)
+      const next = timers[0]
+      if (!next || next.at > fin) break
+      timers.shift()
+      t = Math.max(t, next.at)
+      next.fn()
+    }
+    t = fin
+  }
+  const state = new OrchestrationState()
+  const w = state.addWorker(
+    {
+      workerId: 'w1',
+      coordinatorPaneId: 'c',
+      paneId: 'pw',
+      label: 'W1',
+      branch: 'b',
+      worktreePath: '/wt',
+      baseBranch: 'main',
+      agent: 'claude'
+    },
+    t
+  )
+  const push = () => state.push(w.workerId, 'done', 'listo', t)
+  const pd = new PointerDelivery(deps, state)
+  return { pd, state, est, writes, advance, push, now: () => t, timers }
+}
+
+describe('PointerDelivery', () => {
+  it('entrega cuando lleva 3 s quieto', () => {
+    const h = armar()
+    h.est.lastOut = h.now() - QUIET_MS
+    h.push()
+    h.pd.notify('c')
+    expect(h.writes).toEqual([{ paneId: 'c', data: pointerLine(1) }])
+    expect(h.state.pending('c')[0].delivery).toBe('pointed')
+  })
+
+  it('no entrega con output reciente y reintenta', () => {
+    const h = armar()
+    h.est.lastOut = h.now() - 100
+    h.push()
+    h.pd.notify('c')
+    expect(h.writes).toEqual([])
+    h.advance(RECHECK_MS)
+    expect(h.writes).toEqual([])
+    h.advance(RECHECK_MS) // ya pasaron > 3 s desde el último output
+    expect(h.writes[0]).toEqual({ paneId: 'c', data: pointerLine(1) })
+  })
+
+  it('no escribe con borrador pendiente', () => {
+    const h = armar()
+    h.push()
+    h.pd.onUserInput('c', 'hola')
+    h.pd.notify('c')
+    h.advance(RECHECK_MS * 3)
+    expect(h.writes).toEqual([])
+  })
+
+  it('entrega después de que el usuario manda Enter', () => {
+    const h = armar()
+    h.push()
+    h.pd.onUserInput('c', 'hola')
+    h.pd.notify('c')
+    h.advance(RECHECK_MS)
+    expect(h.writes).toEqual([])
+    h.pd.onUserInput('c', '\r')
+    h.advance(RECHECK_MS)
+    expect(h.writes[0]).toEqual({ paneId: 'c', data: pointerLine(1) })
+  })
+
+  it('suelta el borrador pasado DRAFT_HOLD_MAX_MS', () => {
+    const h = armar()
+    h.push()
+    h.pd.onUserInput('c', 'hola')
+    h.pd.notify('c')
+    h.advance(DRAFT_HOLD_MAX_MS + RECHECK_MS)
+    expect(h.writes[0]).toEqual({ paneId: 'c', data: pointerLine(1) })
+  })
+
+  it('no entrega con prompt de permiso en pantalla', () => {
+    const h = armar()
+    h.est.tail = PERMISO
+    h.push()
+    h.pd.notify('c')
+    h.advance(RECHECK_MS * 3)
+    expect(h.writes).toEqual([])
+    h.est.tail = ''
+    h.advance(RECHECK_MS)
+    expect(h.writes).toHaveLength(1)
+  })
+
+  it('Enter va 500 ms después del texto', () => {
+    const h = armar()
+    h.push()
+    h.pd.notify('c')
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1)])
+    h.advance(ENTER_DELAY_MS - 1)
+    expect(h.writes).toHaveLength(1)
+    h.advance(1)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1), '\r'])
+  })
+
+  it('difiere el Enter si apareció un borrador en esos 500 ms', () => {
+    const h = armar()
+    h.push()
+    h.pd.notify('c')
+    h.pd.onUserInput('c', 'x')
+    h.advance(ENTER_DELAY_MS)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1)])
+    h.pd.onUserInput('c', '\r') // el usuario envía su propio texto
+    h.advance(RECHECK_MS)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1), '\r'])
+  })
+
+  it('difiere el Enter si apareció un diálogo en esos 500 ms', () => {
+    const h = armar()
+    h.push()
+    h.pd.notify('c')
+    h.est.tail = PERMISO
+    h.advance(ENTER_DELAY_MS + RECHECK_MS)
+    expect(h.writes).toHaveLength(1)
+    h.est.tail = ''
+    h.advance(RECHECK_MS)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1), '\r'])
+  })
+
+  it('un solo puntero en vuelo', () => {
+    const h = armar()
+    h.push()
+    h.pd.notify('c')
+    h.push()
+    h.pd.notify('c')
+    h.advance(RECHECK_MS * 3)
+    expect(h.writes.filter((x) => x.data !== '\r')).toHaveLength(1)
+    // terminado el vuelo, el mensaje 'pending' nuevo sí habilita otro puntero
+    h.est.lastOut = null
+    h.pd.notify('c')
+    expect(h.writes.filter((x) => x.data !== '\r')).toHaveLength(2)
+    expect(h.writes.filter((x) => x.data !== '\r')[1].data).toBe(pointerLine(2))
+  })
+
+  it('mensajes ya apuntados no disparan otro puntero', () => {
+    const h = armar()
+    h.push()
+    h.pd.notify('c')
+    h.advance(ENTER_DELAY_MS)
+    h.pd.notify('c')
+    h.advance(RECHECK_MS * 3)
+    expect(h.writes.map((x) => x.data)).toEqual([pointerLine(1), '\r'])
+  })
+
+  it('cancela entregas del coordinador muerto', () => {
+    const h = armar()
+    h.est.lastOut = h.now()
+    h.push()
+    h.pd.notify('c')
+    h.est.alive = false
+    h.advance(RECHECK_MS * 5)
+    expect(h.writes).toEqual([])
+    expect(h.timers).toHaveLength(0)
+  })
+
+  it('no escribe el Enter si el coordinador murió entre texto y Enter', () => {
+    const h = armar()
+    h.push()
+    h.pd.notify('c')
+    h.est.alive = false
+    h.advance(ENTER_DELAY_MS * 4)
+    expect(h.writes).toHaveLength(1)
+  })
+
+  it('cancel limpia timers y permite re-notificar', () => {
+    const h = armar()
+    h.est.lastOut = h.now()
+    h.push()
+    h.pd.notify('c')
+    h.pd.cancel('c')
+    expect(h.timers).toHaveLength(0)
+    h.advance(RECHECK_MS * 3)
+    expect(h.writes).toEqual([])
+    h.pd.notify('c')
+    h.advance(RECHECK_MS * 2)
+    expect(h.writes[0]).toEqual({ paneId: 'c', data: pointerLine(1) })
+  })
+
+  it('watchWorker avisa una vez por episodio', () => {
+    const h = armar()
+    const cb = vi.fn()
+    const off = h.pd.watchWorker('pw', cb)
+    h.est.tail = PERMISO
+    h.est.lastOut = h.now()
+    h.pd.onOutput('pw')
+    expect(cb).not.toHaveBeenCalled() // todavía no está quieto
+    h.advance(QUIET_MS + RECHECK_MS) // el recheck periódico lo ve quieto
+    expect(cb).toHaveBeenCalledTimes(1)
+    h.advance(RECHECK_MS * 5)
+    h.pd.onOutput('pw')
+    expect(cb).toHaveBeenCalledTimes(1)
+    h.est.tail = 'working...' // la condición se despeja
+    h.pd.onOutput('pw')
+    h.est.tail = PERMISO // episodio nuevo
+    h.pd.onOutput('pw')
+    expect(cb).toHaveBeenCalledTimes(2)
+    off()
+    expect(h.timers).toHaveLength(0)
+    h.est.tail = 'x'
+    h.pd.onOutput('pw')
+    h.est.tail = PERMISO
+    h.pd.onOutput('pw')
+    expect(cb).toHaveBeenCalledTimes(2)
+  })
+})

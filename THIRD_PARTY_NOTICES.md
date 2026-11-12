@@ -66,3 +66,4 @@ Each entry: Raven Nest file <- upstream source. Append new entries at the end of
 - electron/orchestration/pane-tokens.ts <- t3code apps/server/src/mcp/McpSessionRegistry.ts
 - electron/orchestration/orchestration-state.ts <- orca mailbox/terminal-pointer (delivery state idea)
 - electron/orchestration/prompts.ts <- orca worker-dispatch-preamble.ts and skill-guides/orchestration.md; t3code orchestrationInstructions.ts
+- electron/orchestration/pointer-delivery.ts <- orca mailbox/terminal-pointer (mailbox-pointer-eligibility.ts, mailbox-pointer-delivery.ts, mailbox-pointer-stage.ts, mailbox-pointer-submit.ts)
