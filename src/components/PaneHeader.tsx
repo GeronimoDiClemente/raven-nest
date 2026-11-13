@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type ReactNode } from 'react'
 import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
 import { indicesDeIdentidad, NOMBRE_ANSI, colorDeTema, resolverColorDePane, TEMA_NEST, type TemaDeTerminal } from '../lib/terminal-themes'
 import { ETIQUETA_DE_ESTADO, DETALLE_DE_ESTADO, ESTADOS_VISIBLES, type EstadoDePane } from '../lib/pane-state'
@@ -46,9 +46,11 @@ interface Props {
   hasNextStep?: boolean
   onHandoff?: () => void
   onRename?: (label: string) => void  // rename the pane (sets customLabel; '' clears it back to the default)
+  /** Pane de un worker de orquestación: su badge de estado (WorkerPaneBadge), al lado del nombre. */
+  workerBadge?: ReactNode
 }
 
-export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [], onRename }: Props) {
+export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [], onRename, workerBadge }: Props) {
   /**
    * El color REAL del pane, resuelto contra el tema.
    *
@@ -227,6 +229,8 @@ export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoom
               : <><AILogo aiType={pane.aiType} color={displayColor} size={14} />{pane.customLabel && <span className="pane-custom-label">{pane.customLabel}</span>}</>}
           </span>
         )}
+
+        {workerBadge}
 
         <PortChipsGroup ports={ports} paneId={pane.id} />
 

@@ -8,6 +8,8 @@ import { ravenHome, userHome } from './raven-home'
 import type { PaneWithMemory } from './memory-sessions'
 import { comandoDeLaTui, familiaDeShell, quoteShellArg } from './comando-de-la-tui'
 import { NEST_MEMORY_TUI_CMD } from '../src/types'
+import type { PaneTokenRegistry } from './orchestration/pane-tokens'
+import type { PaneInfo } from './orchestration/orchestration-service'
 
 async function cwdReachable(p: string): Promise<boolean> {
   try {
@@ -53,6 +55,21 @@ export interface PtyMemoryIntegration {
    * `dist-electron/memory-tui.js`. Sin esto, el centinela no tiene qué correr.
    */
   tui?: { execPath: string; scriptPath: string }
+}
+
+/**
+ * Orquestación de panes: socket + token por pane de agente, y los args que registran el shim
+ * MCP en el CLI. Independiente de Memories (no depende de `PtyMemoryIntegration`).
+ */
+export interface PtyOrchestration {
+  socketPath: string
+  tokens: PaneTokenRegistry
+  /** Args a insertar tras el binario (vacío si ese bin no se soporta). Lo calcula quien conoce
+   *  el execPath/shim/configDir; si lanza, el pane arranca sin el shim. */
+  launchArgs: (bin: string) => string[]
+  /** El pane es de un worker (el servicio lo registra antes de pedirle el pane al renderer).
+   *  Su agente se lanza con `exec`: si sale, el PTY sale con él en vez de volver al shell. */
+  isWorker?: (paneId: string) => boolean
 }
 
 const BUFFER_MAX_LINES = 10_000
@@ -108,6 +125,9 @@ export class PtyManager extends EventEmitter {
   private static readonly MIN_COLS = 20
   private static readonly MIN_ROWS = 5
   private static readonly RESIZE_SETTLE_MS = 150
+  private static readonly AGENT_QUIET_MS = 1500
+  private static readonly AGENT_SILENT_MS = 10_000
+  private static readonly ITEM_GAP_MS = 500
   private resizeTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private pendingSize = new Map<string, { cols: number; rows: number }>()
   // cwd at spawn time, per pane. Used by `killByCwdPrefix` so worktree:remove
@@ -119,11 +139,24 @@ export class PtyManager extends EventEmitter {
   // kill() and on onExit so a teardown during the startup delay doesn't
   // fire a write into a dead (or recreated) PTY.
   private startupTimers = new Map<string, NodeJS.Timeout>()
+  // Lo escrito en un pane de agente antes de que se tipee su comando de arranque. Va DESPUÉS
+  // del comando: es input para el agente, nunca para el shell pelado (si no, el shell ejecuta
+  // el `initialInput` de un worker línea por línea y el agente no recibe la tarea).
+  private launchQueue = new Map<string, string[]>()
+  // La cola no se vacía al tipear el comando sino cuando el agente ya está escuchando: su TUI
+  // dibujó algo y se quedó quieto AGENT_QUIET_MS. Escrito antes, el agente lee la tarea y el
+  // Enter de un saque al arrancar, los toma como un pegado y la tarea queda sin enviar.
+  private agentReady = new Map<string, { quiet?: NodeJS.Timeout; tanda: string }>()
   private memory?: PtyMemoryIntegration
   // Spec §2.2: lo que Nest CREE que tiene memoria. memory-sessions.ts cruza esto contra lo
   // que el bridge vio de verdad (MemoryStore.listOpenSessions()); la diferencia entre los
   // dos conjuntos es el fallo mudo. Se limpia igual que `ptys`: en kill() y en onExit.
   private memoryPanes = new Map<string, PaneWithMemory>()
+
+  private orchestration?: PtyOrchestration
+  // Lo que el servicio de orquestación necesita saber de un pane vivo. `cmd` es el original,
+  // sin los args inyectados.
+  private paneInfos = new Map<string, PaneInfo>()
 
   constructor(memory?: PtyMemoryIntegration) {
     super()
@@ -139,6 +172,15 @@ export class PtyManager extends EventEmitter {
    *  time (main.ts constructs ptyManager before the memory subsystem). */
   setMemoryIntegration(memory: PtyMemoryIntegration): void {
     this.memory = memory
+  }
+
+  /** Late-binding, igual que la memoria: main.ts crea el PtyManager antes que el servicio. */
+  setOrchestration(o: PtyOrchestration): void {
+    this.orchestration = o
+  }
+
+  paneInfo(paneId: string): PaneInfo | undefined {
+    return this.paneInfos.get(paneId)
   }
 
   async create(paneId: string, cmd: string, accountDir: string, repoPath?: string, shell?: ShellOverride): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -171,6 +213,11 @@ export class PtyManager extends EventEmitter {
       const toAdd = extra.filter(p => !current.includes(p))
       if (toAdd.length) env.PATH = [...toAdd, ...current].join(':')
     }
+
+    // Lo heredado de un Nest lanzado desde el pane de otro Nest no pasa: sólo un pane de agente
+    // recibe SU token (más abajo).
+    delete env.NEST_ORCH_SOCKET
+    delete env.NEST_ORCH_TOKEN
 
     let launchCmd = cmd
 
@@ -296,9 +343,43 @@ export class PtyManager extends EventEmitter {
       }
     }
 
+    // Orquestación: va FUERA del bloque de memoria a propósito (un pane de agente la recibe con
+    // Memories deshabilitado o sin integrar). Un shell vacío o la TUI no son agentes.
+    let orchToken: string | undefined
+    if (cmd && !esTui && this.orchestration) {
+      const bin = cmd.split(' ')[0]
+      env.NEST_ORCH_SOCKET = this.orchestration.socketPath
+      orchToken = this.orchestration.tokens.issue(paneId)
+      env.NEST_ORCH_TOKEN = orchToken
+      let extra: string[] = []
+      try {
+        extra = this.orchestration.launchArgs(bin)
+      } catch (err) {
+        console.warn('[pty-manager] orchestration launchArgs failed', { paneId, error: err instanceof Error ? err.message : err })
+      }
+      if (extra.length > 0) {
+        // Misma regla de citado que los args de memoria. Se inserta tras el binario sobre
+        // `launchCmd` (que ya puede traer los args de memoria): ambos empiezan por `bin`.
+        const quoted = extra.map((a) => (a.startsWith('-') ? a : quoteShellArg(a, isWin)))
+        const rest = launchCmd.slice(bin.length).trimStart()
+        launchCmd = rest ? `${bin} ${quoted.join(' ')} ${rest}` : `${bin} ${quoted.join(' ')}`
+      }
+    }
+
     // El pane de la TUI usa siempre el shell por defecto (ver arriba).
     const spawnBin = esTui ? SHELL : shell?.bin ?? SHELL
     const spawnArgs = esTui ? SHELL_ARGS : shell?.args ?? SHELL_ARGS
+
+    // Worker de orquestación: el agente reemplaza al shell (`exec`), así un agente que sale o
+    // se cae termina el PTY y el servicio lo marca 'exited'. Sin esto el pane vuelve al prompt,
+    // el worker sigue "working" y lo que le mande el coordinador lo ejecuta el shell.
+    // Sólo en shells POSIX fuera de Windows: PowerShell y cmd no tienen un `exec` equivalente,
+    // y en Windows (incluido WSL/bash.exe) el comportamiento queda como estaba.
+    if (orchToken !== undefined && !isWin && familiaDeShell(spawnBin) === 'posix') {
+      let esWorker = false
+      try { esWorker = this.orchestration?.isWorker?.(paneId) === true } catch { esWorker = false }
+      if (esWorker) launchCmd = `exec ${launchCmd}`
+    }
 
     // Resolve cwd with existence check. CreateProcess on Windows fails with
     // ERROR_DIRECTORY (code 267) if cwd is missing — common when a tab persists
@@ -339,8 +420,13 @@ export class PtyManager extends EventEmitter {
           // a fresh pty that wasn't asked to run it.
           if (this.ptys.get(paneId) === ptyProcess) {
             ptyProcess.write(`${launchCmd}\r`)
+            const espera = { tanda: '' } as { quiet?: NodeJS.Timeout; tanda: string }
+            this.agentReady.set(paneId, espera)
+            // Un agente que no dibuja nada no puede dejar la cola trabada para siempre.
+            espera.quiet = setTimeout(() => this.drenarCola(paneId, ptyProcess), PtyManager.AGENT_SILENT_MS)
           }
         }
+        this.launchQueue.set(paneId, [])
         if (isWin) {
           ptyProcess.onData(() => writeCmd())
           const timer = setTimeout(writeCmd, 5000)
@@ -352,6 +438,18 @@ export class PtyManager extends EventEmitter {
       }
 
       ptyProcess.onData((data) => {
+        const espera = this.agentReady.get(paneId)
+        if (espera && this.ptys.get(paneId) === ptyProcess) {
+          espera.tanda = (espera.tanda + data).slice(-4000)
+          if (espera.quiet) clearTimeout(espera.quiet)
+          espera.quiet = setTimeout(() => {
+            // El diálogo de confianza de carpeta (claude y codex) también queda quieto, pero lo
+            // contesta la persona: un Enter de la cola lo aceptaría por ella. Se espera a que lo
+            // conteste y el agente redibuje.
+            if (/trust/i.test(espera.tanda)) { espera.tanda = ''; espera.quiet = undefined; return }
+            this.drenarCola(paneId, ptyProcess)
+          }, PtyManager.AGENT_QUIET_MS)
+        }
         this.emit('data', paneId, data)
         const lines = this.buffers.get(paneId) ?? []
         lines.push(data)
@@ -372,10 +470,14 @@ export class PtyManager extends EventEmitter {
           clearTimeout(pending)
           this.startupTimers.delete(paneId)
         }
+        this.launchQueue.delete(paneId)
+        this.soltarEspera(paneId)
         this.ptys.delete(paneId)
         this.buffers.delete(paneId)
         this.lastSize.delete(paneId)
         this.memoryPanes.delete(paneId)
+        this.orchestration?.tokens.revoke(paneId)
+        this.paneInfos.delete(paneId)
         this.clearPendingResize(paneId)
         // exitCode: forwarded so callers (graph orchestration) can distinguish
         // a clean exit from a crash without polling — see main.ts's paneExitCode.
@@ -384,16 +486,67 @@ export class PtyManager extends EventEmitter {
 
       this.ptys.set(paneId, ptyProcess)
       this.cwdByPaneId.set(paneId, cwd)
+      if (orchToken !== undefined) {
+        const bin = cmd.split(' ')[0]
+        this.paneInfos.set(paneId, {
+          paneId,
+          cmd,
+          accountDir,
+          aiType: (accountDir ? parseAccountDir(accountDir)?.aiType : undefined) ?? bin,
+          cwd,
+        })
+      }
       return { ok: true }
     } catch (err) {
+      // El spawn falló: el token ya emitido no puede quedar vivo.
+      this.orchestration?.tokens.revoke(paneId)
+      this.launchQueue.delete(paneId)
+      this.soltarEspera(paneId)
       const message = err instanceof Error ? err.message : String(err)
       console.error('[pty-manager] spawn failed', { paneId, spawnBin, spawnArgs, error: message })
       return { ok: false, error: message }
     }
   }
 
-  write(paneId: string, data: string): void {
-    this.ptys.get(paneId)?.write(data)
+  /**
+   * `fromUser` lo pone sólo el handler `pty:write` del renderer (lo que tipea la persona):
+   * emite `input`, que el servicio de orquestación usa para saber que hubo actividad humana.
+   * Las escrituras internas (punteros del servicio, comandos de arranque) no emiten.
+   */
+  write(paneId: string, data: string, opts?: { fromUser?: boolean }): void {
+    const encolado = this.ptys.has(paneId) ? this.launchQueue.get(paneId) : undefined
+    if (encolado) encolado.push(data)
+    else this.ptys.get(paneId)?.write(data)
+    if (opts?.fromUser) this.emit('input', paneId, data)
+  }
+
+  /** Escritura del propio Nest en el pane: nunca emite `input`. */
+  writeInternal(paneId: string, data: string): void {
+    this.write(paneId, data)
+  }
+
+  private soltarEspera(paneId: string): void {
+    const espera = this.agentReady.get(paneId)
+    if (espera?.quiet) clearTimeout(espera.quiet)
+    this.agentReady.delete(paneId)
+  }
+
+  /** Escribe lo encolado de a un write, separados ITEM_GAP_MS: el renderer manda el texto y el
+   *  Enter por separado y así tienen que llegar (juntos, el TUI los toma como un pegado). Lo que
+   *  llega mientras tanto se suma al final de la misma cola, en orden. */
+  private drenarCola(paneId: string, proc: pty.IPty): void {
+    this.soltarEspera(paneId)
+    const siguiente = () => {
+      const cola = this.launchQueue.get(paneId)
+      if (!cola || this.ptys.get(paneId) !== proc) return
+      const data = cola.shift()
+      if (data === undefined) { this.launchQueue.delete(paneId); return }
+      proc.write(data)
+      if (cola.length === 0) { this.launchQueue.delete(paneId); return }
+      const t = setTimeout(siguiente, PtyManager.ITEM_GAP_MS)
+      this.startupTimers.set(paneId, t)
+    }
+    siguiente()
   }
 
   resize(paneId: string, cols: number, rows: number): void {
@@ -450,6 +603,20 @@ export class PtyManager extends EventEmitter {
     return this.ptys.has(paneId)
   }
 
+  /** Nombre del proceso en primer plano del PTY (node-pty `process`): en POSIX el del grupo
+   *  que tiene la terminal (`zsh` si el agente salió y volvió el prompt); en Windows, el que se
+   *  lanzó. undefined si el pane no existe o node-pty no lo puede leer. */
+  foregroundProcess(paneId: string): string | undefined {
+    const p = this.ptys.get(paneId)
+    if (!p) return undefined
+    try {
+      const nombre = p.process
+      return typeof nombre === 'string' && nombre !== '' ? nombre : undefined
+    } catch {
+      return undefined
+    }
+  }
+
   getPid(paneId: string): number | undefined {
     return this.ptys.get(paneId)?.pid
   }
@@ -482,6 +649,8 @@ export class PtyManager extends EventEmitter {
       clearTimeout(pending)
       this.startupTimers.delete(paneId)
     }
+    this.launchQueue.delete(paneId)
+    this.soltarEspera(paneId)
     const ptyProc = this.ptys.get(paneId)
     if (ptyProc) {
       try { ptyProc.kill() } catch { /* already dead */ }
@@ -490,6 +659,8 @@ export class PtyManager extends EventEmitter {
     this.buffers.delete(paneId)
     this.lastSize.delete(paneId)
     this.memoryPanes.delete(paneId)
+    this.orchestration?.tokens.revoke(paneId)
+    this.paneInfos.delete(paneId)
     this.clearPendingResize(paneId)
     this.cwdByPaneId.delete(paneId)
   }

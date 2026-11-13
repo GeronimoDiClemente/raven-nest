@@ -27,7 +27,10 @@ export default defineConfig({
           // habla al daemon (el Node 20 de Electron no tiene node:sqlite). `ink` queda externo
           // (está en `dependencies`, externalizeDepsPlugin lo deja afuera) y se carga con el
           // import() real de tui-del-paquete/ink.ts.
-          'memory-tui': resolve(__dirname, 'electron/tui-de-nest.ts')
+          'memory-tui': resolve(__dirname, 'electron/tui-de-nest.ts'),
+          // Shim MCP de la orquestación de panes (coordinador/workers). Mismo mecanismo que
+          // memory-mcp: ELECTRON_RUN_AS_NODE=1, sólo le habla al socket de main.
+          'orchestration-mcp': resolve(__dirname, 'electron/orchestration-mcp/index.ts')
         }
       }
     }

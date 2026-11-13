@@ -20,6 +20,10 @@ import { useIntervaloVisible } from './hooks/useIntervaloVisible'
 import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
 import { temaPorId } from './lib/terminal-themes'
+import { handleLaunchPane } from './orchestration/place-worker-pane'
+import { useReviewEntries } from './orchestration/useOrchestration'
+import { reviewEntriesForTab } from './orchestration/review-for-tab'
+import WorkerReviewPanel from './components/orchestration/WorkerReviewPanel'
 import { groupAITypesByRepoPath } from './lib/repo-ai-logos'
 import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
@@ -1116,6 +1120,31 @@ export default function App() {
   const activeTabIdRef = useRef(activeTabId)
   activeTabIdRef.current = activeTabId
 
+  // Orquestación: el main pide el pane de un worker. Cae en el tab que CONTIENE al
+  // coordinador (no en el activo), sin NewPaneDialog y sin mover el foco; la respuesta
+  // (ok / tab_full / no_tab) vuelve al main, que se la pasa al agente.
+  const ansiDelTemaRef = useRef<readonly string[] | undefined>(undefined)
+  ansiDelTemaRef.current = temaPorId(
+    userPrefs.prefs.ui_settings.terminalTheme,
+    userPrefs.prefs.ui_settings.terminalThemesImportados ?? [],
+  ).ansi
+  useEffect(() => {
+    const orq = window.orchestration
+    if (!orq) return
+    const bajaLaunch = orq.onLaunchPane((req) => handleLaunchPane(req, {
+      tabsRef,
+      setTabs,
+      reply: (r) => { void orq.replyLaunchPane(r) },
+      ansi: () => ansiDelTemaRef.current,
+    }))
+    // `stop` del coordinador, o el coordinador que se cierra: el main ya mató el PTY.
+    const bajaClose = orq.onClosePane(({ paneId }) => removePaneAnywhere(paneId))
+    return () => { bajaLaunch(); bajaClose() }
+  }, [removePaneAnywhere])
+
+  // Revisión de ramas de workers (spec §6.7): las del repo del tab activo, arriba del grid.
+  const reviewEntries = useReviewEntries()
+
   const cycleTab = useCallback((isPrev: boolean) => {
     const allTabs = tabsRef.current
     if (allTabs.length <= 1) return
@@ -1967,6 +1996,7 @@ export default function App() {
         // dejaría el outline de drop-target colgado (handleDrop nunca corre).
         onDropCapture={() => setDropActive(false)}
       >
+        <WorkerReviewPanel entries={reviewEntriesForTab(reviewEntries, activeTab)} ansi={ansiDelTemaRef.current} />
         {activeTab.isHub ? (
           <HubWorkspace
             panes={filteredView.panes}

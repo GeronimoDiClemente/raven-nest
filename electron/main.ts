@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard, net, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, nativeImage, dialog, session, safeStorage, clipboard, net, screen, Notification } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { esVersionBeta, feedDeBeta, headersDeBeta } from './updater-de-beta'
 import { resolve as pathResolve } from 'path'
@@ -254,6 +254,10 @@ import { makeRunAutomation, type AutomationRunnerPorts } from './integrations/au
 import { bridgeEvent, bridgeDecision, type BridgeContext } from './integrations/memory-bridge'
 import { type MemorySink, type MemorySaveInput } from './integrations/memory-port'
 import { SwapWriteGate } from './memory-write-gate'
+import { wireOrchestration, type OrchestrationWiring } from './orchestration/wire-orchestration'
+import { orchestrationSocketPath } from './orchestration/protocol'
+import { orchestrationLaunchArgs } from './orchestration/mcp-launch-args'
+import { ReviewStore } from './orchestration/review-store'
 
 const ptyManager = new PtyManager()
 // Per-pane last-output timestamp. deriveAgentState (graph orchestrator sampling)
@@ -297,6 +301,21 @@ function getMemorySyncBaseUrl(): string {
  * prende el harness de tests (`e2e/helpers/harness.ts`); en una app real nunca esta seteado.
  */
 const E2E_HEADLESS = process.env.RAVEN_E2E_HEADLESS === '1'
+
+/**
+ * Ganchos de la orquestación que sólo existen para los e2e (`__nestOrchestrationE2E` y el
+ * cierre automático acortado). RAVEN_E2E=1 no alcanza: un build empaquetado nunca los tiene,
+ * aunque alguien lance la app con esa variable. El preload no ve `app.isPackaged`: main le
+ * pasa la decisión por NEST_E2E_HOOKS (el renderer hereda el entorno de main) y, si no hay
+ * ganchos, borra el override para que no llegue a ningún lado.
+ */
+const E2E_HOOKS = process.env.RAVEN_E2E === '1' && !app.isPackaged
+if (E2E_HOOKS) {
+  process.env.NEST_E2E_HOOKS = '1'
+} else {
+  delete process.env.NEST_E2E_HOOKS
+  delete process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS
+}
 
 import { ensureKeyMaterial, saveKeyMaterial, type KeyMaterial } from './memory-key-store'
 import { tomarCandadoDeSync, lockPathParaBase, candadoDepsDelProceso } from './memory-sync-lock'
@@ -704,6 +723,76 @@ try {
   console.error('[main] Nest Memory subsystem failed to initialize — memory features disabled for this session', err instanceof Error ? err.message : err)
   memory = null
 }
+
+// ── Orquestación de panes (spec 2026-11-12-orquestacion-panes) ──────────────
+// FUERA del try de Memories a propósito (§6.8): con `memory === null`, Memories apagado o
+// desconectado, los panes de agente igual reciben el socket y el shim de orquestación.
+// Un fallo acá deja la app sin orquestación, nunca sin terminales.
+let orchestration: OrchestrationWiring | null = null
+try {
+  const orchConfigDir = pathJoin(ravenHome(), '.raven-nest', 'orchestration')
+  // dist-electron/orchestration-mcp.js, entry hermano de main.js (electron.vite.config.ts).
+  const orchShimPath = pathJoin(__dirname, 'orchestration-mcp.js')
+  const orchReviewStore = new ReviewStore(pathJoin(ravenHome(), '.raven-nest', 'orchestration-review.json'))
+  orchestration = wireOrchestration({
+    pty: ptyManager,
+    // pipeId aleatorio por arranque (ruling R5): no se persiste.
+    socketPath: orchestrationSocketPath(ravenHome(), isWin, randomBytes(8).toString('hex')),
+    launchArgs: (bin) => orchestrationLaunchArgs(bin, { execPath: process.execPath, shimPath: orchShimPath, configDir: orchConfigDir }),
+    createWorktree: (repoPath, branch) => createWorktreeForBot(repoPath, branch),
+    runGit: (args, opts) => runGit(args, opts),
+    accounts: { list: (aiType) => accountStore.list(aiType), getDir: (aiType, name) => accountStore.getDir(aiType, name) },
+    send: (channel, payload) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!win || win.isDestroyed()) return false
+      win.webContents.send(channel, payload)
+      return true
+    },
+    // Revisión de ramas (§6.7): persiste entre reinicios; las acciones reusan la lógica de
+    // `worktree:remove` y `git:pushBranch` (funciones extraídas más abajo).
+    reviewStore: orchReviewStore,
+    removeWorktree: (e) => removeWorkerWorktree(e.worktreePath, e.repoPath),
+    pushBranch: async (worktreePath) => {
+      const r = await pushWorktreeBranch(worktreePath)
+      return r.ok ? { ok: true as const } : { ok: false as const, error: r.error }
+    },
+    openExternal: (url) => shell.openExternal(url),
+    // §6.9: sólo un worker esperando input avisa (nunca un done). Con la ventana enfocada
+    // no: Gero ya lo está viendo en el badge del pane.
+    notifyDesktop: (title, body) => {
+      if (!Notification.isSupported()) return
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win && !win.isDestroyed() && win.isFocused()) return
+      new Notification({ title, body }).show()
+    },
+  })
+  // Sólo e2e: deja sembrar workers y ramas en revisión desde `app.evaluate` (contraste, capturas,
+  // y el e2e de Task 10) sin lanzar agentes de verdad. Fuera de RAVEN_E2E=1, o en un build
+  // empaquetado, no existe (E2E_HOOKS).
+  if (E2E_HOOKS) {
+    (globalThis as unknown as { __nestOrchestrationE2E?: unknown }).__nestOrchestrationE2E = {
+      wiring: orchestration, reviewStore: orchReviewStore, pty: ptyManager,
+    }
+  }
+} catch (err) {
+  console.error('[main] orchestration failed to initialize — workers disabled for this session', err instanceof Error ? err.message : err)
+  orchestration = null
+}
+
+ipcMain.handle('orchestration:launch-pane-result', (_event, res: unknown) => {
+  orchestration?.replyLaunchPane(res)
+})
+ipcMain.handle('orchestration:snapshot', () => orchestration?.service.snapshot() ?? [])
+// Revisión y cierre (Task 9). Cada handler valida el workerId contra el store / el servicio
+// antes de actuar (en wire-orchestration.ts); ninguno hace `git push` salvo openPr, que empuja
+// SÓLO la rama del worker y sólo con el click de Gero.
+const sinOrquestacion = { ok: false as const, error: 'orchestration_unavailable' }
+ipcMain.handle('orchestration:reviewList', () => orchestration?.review.list() ?? [])
+ipcMain.handle('orchestration:keepOpen', (_e, workerId: unknown) => orchestration?.review.keepOpen(workerId) ?? sinOrquestacion)
+ipcMain.handle('orchestration:autoClose', (_e, workerId: unknown) => orchestration?.review.autoClose(workerId) ?? sinOrquestacion)
+ipcMain.handle('orchestration:merge', (_e, workerId: unknown) => orchestration?.review.merge(workerId) ?? sinOrquestacion)
+ipcMain.handle('orchestration:openPr', (_e, workerId: unknown) => orchestration?.review.openPr(workerId) ?? sinOrquestacion)
+ipcMain.handle('orchestration:discard', (_e, workerId: unknown) => orchestration?.review.discard(workerId) ?? sinOrquestacion)
 
 // A chained promise every call to swapMemoryStore() has to
 // pass through, so a rapid logout+login (two 'memory:setUser' invokes close together) can't
@@ -1240,7 +1329,13 @@ ipcMain.handle('git:listBranches', async (_evt, repoPath: string) => {
 
 // Push the worktree's current branch to origin (with -u). Returns a compare
 // URL for GitHub so the renderer can offer "Open PR" after a successful push.
-ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
+ipcMain.handle('git:pushBranch', (_event, worktreePath: string) => pushWorktreeBranch(worktreePath))
+
+// Extraído del handler para que la revisión de workers (openPr) empuje con la misma lógica.
+async function pushWorktreeBranch(worktreePath: string): Promise<
+  { ok: true; branch: string; compareUrl?: string } | { ok: false; error: string }
+> {
+  if (typeof worktreePath !== 'string') return { ok: false as const, error: 'worktreePath must be absolute' }
   if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
   if (worktreePath.includes('"')) return { ok: false as const, error: 'worktreePath contains invalid characters' }
 
@@ -1290,7 +1385,7 @@ ipcMain.handle('git:pushBranch', async (_event, worktreePath: string) => {
   } catch {}
 
   return { ok: true as const, branch, compareUrl }
-})
+}
 
 // Clone a GitHub or GitLab repo into ~/RavenProjects/<name> (or a chosen parent dir)
 ipcMain.handle('git:clone', async (
@@ -1796,7 +1891,7 @@ ipcMain.handle('dialog:openFolder', async () => {
 })
 
 ipcMain.on('pty:write', (_event, paneId: string, data: string) => {
-  ptyManager.write(paneId, data)
+  ptyManager.write(paneId, data, { fromUser: true })
 })
 
 ipcMain.on('pty:resize', (_event, paneId: string, cols: number, rows: number) => {
@@ -1805,6 +1900,8 @@ ipcMain.on('pty:resize', (_event, paneId: string, cols: number, rows: number) =>
 
 ipcMain.handle('pty:kill', (_event, paneId: string) => {
   ptyManager.kill(paneId)
+  // El renderer cerró el pane: el puntero suelta vuelo, borrador y vigía de ese pane.
+  orchestration?.paneClosed(paneId)
 })
 
 ipcMain.handle('pty:exists', (_event, paneId: string) => {
@@ -2059,8 +2156,26 @@ async function createWorktreeForBot(repoPath: string, branch: string): Promise<
   return Promise.resolve({ ok: true, worktreePath: wtPath })
 }
 
-ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
-  if (!isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
+ipcMain.handle('worktree:remove', (_evt, worktreePath: string) => removeWorktreeFromStore(worktreePath))
+
+// El worktree de un worker de orquestación. Lo creó `createWorktreeForBot`, así que en general
+// está en el store y se borra con la lógica de `worktree:remove` (que además mata los panes que
+// viven adentro). Si el store ya no lo tiene, mismo orden a mano: matar panes y `git worktree
+// remove --force` desde el repo del coordinador.
+async function removeWorkerWorktree(worktreePath: string, repoPath: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isAbsolute(worktreePath) || !isAbsolute(repoPath)) return { ok: false, error: 'paths must be absolute' }
+  if (worktreeStore.get(worktreePath)) return removeWorktreeFromStore(worktreePath)
+  if (ptyManager.killByCwdPrefix(worktreePath).length > 0) await new Promise((r) => setTimeout(r, 250))
+  try {
+    await runGit(['-C', repoPath, 'worktree', 'remove', worktreePath, '--force'], { timeout: 10000 })
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: `git worktree remove failed: ${err instanceof Error ? err.message : String(err)}` }
+  }
+}
+
+async function removeWorktreeFromStore(worktreePath: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (typeof worktreePath !== 'string' || !isAbsolute(worktreePath)) return { ok: false as const, error: 'worktreePath must be absolute' }
   const meta = worktreeStore.get(worktreePath)
   if (!meta) return { ok: false as const, error: 'Worktree not found in store' }
 
@@ -2131,7 +2246,7 @@ ipcMain.handle('worktree:remove', async (_evt, worktreePath: string) => {
   }
   worktreeStore.remove(worktreePath)
   return { ok: true as const }
-})
+}
 
 // === Preset handlers ===
 
@@ -3220,6 +3335,7 @@ ipcMain.on('updater:install', () => {
   // portion of the push completes in whatever time is actually available is strictly
   // better than the push never being attempted at all.
   void finalizeMemoryBeforeQuit()
+  orchestration?.stop()
   if (isMac) {
     // quitAndInstall schedules the helper process then calls app.quit() internally.
     // On macOS, async before-quit work (spotlight watcher, browser panes) can keep
@@ -5992,6 +6108,7 @@ app.whenReady().then(async () => {
       // here is time-constrained the way the updater's quit path is.
       void (async () => {
         await finalizeMemoryBeforeQuit()
+        orchestration?.stop()
         ptyManager.killAll()
         app.exit(0)
       })()

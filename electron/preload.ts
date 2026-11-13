@@ -223,6 +223,42 @@ contextBridge.exposeInMainWorld('memory', {
   },
 })
 
+// Orquestación de panes. Cada `on*` devuelve su propia baja (nunca `removeAllListeners`):
+// la app y la UI de workers se suscriben a la vez.
+contextBridge.exposeInMainWorld('orchestration', {
+  snapshot: () => ipcRenderer.invoke('orchestration:snapshot'),
+  replyLaunchPane: (res: { requestId: string; ok: boolean; error?: string; tabPaneCount?: number }) =>
+    ipcRenderer.invoke('orchestration:launch-pane-result', res),
+  onLaunchPane: (cb: (req: unknown) => void) => {
+    const handler = (_e: IpcRendererEvent, req: unknown) => cb(req)
+    ipcRenderer.on('orchestration:launch-pane', handler)
+    return () => { ipcRenderer.removeListener('orchestration:launch-pane', handler) }
+  },
+  onClosePane: (cb: (msg: { paneId: string }) => void) => {
+    const handler = (_e: IpcRendererEvent, msg: { paneId: string }) => cb(msg)
+    ipcRenderer.on('orchestration:close-pane', handler)
+    return () => { ipcRenderer.removeListener('orchestration:close-pane', handler) }
+  },
+  onChanged: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('orchestration:changed', handler)
+    return () => { ipcRenderer.removeListener('orchestration:changed', handler) }
+  },
+  // Revisión y cierre (Task 9). main valida cada workerId antes de actuar.
+  reviewList: () => ipcRenderer.invoke('orchestration:reviewList'),
+  keepOpen: (workerId: string) => ipcRenderer.invoke('orchestration:keepOpen', workerId),
+  autoClose: (workerId: string) => ipcRenderer.invoke('orchestration:autoClose', workerId),
+  merge: (workerId: string) => ipcRenderer.invoke('orchestration:merge', workerId),
+  openPr: (workerId: string) => ipcRenderer.invoke('orchestration:openPr', workerId),
+  discard: (workerId: string) => ipcRenderer.invoke('orchestration:discard', workerId),
+  // Duración del cierre automático. Sólo un e2e la puede acortar, con
+  // RAVEN_E2E_WORKER_AUTO_CLOSE_MS, y sólo si main lo permitió (NEST_E2E_HOOKS: RAVEN_E2E=1 y
+  // un build sin empaquetar). En un build normal es siempre null → 120 s.
+  autoCloseMs: process.env.NEST_E2E_HOOKS === '1' && /^\d+$/.test(process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS ?? '')
+    ? Number(process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS)
+    : null,
+})
+
 contextBridge.exposeInMainWorld('pty', {
   create: (paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) =>
     ipcRenderer.invoke('pty:create', paneId, cmd, accountDir, repoPath, shellId),

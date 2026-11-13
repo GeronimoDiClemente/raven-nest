@@ -17,6 +17,7 @@
 import { test, expect } from '@playwright/test'
 import { launchHarness, teardown } from './helpers/harness'
 import { fingirCloudSobreElTope, fingirMaquinas } from './helpers/fingir-cuenta'
+import { fingirOrquestacion } from './helpers/fingir-orquestacion'
 
 const UMBRAL = 3
 
@@ -277,6 +278,48 @@ test('Account, el toast de Cloud y Keep syncing también pasan el guard de 3:1',
     }
     if (todos.length) {
       console.log('\nTEXTO ILEGIBLE (cuenta):')
+      for (const o of todos) {
+        console.log(`  [${o.pantalla}] ${o.ratio}:1  ${o.selector}  "${o.texto}"  ${o.color} sobre ${o.fondo}`)
+      }
+    }
+    expect(todos, `${todos.length} elementos por debajo de ${UMBRAL}:1`).toEqual([])
+  } finally {
+    await teardown(h)
+  }
+})
+
+// Task 9 de la orquestación de panes: el badge de estado del worker en sus cuatro estados
+// (Working / Needs input / Done / Exited), el banner de cierre automático, la fila de revisión
+// arriba del grid, la lista abierta (con la rama en detached HEAD) y la confirmación de
+// "Merge into main". Workers fingidos: ver helpers/fingir-orquestacion.ts.
+test('la orquestación (badge, banner de cierre y revisión) también pasa el guard de 3:1', async () => {
+  const h = await launchHarness({ withRepo: true })
+  const { page } = h
+  try {
+    await fingirOrquestacion(h)
+    const pantallas: Array<[string, () => Promise<void>]> = [
+      ['worker-panes', async () => {
+        // El shell recién abierto saca output: el banner pausa hasta que el pane descansa.
+        await expect(page.locator('[data-testid="worker-auto-close"]')).toHaveAttribute('data-phase', 'counting', { timeout: 15_000 })
+      }],
+      ['worker-review', async () => {
+        await page.locator('[data-testid="worker-review"]').getByRole('button', { name: 'Review' }).click()
+        await expect(page.locator('[data-testid="worker-review-row"]')).toHaveCount(3)
+        await page.waitForTimeout(500)
+      }],
+      ['worker-merge-into-main', async () => {
+        await page.getByRole('button', { name: 'Merge into main' }).click()
+        await page.getByRole('alertdialog').waitFor()
+        await page.waitForTimeout(400)
+      }],
+    ]
+    const todos: Array<Ofensor & { pantalla: string }> = []
+    for (const [nombre, ir] of pantallas) {
+      await ir()
+      for (const o of await medirContraste(page)) todos.push({ ...o, pantalla: nombre })
+    }
+    if (todos.length) {
+      console.log('\nTEXTO ILEGIBLE (orquestación):')
       for (const o of todos) {
         console.log(`  [${o.pantalla}] ${o.ratio}:1  ${o.selector}  "${o.texto}"  ${o.color} sobre ${o.fondo}`)
       }

@@ -65,6 +65,72 @@ export interface PaneNode {
   editorTabs?: EditorTab[]        // editor panes only: open files
   activeEditorTabPath?: string    // editor panes only: which tab is focused
   pinned?: boolean      // Hub: user-pinned pane, shows under the "Pinned" filter
+  /** Pane de worker lanzado por un coordinador (orquestación). No se persiste en la sesión. */
+  orchestration?: { role: 'worker'; workerId: string; coordinatorPaneId: string; colorIndex: number }
+}
+
+// === Orquestación de panes (espejo de electron/orchestration/*: src/ nunca importa de
+// electron/, mismo patrón que WorktreeMeta) ===
+export type OrchestrationWorkerStatus = 'starting' | 'working' | 'needs_input' | 'done' | 'exited' | 'stopped'
+
+/** Espejo de `WorkerRecord` (electron/orchestration/orchestration-state.ts). */
+export interface OrchestrationWorker {
+  workerId: string
+  coordinatorPaneId: string
+  paneId: string
+  label: string
+  colorIndex: number
+  branch: string
+  worktreePath: string
+  baseBranch: string
+  agent: string
+  status: OrchestrationWorkerStatus
+  createdAt: number
+  finishedAt?: number
+  /** Gero pidió "Keep open": el pane no se cierra solo. */
+  keepOpen?: boolean
+}
+
+/** Espejo de `ReviewEntry` (electron/orchestration/review-store.ts): una rama terminada
+ *  esperando la decisión de Gero. */
+export interface OrchestrationReviewEntry {
+  workerId: string
+  label: string
+  colorIndex: number
+  branch: string
+  worktreePath: string
+  baseBranch: string
+  status: OrchestrationWorkerStatus
+  finishedAt?: number
+  repoPath: string
+}
+
+/** Espejo de `ReviewActionResult` (wire-orchestration.ts / review-actions.ts). */
+export type OrchestrationReviewResult =
+  | { ok: true }
+  | { ok: false; error: string; detail?: string }
+
+/** Espejo de `LaunchPaneRequest` (orchestration-service.ts) + el id del pedido. */
+export interface OrchestrationLaunchPaneRequest {
+  requestId: string
+  coordinatorPaneId: string
+  paneId: string
+  aiType: string
+  accountName: string
+  accountDir: string
+  cmd: string
+  repoPath: string
+  label: string
+  colorIndex: number
+  initialInput: string
+  workerId: string
+}
+
+export interface OrchestrationLaunchPaneReply {
+  requestId: string
+  ok: boolean
+  error?: 'tab_full' | 'no_tab'
+  tabPaneCount?: number
 }
 
 export interface ShellInfo {
@@ -947,6 +1013,25 @@ declare global {
       list: () => Promise<CustomCLI[]>
       save: (cli: CustomCLI) => Promise<void>
       delete: (id: string) => Promise<void>
+    }
+    orchestration: {
+      snapshot: () => Promise<OrchestrationWorker[]>
+      replyLaunchPane: (res: OrchestrationLaunchPaneReply) => Promise<void>
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onLaunchPane: (cb: (req: OrchestrationLaunchPaneRequest) => void) => () => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onClosePane: (cb: (msg: { paneId: string }) => void) => () => void
+      /** Cambió el estado de los workers; sin payload, se vuelve a pedir `snapshot()`. */
+      onChanged: (cb: () => void) => () => void
+      reviewList: () => Promise<OrchestrationReviewEntry[]>
+      keepOpen: (workerId: string) => Promise<OrchestrationReviewResult>
+      /** La cuenta del banner llegó a 0; main revalida (done, no mantenido, worktree limpio). */
+      autoClose: (workerId: string) => Promise<OrchestrationReviewResult>
+      merge: (workerId: string) => Promise<OrchestrationReviewResult>
+      openPr: (workerId: string) => Promise<OrchestrationReviewResult>
+      discard: (workerId: string) => Promise<OrchestrationReviewResult>
+      /** Override del cierre automático, sólo bajo RAVEN_E2E=1; null = 120 s. */
+      autoCloseMs: number | null
     }
     pty: {
       create: (paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => Promise<{ ok: true } | { ok: false; error: string }>
