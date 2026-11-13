@@ -1,0 +1,174 @@
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/mono.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/sans.css">
+  <style>
+    :root {
+      --background: #0a0a0a;
+      --card: #141414;
+      --popover: #1f1f1f;
+      --foreground: #f2f2f2;
+      --muted-foreground: #9b9b9b;
+      --ok: #4ade80;
+      --warn: #e3b341;
+      --destructive: #ff6568;
+      --border: rgb(255 255 255 / 0.08);
+      --header-height: 36px;
+      --pane-color-alpha: 0.1;
+      --pane-border-alpha: 0.27;
+    }
+    body {
+      font-family: 'Geist Sans', sans-serif;
+      background-color: var(--background);
+      color: var(--foreground);
+    }
+    .mono {
+      font-family: 'Geist Mono', monospace;
+    }
+    .pane-header {
+      height: var(--header-height);
+      border-bottom: 1px solid var(--border);
+    }
+    .identity-block {
+      width: 44px;
+      border-right: 1px solid var(--border);
+    }
+    .state-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .glass-fill {
+      background: linear-gradient(to bottom, rgba(255,255,255,0.02), transparent);
+    }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen p-8 flex flex-col items-center justify-center gap-12" data-sd-id="1">
+    
+    <!-- Scenario: Standard Width Pane -->
+    <div class="w-[600px] border border-[var(--border)] rounded-lg overflow-hidden bg-[var(--card)] shadow-2xl" data-sd-id="2">
+      <div class="pane-header flex items-stretch glass-fill" style="--pane-accent: #8b5cf6;" data-sd-id="3">
+        <!-- Zone 1: Identity -->
+        <div class="identity-block flex items-center justify-center shrink-0 bg-[rgba(139,92,246,0.1)] border-r-[rgba(139,92,246,0.27)]" data-sd-id="4">
+          <div class="flex flex-col items-center leading-none" data-sd-id="5">
+            <span class="text-[10px] font-bold opacity-40 mb-0.5" data-sd-id="6">01</span>
+            <iconify-icon icon="logos:claude" class="text-sm"></iconify-icon>
+          </div>
+        </div>
+        
+        <!-- Zone 2: Task context -->
+        <div class="flex-1 min-w-0 px-3 flex items-center gap-3 overflow-hidden group" data-sd-id="7">
+          <span class="mono text-xs font-medium truncate" data-sd-id="8">feat/auth-middleware-refactor</span>
+          <span class="text-[10px] text-[var(--muted-foreground)] mono truncate opacity-60" data-sd-id="9">src/lib/auth/gate.ts</span>
+          <!-- Tooltip trigger visualization -->
+          <div class="hidden group-hover:flex absolute top-9 left-16 bg-[var(--popover)] border border-[var(--border)] px-2 py-1 rounded text-[10px] mono z-10 shadow-xl" data-sd-id="10">
+            Full Path: raven-nest/src/lib/auth/gate.ts
+          </div>
+        </div>
+
+        <!-- Zone 3: State & Actions -->
+        <div class="flex items-center px-3 gap-3" data-sd-id="11">
+          <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[rgba(74,222,128,0.1)] border border-[rgba(74,222,128,0.2)]" data-sd-id="12">
+            <span class="state-dot bg-[var(--ok)]" data-sd-id="13"></span>
+            <span class="text-[9px] uppercase tracking-wider font-bold text-[var(--ok)]" data-sd-id="14">Working</span>
+          </div>
+          <div class="flex items-center gap-2 text-[var(--muted-foreground)]" data-sd-id="15">
+            <button class="hover:text-[var(--foreground)] transition-colors" data-sd-id="16"><iconify-icon icon="lucide:terminal" class="text-sm"></iconify-icon></button>
+            <button class="hover:text-[var(--destructive)] transition-colors" data-sd-id="17"><iconify-icon icon="lucide:x" class="text-sm"></iconify-icon></button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Terminal Mock -->
+      <div class="p-4 mono text-[13px] text-gray-400 h-48 bg-[#0a0a0a]" data-sd-id="18">
+        <div class="flex gap-2 mb-1" data-sd-id="19">
+          <span class="text-[var(--ok)]" data-sd-id="20">$</span>
+          <span data-sd-id="21">npm run build:lib</span>
+        </div>
+        <div class="opacity-50" data-sd-id="22">
+          &gt; tsc --project tsconfig.json<br>
+          &gt; building raven-nest components...<br>
+          &gt; bundles generated in 420ms<br>
+          <span class="text-[var(--ok)]" data-sd-id="23">✓ Build successful.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scenario: Narrow Width Pane (Identity stays constant, context truncates) -->
+    <div class="w-[320px] border border-[var(--border)] rounded-lg overflow-hidden bg-[var(--card)] shadow-2xl" data-sd-id="24">
+      <div class="pane-header flex items-stretch glass-fill" style="--pane-accent: #f59e0b;" data-sd-id="25">
+        <div class="identity-block flex items-center justify-center shrink-0 bg-[rgba(245,158,11,0.1)] border-r-[rgba(245,158,11,0.27)]" data-sd-id="26">
+          <div class="flex flex-col items-center leading-none" data-sd-id="27">
+            <span class="text-[10px] font-bold opacity-40 mb-0.5" data-sd-id="28">02</span>
+            <iconify-icon icon="logos:google-gemini" class="text-sm"></iconify-icon>
+          </div>
+        </div>
+        
+        <div class="flex-1 min-w-0 px-3 flex items-center overflow-hidden" data-sd-id="29">
+          <span class="mono text-xs font-medium truncate" data-sd-id="30">fix/ui-overflow-fix-v2-final</span>
+        </div>
+
+        <div class="flex items-center px-3 gap-2" data-sd-id="31">
+          <div class="flex items-center gap-1 text-[var(--warn)]" data-sd-id="32">
+            <iconify-icon icon="lucide:alert-circle" class="text-sm"></iconify-icon>
+            <span class="text-[9px] uppercase font-bold hidden sm:inline" data-sd-id="33">Waiting</span>
+          </div>
+          <button class="text-[var(--muted-foreground)] hover:text-[var(--foreground)]" data-sd-id="34">
+            <iconify-icon icon="lucide:more-vertical" class="text-sm"></iconify-icon>
+          </button>
+        </div>
+      </div>
+      <div class="p-4 mono text-[13px] text-gray-400 h-32 bg-[#0a0a0a] italic opacity-30 flex items-center justify-center" data-sd-id="35">
+        Agent awaiting user input...
+      </div>
+    </div>
+
+    <!-- Scenario: Data-Heavy Pane (Codex) -->
+    <div class="w-[500px] border border-[var(--border)] rounded-lg overflow-hidden bg-[var(--card)] shadow-2xl" data-sd-id="36">
+      <div class="pane-header flex items-stretch glass-fill" style="--pane-accent: #3b82f6;" data-sd-id="37">
+        <div class="identity-block flex items-center justify-center shrink-0 bg-[rgba(59,130,246,0.1)] border-r-[rgba(59,130,246,0.27)]" data-sd-id="38">
+          <div class="flex flex-col items-center leading-none" data-sd-id="39">
+            <span class="text-[10px] font-bold opacity-40 mb-0.5" data-sd-id="40">03</span>
+            <iconify-icon icon="carbon:iot-connect" class="text-sm text-blue-400"></iconify-icon>
+          </div>
+        </div>
+        
+        <div class="flex-1 min-w-0 px-3 flex items-center gap-3 overflow-hidden" data-sd-id="41">
+          <span class="mono text-xs font-medium truncate" data-sd-id="42">main</span>
+          <iconify-icon icon="lucide:chevron-right" class="text-[10px] opacity-30"></iconify-icon>
+          <span class="text-[10px] text-[var(--muted-foreground)] mono truncate" data-sd-id="43">docs/api/endpoints.md</span>
+        </div>
+
+        <div class="flex items-center px-3 gap-3" data-sd-id="44">
+          <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/5 border border-white/10" data-sd-id="45">
+            <span class="state-dot bg-gray-500" data-sd-id="46"></span>
+            <span class="text-[9px] uppercase tracking-wider font-bold text-gray-400" data-sd-id="47">Idle</span>
+          </div>
+          <div class="flex items-center gap-2 text-[var(--muted-foreground)]" data-sd-id="48">
+            <button class="hover:text-[var(--foreground)]" data-sd-id="49"><iconify-icon icon="lucide:external-link" class="text-sm"></iconify-icon></button>
+          </div>
+        </div>
+      </div>
+      <div class="p-4 mono text-[13px] text-gray-400 h-40 bg-[#0a0a0a] flex flex-col gap-1" data-sd-id="50">
+         <div class="flex justify-between" data-sd-id="51">
+           <span class="text-blue-400" data-sd-id="52">GET /v1/agents</span>
+           <span class="text-green-500" data-sd-id="53">200 OK</span>
+         </div>
+         <div class="flex justify-between" data-sd-id="54">
+           <span class="text-blue-400" data-sd-id="55">POST /v1/chat</span>
+           <span class="text-green-500" data-sd-id="56">201 Created</span>
+         </div>
+         <div class="flex justify-between" data-sd-id="57">
+           <span class="text-blue-400" data-sd-id="58">DELETE /v1/tasks/42</span>
+           <span class="text-red-400" data-sd-id="59">404 Not Found</span>
+         </div>
+      </div>
+    </div>
+
+  </div>
+
+</body></html>

@@ -1,0 +1,146 @@
+#!/usr/bin/env node
+// nest-memory — stdio shim. Spawned once per AI CLI session with
+// ELECTRON_RUN_AS_NODE=1 and Electron's own binary (§1.1: "none of the shim's code
+// needs a shipped Node runtime"). Two modes, selected by argv:
+//
+//   nest-memory                      -> MCP server over stdio (spawned by the CLI's own
+//                                        MCP config, one long-lived process per session)
+//   nest-memory hook <event>         -> one-shot hook invocation (spawned by Claude Code
+//                                        per hook firing, per docs/nest-memory-architecture.md §2.2)
+//
+// Holds no state and no database handle. Every call is forwarded to the daemon in
+// Electron main over the local IPC channel (see client.ts, memory-ipc-server.ts).
+import { MemoryDaemonClient } from './client'
+import { elegirClienteDeMemoria } from './elegir-cliente'
+import { ravenHome } from '../raven-home'
+import { runMcpServer, writeMessage, type ClienteDeMemoria } from './servidor'
+import { usarAbridorDeLecturaPorDefecto } from '../sqlite-motor'
+import { abrirSoloLecturaConBetterSqlite3 } from '../sqlite-better'
+
+// Este shim es OTRO proceso: lo que registra `main.ts` no llega acá. Sin esto el modo sólo
+// lectura falla en cada llamada. Corre con el binario de Electron (ELECTRON_RUN_AS_NODE), así
+// que el motor es el mismo `better-sqlite3` de la app — `node:sqlite` no existe en su Node 20.
+usarAbridorDeLecturaPorDefecto(abrirSoloLecturaConBetterSqlite3)
+
+function env(name: string): string | undefined {
+  return process.env[name]
+}
+
+/**
+ * Lo mínimo que el shim necesita para responder: el daemon de una Nest viva si contesta, y si
+ * no, lectura directa del disco.
+ *
+ * Ver `elegir-cliente.ts`: las variables del pane mandan (sin ping, como siempre); sin ellas,
+ * el `pipe-auth.json` del disco, que sólo cuenta si contesta el `ping` — igual que el paquete
+ * portátil. Así una sesión abierta fuera de un pane de Nest —Claude desktop, VS Code, Cursor—
+ * también guarda si Nest está abierto.
+ *
+ * Sin nadie que conteste no se sale: degrada a sólo lectura y lo dice, para que quien se lleva
+ * el plugin a otro editor sin Nest abierto no se quede sin memoria. La primera escritura vuelve
+ * a buscar a Nest, por si se abrió después.
+ */
+async function resolverCliente(): Promise<ClienteDeMemoria> {
+  const elegido = await elegirClienteDeMemoria(process.env, ravenHome(), process.platform === 'win32')
+  if (!elegido.conDaemon) {
+    console.error(
+      "[nest-memory] couldn't reach Nest's memory service (Nest isn't open, or it is a version " +
+      'without Memories) — read-only mode: search, read and the graph work; saving needs Nest'
+    )
+  }
+  return elegido.cliente
+}
+
+// ── MCP stdio server mode ────────────────────────────────────────────────────
+
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk))
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+/**
+ * El modo hook NO degrada a sólo lectura, y es a propósito: un hook existe para ESCRIBIR
+ * (guarda lo que pasó en la sesión), y escribir sin el daemon es lo único que este diseño no
+ * permite — es quien sincroniza, resuelve conflictos y lleva el lamport. Sin app, el hook no
+ * tiene nada que hacer más que salir en silencio.
+ */
+function requireSocketPath(): string {
+  const socket = env('NEST_MEMORY_SOCKET')
+  if (!socket) {
+    console.error('[nest-memory] NEST_MEMORY_SOCKET not set — memory is disabled for this session')
+    process.exit(1)
+  }
+  return socket
+}
+
+function requireAuthToken(): string {
+  const token = env('NEST_MEMORY_TOKEN')
+  if (!token) {
+    console.error('[nest-memory] NEST_MEMORY_TOKEN not set — memory is disabled for this session')
+    process.exit(1)
+  }
+  return token
+}
+
+async function runHook(event: string): Promise<void> {
+  const socketPath = requireSocketPath()
+  const authToken = requireAuthToken()
+  const client = new MemoryDaemonClient(socketPath, authToken)
+  const raw = await readStdin()
+  let payload: Record<string, unknown> = {}
+  try { payload = raw.trim() ? JSON.parse(raw) : {} } catch { payload = {} }
+
+  const cwd = (payload.cwd as string) ?? process.cwd()
+  const sessionId = (payload.session_id as string) ?? `unknown-${Date.now()}`
+  // Lo único que dice qué pasó en la sesión: sin esto `Stop` no tiene nada que guardar (Layer B).
+  const transcriptPath = typeof payload.transcript_path === 'string' ? payload.transcript_path : undefined
+
+  try {
+    switch (event) {
+      case 'session-start': {
+        const result = await client.call<{ additionalContext: string }>('hook.sessionStart', {
+          cwd,
+          sessionId,
+          aiType: env('NEST_MEMORY_AI') ?? 'claude',
+          account: env('NEST_MEMORY_ACCOUNT') ?? '',
+        })
+        writeMessage({
+          hookSpecificOutput: {
+            hookEventName: 'SessionStart',
+            additionalContext: result.additionalContext,
+          },
+        })
+        return
+      }
+      case 'stop':
+        await client.call('hook.stop', { cwd, sessionId, transcriptPath })
+        return
+      case 'pre-compact':
+        await client.call('hook.preCompact', { cwd, sessionId, transcriptPath })
+        return
+      default:
+        console.error(`[nest-memory] unknown hook event: ${event}`)
+    }
+  } catch (err) {
+    // Hooks must never break the CLI session — log and exit 0 regardless of daemon state.
+    console.error('[nest-memory] hook failed', err instanceof Error ? err.message : err)
+  }
+}
+
+// ── Entry ─────────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  const [, , mode, hookEvent] = process.argv
+  if (mode === 'hook' && hookEvent) {
+    await runHook(hookEvent)
+    process.exit(0)
+  } else {
+    await runMcpServer(await resolverCliente(), process.cwd())
+  }
+}
+
+main().catch((err) => {
+  console.error('[nest-memory] fatal', err)
+  process.exit(1)
+})

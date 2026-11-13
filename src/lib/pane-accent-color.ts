@@ -7,7 +7,7 @@ import type { PaneNode } from '../types'
  *
  * `borderColor: 'transparent'` es el marcador de "sin borde", no un color: se
  * trata como ausencia para caer al color del agente. Con `??` a secas el pane
- * quedaba invisible en el sidebar y en el Hub al apagarle el borde.
+ * quedaría invisible en el sidebar y en el Hub al apagarle el borde.
  */
 export function paneAccentColor(pane: Pick<PaneNode, 'borderColor' | 'customColor' | 'aiType'>): string {
   const chosen = pane.borderColor && pane.borderColor !== 'transparent' ? pane.borderColor : undefined

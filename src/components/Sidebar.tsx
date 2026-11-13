@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 import SnippetPanel from './SnippetPanel'
 import CommandHistoryPanel from './CommandHistoryPanel'
 import WorkspacePanel from './WorkspacePanel'
@@ -8,6 +11,7 @@ import UserMenu from './UserMenu'
 import RepoActionsBar from './RepoActionsBar'
 import { WorktreesSection } from './WorktreesSection'
 import HubSidebarPanel, { type HubWorkspace } from './HubSidebarPanel'
+import type { Plan } from '../lib/stripe'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
 import { LayoutId, Workspace, MAX_PANES } from '../types'
@@ -20,11 +24,21 @@ import { useGitInfo } from '../hooks/useGitInfo'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import { ExplorerPanel } from './ExplorerPanel'
 import HubExplorerPanel, { type ExplorerRoot } from './HubExplorerPanel'
-import SidebarSplit from './SidebarSplit'
+import SidebarTabBar, { type SidebarTabId, REPO_TABS, HUB_TABS, TAB_ICONS, TAB_LABELS } from './SidebarTabBar'
+import MemoriesItem from './MemoriesItem'
 import PaneFilterControl from './PaneFilterControl'
 import type { PaneFilter } from '../lib/pane-filter'
-import type { PaneNode } from '../types'
+import type { AIType, PaneNode } from '../types'
+import { AILogoStack } from './AILogoStack'
 import type { UserPreferencesApi } from '../hooks/useUserPreferences'
+import { ENABLE_INTEGRATIONS_ORCHESTRATION } from '../lib/releaseFlags'
+import {
+  Radio, Share2, LoaderCircle, Mic, MessageSquare, Monitor, Cable, TextAlignStart, FolderGit2,
+  RotateCcwClock, User, SquarePlus, Workflow, ChevronLeft, Menu, ChevronRight,
+  Plus, Settings,
+} from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
+import type { SeccionDeSettings } from '../lib/memory-tabs'
 
 interface Props {
   expanded: boolean
@@ -47,10 +61,16 @@ interface Props {
   trialDaysLeft?: number
   profileLoading?: boolean
   onUpgrade?: () => void
-  onTeamsOpen?: () => void
+  onPersonalOpen?: () => void
+  /** Memories es hermana de Personal, no una seccion adentro ni una 4a pestana (spec 2026-09-09
+   *  §4.1). Toma una vista opcional — SettingsPanel la usa para abrir directo en Memory settings. */
+  onMemoriesOpen?: (vista?: 'memorias' | 'settings', seccion?: SeccionDeSettings) => void
+  /** Sube cuando algo de afuera pide abrir Settings › Account (Plan & billing). */
+  pedidoDeCuenta?: number
   pendingInvitesCount?: number
-  onMyReposOpen?: () => void
-  plan?: 'free' | 'pro' | 'team' | 'enterprise'
+  onIntegrationsOpen?: () => void
+  onGraphBoardOpen?: () => void
+  plan?: Plan
   repoPath?: string
   onRepoLink: () => void
   onRepoUnlink: () => void
@@ -58,9 +78,9 @@ interface Props {
   activeCellRepoPath?: string
   onWorktreeSelect: (worktreePath: string) => void
   onNewWorktree: () => void
+  onFixCi: (repoPath: string) => void
   worktreeRefreshKey?: number
-  // Layout selector (replaces the old LayoutPicker). Sidebar renders the
-  // trigger; the engine in App.tsx owns the state.
+  // Layout selector. Sidebar renders the trigger; the engine in App.tsx owns the state.
   layoutId: LayoutId
   paneCount: number
   onLayoutChange: (id: LayoutId) => void
@@ -70,10 +90,15 @@ interface Props {
   paneFilterPanes?: readonly PaneNode[]
   paneFilter?: PaneFilter
   onPaneFilterChange?: (f: PaneFilter) => void
+  /** workspace-shell-design §3: aiType de TODOS los panes abiertos (todos los
+   *  tabs, no solo el activo), agrupados por repoPath — App.tsx lo calcula una
+   *  sola vez con groupAITypesByRepoPath y lo pasa hacia el repo row y las
+   *  filas de WorktreesSection. */
+  paneAITypesByPath?: Map<string, AIType[]>
   // Lifted to App.tsx (the single shared instance) — threaded through to
   // SettingsPanel. See UserPreferencesApi's doc comment for why.
   userPrefs: UserPreferencesApi
-  // Hub-tab sidebar (#2/#3): swap the repo context group for a workspace builder.
+  // Hub-tab sidebar: swap the repo context group for a workspace builder.
   isHub?: boolean
   hubWorkspaces?: HubWorkspace[]
   onSelectWorkspace?: (tabId: string) => void
@@ -92,10 +117,10 @@ export default function Sidebar({
   isListening, isTranscribing, isModelLoading, onMicToggle,
   onNewPane, onHistoryOpen,
   onSnippetSend, onSnippetBroadcast, onCommandRun, onWorkspaceSave, onWorkspaceLoad, isWin,
-  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onTeamsOpen, pendingInvitesCount = 0, onMyReposOpen, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
-  activeCellRepoPath, onWorktreeSelect, onNewWorktree, worktreeRefreshKey,
+  isTrialActive, trialDaysLeft, profileLoading, onUpgrade, onPersonalOpen, onMemoriesOpen, pedidoDeCuenta, onIntegrationsOpen, onGraphBoardOpen, pendingInvitesCount = 0, plan, repoPath, onRepoLink, onRepoUnlink, onJoinTerminal,
+  activeCellRepoPath, onWorktreeSelect, onNewWorktree, onFixCi, worktreeRefreshKey,
   layoutId, paneCount, onLayoutChange, onOpenTutorial, onFileOpen, userPrefs,
-  paneFilterPanes, paneFilter, onPaneFilterChange,
+  paneFilterPanes, paneFilter, onPaneFilterChange, paneAITypesByPath,
   isHub = false, hubWorkspaces, onSelectWorkspace, onJumpToPane, onToggleTerminal, onToggleWorkspace, onNewWorkspace, onAddTerminalToWorkspace,
   hubExplorerRoots, onOpenFileFromHub,
 }: Props) {
@@ -119,6 +144,11 @@ export default function Sidebar({
   const [joinConnected, setJoinConnected] = useState(terminalJoinService.isConnected)
   const [, forceUpdate] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<SidebarTabId>('worktrees')
+  // Hub swaps Worktrees for Hub, so the remembered tab can be one this mode
+  // doesn't offer — fall back to the mode's first tab.
+  const tabs = isHub ? HUB_TABS : REPO_TABS
+  const currentTab: SidebarTabId = (tabs as readonly SidebarTabId[]).includes(activeTab) ? activeTab : tabs[0]
   const [layoutOpen, setLayoutOpen] = useState(false)
   // Index into layoutOptions while the user is cycling with Ctrl+L. null when
   // the popover was opened by click (no active cycling — selection commits on
@@ -273,27 +303,36 @@ export default function Sidebar({
 
   // ─── Reusable inline pieces ──────────────────────────────────────────────
   const BroadcastItem = (
-    <button
-      className={`sidebar-item${broadcastMode ? ' active' : ''}`}
+    <Button
+      variant={broadcastMode ? 'secondary' : 'ghost'}
+      size="default"
+      className={cn(
+        'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
+        // Button ghost no declara color de reposo (solo hover) — este proyecto
+        // no tiene el preflight que shadcn da por hecho (button {color:inherit}),
+        // asi que sin esto el boton muestra el negro nativo del navegador.
+        // secondary ya trae su propio text-secondary-foreground.
+        !broadcastMode && 'text-muted-foreground hover:text-foreground',
+      )}
       onClick={onBroadcastToggle}
       title={broadcastMode ? 'Broadcast ON — click to turn off' : 'Broadcast OFF — click to turn on'}
     >
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
-          <circle cx="7" cy="7" r="2" fill="currentColor"/>
-          <path d="M4 4a4.24 4.24 0 0 0 0 6M10 4a4.24 4.24 0 0 1 0 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-          <path d="M2 2a7.07 7.07 0 0 0 0 10M12 2a7.07 7.07 0 0 1 0 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.5"/>
-        </svg>
+        <Radio size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">{broadcastMode ? 'Broadcasting' : 'Broadcast'}</span>
-    </button>
+    </Button>
   )
 
   const JoinTerminalItem = (
     <div className="sidebar-item-panel" style={{ position: 'relative' }} ref={joinAnchorRef}>
-      <button
-        className={`sidebar-item${joinConnected ? ' active' : ''}`}
-        style={{ color: joinConnected ? '#22c55e' : undefined }}
+      <Button
+        variant={joinConnected ? 'secondary' : 'ghost'}
+        size="default"
+        className={cn(
+          'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
+          !joinConnected && 'text-muted-foreground hover:text-foreground',
+        )}
         onClick={() => {
           if (joinConnected) { onJoinTerminal() }
           else { setJoinOpen(v => !v); setTimeout(() => joinInputRef.current?.focus(), 50) }
@@ -301,20 +340,15 @@ export default function Sidebar({
         title={joinConnected ? 'View shared terminal' : 'Join remote terminal'}
       >
         <span className="sidebar-icon">
-          <svg width="16" height="16" viewBox="0 0 12 12" fill="none">
-            <circle cx="10" cy="2" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <circle cx="2" cy="6" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <circle cx="10" cy="10" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M3.5 5.2L8.5 2.8M3.5 6.8L8.5 9.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-          </svg>
+          <Share2 size={ICON_SIZE.lg} aria-hidden />
         </span>
         <span className="sidebar-label">{joinConnected ? `● ${terminalJoinService.code}` : 'Join Terminal'}</span>
-      </button>
+      </Button>
 
       {joinOpen && !joinConnected && joinPopPos && (
         <div ref={joinPopoverRef} className="ts-panel" style={{ position: 'fixed', top: joinPopPos.top, left: joinPopPos.left, right: 'auto', zIndex: 200, width: 260 }}>
           <div className="ts-panel-header">
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Join Terminal</span>
+            <span className="text-fs font-semibold text-foreground">Join Terminal</span>
             <button className="ts-close" onClick={() => { setJoinOpen(false); setJoinInput('') }}>×</button>
           </div>
           <div className="ts-body">
@@ -332,43 +366,25 @@ export default function Sidebar({
               maxLength={8}
               placeholder="Enter code…"
               autoFocus
-              style={{
-                display: 'block',
-                width: '100%',
-                boxSizing: 'border-box',
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                color: 'var(--text-primary)',
-                fontSize: 20,
-                fontWeight: 700,
-                padding: '8px 12px',
-                letterSpacing: 4,
-                textAlign: 'center',
-                textTransform: 'uppercase',
-                marginBottom: 10,
-                outline: 'none',
-              }}
+              // fontSize: la escala no tiene un escalon en 20px — --fs-xl es 17,
+              // --fs-2xl es 21. Se redondea al mas cercano (21, 1px de diferencia)
+              // en vez de dejar un literal fuera de escala.
+              className="block w-full box-border bg-popover border border-border rounded-md text-foreground text-fs-2xl font-bold px-3 py-2 tracking-[4px] text-center uppercase mb-2.5 outline-none"
             />
             {terminalJoinService.error && (
-              <p style={{ color: '#EF4444', fontSize: 11, marginBottom: 8, margin: '0 0 8px' }}>{terminalJoinService.error}</p>
+              <p className="text-destructive text-fs-xs mb-2">{terminalJoinService.error}</p>
             )}
             <button
               disabled={joinInput.length < 8 || terminalJoinService.isConnecting}
               onClick={() => {
                 startJoinAttempt(joinInput.trim())
               }}
-              style={{
-                width: '100%',
-                background: joinInput.length >= 8 ? '#0066FF' : 'var(--bg-elevated)',
-                color: joinInput.length >= 8 ? '#fff' : 'var(--text-muted)',
-                border: 'none',
-                borderRadius: 6,
-                padding: '8px 0',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: joinInput.length >= 8 ? 'pointer' : 'default',
-              }}
+              className={cn(
+                'w-full border-none rounded-md py-2 text-fs font-semibold',
+                joinInput.length >= 8
+                  ? 'bg-primary text-primary-foreground cursor-pointer'
+                  : 'bg-popover text-muted-foreground cursor-default',
+              )}
             >
               {terminalJoinService.isConnecting ? 'Connecting…' : 'Connect'}
             </button>
@@ -379,50 +395,49 @@ export default function Sidebar({
   )
 
   const VoiceItem = (
-    <button
-      className={`sidebar-item${isListening ? ' active' : (isTranscribing || isModelLoading) ? ' sidebar-transcribing' : ''}`}
+    <Button
+      variant={isListening ? 'secondary' : 'ghost'}
+      size="default"
+      className={cn(
+        'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
+        !isListening && 'text-muted-foreground hover:text-foreground',
+        (isTranscribing || isModelLoading) && 'cursor-default opacity-70',
+      )}
       onClick={(isTranscribing || isModelLoading) ? undefined : onMicToggle}
-      style={(isTranscribing || isModelLoading) ? { cursor: 'default', opacity: 0.7 } : undefined}
       title={isListening ? 'Click or press F5 to stop' : isTranscribing ? 'Processing…' : isModelLoading ? 'Loading voice model…' : 'Click or press F5 to speak'}
     >
       <span className="sidebar-icon">
         {(isTranscribing || isModelLoading) ? (
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ animation: 'spin 1s linear infinite' }}>
-            <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" strokeDasharray="20 10" strokeLinecap="round"/>
-          </svg>
+          <LoaderCircle size={ICON_SIZE.lg} style={{ animation: 'spin 1s linear infinite' }} aria-hidden />
         ) : (
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="5.5" y="1" width="5" height="8" rx="2.5" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M3 7v1a5 5 0 0 0 10 0V7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            <path d="M8 13v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-          </svg>
+          <Mic size={ICON_SIZE.lg} aria-hidden />
         )}
       </span>
       <span className="sidebar-label">
         {isListening ? 'Listening…' : isTranscribing ? 'Processing…' : isModelLoading ? 'Loading…' : 'Voice'}
       </span>
-    </button>
+    </Button>
   )
 
   const ConversationHistoryItem = (
-    <button className="sidebar-item" onClick={onHistoryOpen} title="Conversation history">
+    <Button
+      variant="ghost"
+      size="default"
+      className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
+      onClick={onHistoryOpen}
+      title="Conversation history"
+    >
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
-          <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M7 4v3.5l2 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
+        <MessageSquare size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">History</span>
-    </button>
+    </Button>
   )
 
   const WorkspacesItem = (
     <div className="sidebar-item sidebar-item-panel">
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <rect x="1" y="2" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M5 12v2M11 12v2M3 14h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
+        <Monitor size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">Saved layouts</span>
       <WorkspacePanel onSave={onWorkspaceSave} onLoad={onWorkspaceLoad} onRequireUpgrade={onUpgrade} />
@@ -432,24 +447,17 @@ export default function Sidebar({
   const MCPItem = (
     <div className="sidebar-item sidebar-item-panel">
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
-          <rect x="1" y="2" width="8" height="10" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M4 5h2M4 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-          <circle cx="11" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
-          <path d="M11 7v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-        </svg>
+        <Cable size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">MCP</span>
-      <MCPPanel repoPath={repoPath} onRequireUpgrade={onUpgrade} />
+      <MCPPanel repoPath={repoPath} />
     </div>
   )
 
   const SnippetsItem = (
     <div className="sidebar-item sidebar-item-panel">
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M3 4h10M3 8h7M3 12h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-        </svg>
+        <TextAlignStart size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">Snippets</span>
       <SnippetPanel onSend={onSnippetSend} onBroadcast={onSnippetBroadcast} onRequireUpgrade={onUpgrade} />
@@ -459,10 +467,7 @@ export default function Sidebar({
   const CommandHistoryItem = (
     <div className="sidebar-item sidebar-item-panel">
       <span className="sidebar-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.4"/>
-          <polyline points="8,5 8,8 10,10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-        </svg>
+        <RotateCcwClock size={ICON_SIZE.lg} aria-hidden />
       </span>
       <span className="sidebar-label">Cmd Hist.</span>
       <CommandHistoryPanel onRun={onCommandRun} />
@@ -470,8 +475,8 @@ export default function Sidebar({
   )
 
   // Layout selector — lives inside "More tools". Icon is outlined (transparent)
-  // to match the other tools and avoid the solid white square the '1' preset
-  // used to render as. Clicking toggles the popover; Ctrl/⌘+L cycles.
+  // to match the other tools — filled, the '1' preset renders as a solid white
+  // square. Clicking toggles the popover; Ctrl/⌘+L cycles.
   const LayoutItem = (
     <div
       className="sidebar-item sidebar-item-panel"
@@ -489,31 +494,245 @@ export default function Sidebar({
     </div>
   )
 
+  // The repo row. Expanded it is the menu's title (first row of the same box
+  // as the tabs, with a chevron for "this is where you swap repo"); the branch
+  // and the CI bar live in the Worktrees tab, the only place they mean
+  // something. On the collapsed rail it is a plain icon row.
+  const repoRow = (showBranch: boolean) => (
+    <div
+      className="sidebar-item sidebar-repo"
+      // En colapsado el `title` es lo unico que dice de que repo y de que rama se trata:
+      // ni el nombre ni el branch entran en 48px.
+      title={repoPath ? `${repoPath}${branch ? ` · ${branch}` : ''}` : 'Link repo to this tab'}
+      onClick={onRepoLink}
+      style={{ cursor: 'pointer' }}
+    >
+      <span className="sidebar-icon">
+        {/* `FolderGit2`, no `Waypoints`.
+            Esta fila es el REPO vinculado a la pestaña; la de arriba es la pestaña activa.
+            Con el mismo glifo en las dos quedarian DOS iconos identicos, uno pegado al otro,
+            en la barra colapsada — y cuando la pestaña activa es Worktrees no habria forma
+            de saber cual era cual. Worktrees comparte glifo con el grafo de ramas del header
+            a proposito (un worktree ES una rama); el repo es la carpeta, que es otra cosa. */}
+        <FolderGit2 size={ICON_SIZE.lg} aria-hidden />
+      </span>
+      {repoPath ? (
+        <div className="sidebar-repo-info">
+          <div className="sidebar-repo-row">
+            {/* Sin `text-ok`. El verde de estado como color PERMANENTE del nombre del
+                repo no diria nada — un color que siempre está no informa: la regla del
+                proyecto es que el color ES estado (--ok / --warn / --destructive), nunca
+                decoración. Que el repo esté enlazado ya lo comunica el hecho de que su
+                nombre se muestre. */}
+            <span className="sidebar-label sidebar-repo-name text-foreground">{basename(repoPath)}</span>
+            {expanded && (
+              <AILogoStack aiTypes={paneAITypesByPath?.get(repoPath) ?? []} size={12} />
+            )}
+            {expanded && <span className="sidebar-repo-chevron" aria-hidden="true">▾</span>}
+            {expanded && githubUrl && (
+              <button
+                className="sidebar-github-btn"
+                title="Open on GitHub"
+                onClick={e => { e.stopPropagation(); window.electronShell.openExternal(githubUrl!) }}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                </svg>
+              </button>
+            )}
+            {expanded && (
+              <button className="sidebar-repo-unlink" onClick={e => { e.stopPropagation(); onRepoUnlink() }} title="Unlink repo">×</button>
+            )}
+          </div>
+          {showBranch && branch && (
+            <span className={cn('sidebar-branch-badge font-mono text-fs-xs', isDirty && 'dirty')}>
+              {branch}{isDirty ? ' ●' : ''}
+            </span>
+          )}
+        </div>
+      ) : (
+        <button className="sidebar-label sidebar-repo-link">Link repo</button>
+      )}
+    </div>
+  )
+
+  // Branch + last CI run: the head of the Worktrees tab, right above the list
+  // of worktrees they describe.
+  const WorktreesHeader = (
+    <>
+      {branch && (
+        <div className={cn('sidebar-tab-branch font-mono text-fs-xs', isDirty && 'dirty')} title={branch}>
+          {branch}{isDirty ? ' ●' : ''}
+        </div>
+      )}
+      {repoPath && repoCi && (
+        <div style={{ padding: '0 8px 4px' }}>
+          <RepoActionsBar
+            repoFullName={repoCi.repoFullName}
+            provider={repoCi.provider}
+            token={repoCi.token}
+            branch={branch ?? undefined}
+          />
+        </div>
+      )}
+    </>
+  )
+
+  // One door for everything that is yours: your repos, each team's repos, and
+  // your pending invites. Local features are free on every plan, so this opens
+  // the same way regardless of plan.
+  const PersonalItem = (
+    <Button
+      variant="ghost"
+      size="default"
+      className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
+      onClick={onPersonalOpen}
+      title={pendingInvitesCount > 0
+        ? `Personal — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}`
+        : 'Personal'}
+    >
+      <span className="sidebar-icon" style={{ position: 'relative' }}>
+        <User size={ICON_SIZE.lg} aria-hidden />
+        {pendingInvitesCount > 0 && (
+          // text-fs-2xs (10px) es el escalon mas chico de la escala. El boxShadow con
+          // --background recorta el badge del icono que tapa.
+          <span
+            aria-label={`${pendingInvitesCount} pending invites`}
+            className="absolute flex items-center justify-center bg-destructive text-destructive-foreground rounded-full text-fs-2xs font-bold"
+            style={{
+              top: -4, right: -6, minWidth: 14, height: 14,
+              padding: '0 3px', lineHeight: 1,
+              boxShadow: '0 0 0 1.5px var(--background)',
+            }}
+          >
+            {pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}
+          </span>
+        )}
+      </span>
+      <span className="sidebar-label">Personal</span>
+    </Button>
+  )
+
+  // Shared between the collapsed "More tools" flyout and the expanded
+  // "Tools" tab (see SidebarTabBar) — same items, two different containers.
+  const ToolsListContent = (
+    <>
+      {LayoutItem}
+      {/* Filtro de panes — junto al layout selector: ambos son
+          controles de vista del workspace. */}
+      {onPaneFilterChange && (
+        <PaneFilterControl
+          panes={paneFilterPanes ?? []}
+          filter={paneFilter ?? 'all'}
+          onChange={onPaneFilterChange}
+          expanded={expanded}
+        />
+      )}
+      {SnippetsItem}
+      {WorkspacesItem}
+      {MCPItem}
+      {VoiceItem}
+      {BroadcastItem}
+      {JoinTerminalItem}
+      {/* Integrations y Orchestration viven en Tools, que es la lista que comparten el
+          flyout colapsado y la pestana: asi son alcanzables en los dos modos.
+          ENABLE_INTEGRATIONS_ORCHESTRATION (src/lib/releaseFlags.ts) solo apaga el punto
+          de entrada mientras el backlog (docs/INTEGRATIONS_ORCA_BACKLOG.md) no esta
+          completo. Para mostrarlas, poner esa constante en `true`. */}
+      {ENABLE_INTEGRATIONS_ORCHESTRATION && (
+        <>
+          <Button
+            variant="ghost"
+            size="default"
+            className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
+            onClick={onIntegrationsOpen}
+            title="Integrations"
+          >
+            <span className="sidebar-icon">
+              <SquarePlus size={ICON_SIZE.lg} aria-hidden />
+            </span>
+            <span className="sidebar-label">Integrations</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="default"
+            className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
+            onClick={onGraphBoardOpen}
+            title="Orchestration"
+          >
+            <span className="sidebar-icon">
+              <Workflow size={ICON_SIZE.lg} aria-hidden />
+            </span>
+            <span className="sidebar-label">Orchestration</span>
+          </Button>
+        </>
+      )}
+      {ConversationHistoryItem}
+      {CommandHistoryItem}
+    </>
+  )
+
   return (
-    <div className={`sidebar${expanded ? ' expanded' : ''}`}>
+    <div className={cn(`sidebar${expanded ? ' expanded' : ''}`, 'bg-card border-r border-border')}>
 
       {/* Toggle */}
-      <button className="sidebar-item sidebar-toggle" onClick={onToggle} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}>
+      <Button
+        variant="ghost"
+        size="default"
+        // Sin `mb-1`: ninguna otra fila de la columna tiene margen vertical, y el espacio
+        // entre esta fila y la siguiente seria el único distinto de la barra.
+        className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-muted-foreground hover:text-foreground"
+        onClick={onToggle}
+        title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        aria-expanded={expanded}
+      >
+        {/* size="default", no "sm", en TODAS las filas de esta barra.
+            El primitivo trae `[&_svg:not([class*='size-'])]:size-3.5` en el tamaño `sm`, o
+            sea que fuerza a 14px cualquier SVG adentro del botón y PISA el `size` que uno le
+            pasa al ícono. Como las filas que no son <Button> (`.sidebar-item`) no pasan por
+            esa regla y quedan en 16, la misma columna mostraria iconos de 14 y de 16.
+            `default` es h-8 + size-4 (16), que es exactamente lo que estas filas son. */}
         <span className="sidebar-icon">
           {expanded ? (
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <ChevronLeft size={ICON_SIZE.lg} aria-hidden />
           ) : (
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="2" y="4" width="12" height="1.5" rx="0.75" fill="currentColor"/>
-              <rect x="2" y="7.25" width="12" height="1.5" rx="0.75" fill="currentColor"/>
-              <rect x="2" y="10.5" width="12" height="1.5" rx="0.75" fill="currentColor"/>
-            </svg>
+            <Menu size={ICON_SIZE.lg} aria-hidden />
           )}
         </span>
-      </button>
+      </Button>
 
       <div className="sidebar-scroll">
-        {isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
+        {/* ── 1. COLLAPSED RAIL: repo (normal) or workspaces (Hub) — the rail
+             has no room for tabs. ── */}
+        {/* Donde estas, cuando la barra esta colapsada.
+            Sin esta fila el unico icono seria el del repo, y como el glifo de Worktrees se
+            le parece (a proposito: un worktree ES una rama) se leeria como si Worktrees
+            estuviera activa aunque estuvieras en Explorer. Esta fila dice cual esta activa
+            de verdad, y al tocarla abre la barra en esa pestaña. */}
+        {!expanded && (
+          <Button
+            variant="ghost"
+            size="default"
+            className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-foreground"
+            onClick={onToggle}
+            title={`${TAB_LABELS[currentTab]} — open the sidebar`}
+          >
+            <span className="sidebar-icon">
+              {(() => { const Icono = TAB_ICONS[currentTab]; return <Icono size={ICON_SIZE.lg} aria-hidden /> })()}
+            </span>
+            <span className="sidebar-label">{TAB_LABELS[currentTab]}</span>
+          </Button>
+        )}
+
+        {/* Sin el branch: en 48px de ancho no entra, y se veria UNA letra suelta al lado
+            del icono — el principio del nombre de la rama desbordando. El nombre del repo y
+            la rama siguen en el `title` de la fila, que es como se leen en modo colapsado. */}
+        {!expanded && !isHub && repoRow(false)}
+
+        {!expanded && isHub && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
           <HubSidebarPanel
             workspaces={hubWorkspaces ?? []}
-            expanded={expanded}
+            expanded={false}
             onSelectWorkspace={onSelectWorkspace}
             onJumpToPane={onJumpToPane}
             onToggleTerminal={onToggleTerminal}
@@ -523,198 +742,102 @@ export default function Sidebar({
           />
         )}
 
-        {!isHub && (<>
-        {/* ── 1. REPO (top focus) ───────────────────────────── */}
-        <div
-          className="sidebar-item sidebar-repo"
-          title={repoPath ?? 'Link repo to this tab'}
-          onClick={onRepoLink}
-          style={{ cursor: 'pointer' }}
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M4 5.5v5M4 5.5C4 7 5 8 8 8s4 1 4 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          </span>
-          {repoPath ? (
-            <div className="sidebar-repo-info">
-              <div className="sidebar-repo-row">
-                <span className="sidebar-label sidebar-repo-name">{basename(repoPath)}</span>
-                {expanded && githubUrl && (
-                  <button
-                    className="sidebar-github-btn"
-                    title="Open on GitHub"
-                    onClick={e => { e.stopPropagation(); window.electronShell.openExternal(githubUrl!) }}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                    </svg>
-                  </button>
-                )}
-                {expanded && (
-                  <button className="sidebar-repo-unlink" onClick={e => { e.stopPropagation(); onRepoUnlink() }} title="Unlink repo">×</button>
-                )}
-              </div>
-              {branch && (
-                <span className={`sidebar-branch-badge${isDirty ? ' dirty' : ''}`}>
-                  {branch}{isDirty ? ' ●' : ''}
-                </span>
-              )}
-            </div>
-          ) : (
-            <button className="sidebar-label sidebar-repo-link">Link repo</button>
-          )}
-        </div>
-
-        {/* CI Actions bar — última run del repo activo */}
-        {expanded && repoPath && repoCi && (
-          <div style={{ padding: '0 8px 4px' }}>
-            <RepoActionsBar
-              repoFullName={repoCi.repoFullName}
-              provider={repoCi.provider}
-              token={repoCi.token}
-              branch={branch ?? undefined}
-            />
-          </div>
-        )}
-
-        </>)}
-
-        {/* ── 2. WORKTREES + EXPLORER — reparto vertical AJUSTABLE (drag del
-             handle, como entre panes); el tamaño persiste vía autoSaveId. ── */}
+        {/* ── 2. EXPANDED: one menu box — repo row as its title, then the
+             tabs. Hub gets the same menu with Hub in place of Worktrees. ── */}
         {expanded && (
-          <SidebarSplit
-            worktrees={!isHub ? (
-              <div className="sidebar-worktrees-wrap">
-                <WorktreesSection
-                  repoPath={repoPath ?? null}
-                  activeRepoPath={activeCellRepoPath}
-                  onSelect={onWorktreeSelect}
-                  onNewClick={onNewWorktree}
-                  refreshKey={worktreeRefreshKey}
-                  onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
-                />
-              </div>
-            ) : null}
-            explorer={
-              <div className="sidebar-explorer-wrap">
-                {isHub ? (
-                  <HubExplorerPanel roots={hubExplorerRoots ?? []} onOpenFile={onOpenFileFromHub ?? (() => {})} />
-                ) : (
-                  <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
-                )}
-              </div>
-            }
-          />
+          <>
+            <SidebarTabBar
+              tabs={tabs}
+              active={currentTab}
+              onChange={setActiveTab}
+              footer={isHub ? undefined : repoRow(false)}
+            />
+            <div className="sidebar-tab-panel">
+              {currentTab === 'worktrees' && (
+                <div className="sidebar-worktrees-wrap">
+                  {WorktreesHeader}
+                  <WorktreesSection
+                    repoPath={repoPath ?? null}
+                    activeRepoPath={activeCellRepoPath}
+                    onSelect={onWorktreeSelect}
+                    onNewClick={onNewWorktree}
+                    onFixCi={onFixCi}
+                    refreshKey={worktreeRefreshKey}
+                    onStartTutorial={onOpenTutorial ? () => onOpenTutorial('worktrees') : undefined}
+                    paneAITypesByPath={paneAITypesByPath}
+                  />
+                </div>
+              )}
+              {currentTab === 'hub' && onSelectWorkspace && onJumpToPane && onToggleTerminal && onToggleWorkspace && onNewWorkspace && onAddTerminalToWorkspace && (
+                <div className="sidebar-hub-wrap">
+                  <HubSidebarPanel
+                    workspaces={hubWorkspaces ?? []}
+                    expanded
+                    onSelectWorkspace={onSelectWorkspace}
+                    onJumpToPane={onJumpToPane}
+                    onToggleTerminal={onToggleTerminal}
+                    onToggleWorkspace={onToggleWorkspace}
+                    onNewWorkspace={onNewWorkspace}
+                    onAddTerminal={onAddTerminalToWorkspace}
+                  />
+                </div>
+              )}
+              {currentTab === 'explorer' && (
+                <div className="sidebar-explorer-wrap">
+                  {isHub ? (
+                    <HubExplorerPanel roots={hubExplorerRoots ?? []} onOpenFile={onOpenFileFromHub ?? (() => {})} />
+                  ) : (
+                    <ExplorerPanel worktreePath={activeCellRepoPath ?? null} onFileOpen={onFileOpen} />
+                  )}
+                </div>
+              )}
+              {currentTab === 'tools' && (
+                <div className="sidebar-tab-tools-list">
+                  {ToolsListContent}
+                </div>
+              )}
+            </div>
+          </>
         )}
 
-        {/* ── 3. TEAMS + MY REPOS ───────────────────────────── */}
-        <div className="sidebar-section-divider" />
+        {/* ── 3. COLLAPSED ICON RAIL — More tools is an icon row, not a tab. ── */}
+        {!expanded && (
+          <>
+            {/* Sin `mx-2`.
+                
+                Con 8px de margen a cada lado adentro de un riel de 44px, la línea medía 28px
+                y quedaba flotando en el medio de la columna: se lee como un fragmento de
+                algo, no como una división. Un riel angosto pide una línea de borde a borde —
+                es lo que hace que parezca puesta a propósito. */}
+            <Separator className="my-1.5" />
 
-        <div
-          className="sidebar-item sidebar-item-panel sidebar-item-team"
-          style={{ cursor: 'pointer', position: 'relative' }}
-          onClick={onTeamsOpen}
-          title={pendingInvitesCount > 0 ? `Team — ${pendingInvitesCount} pending invite${pendingInvitesCount === 1 ? '' : 's'}` : 'Team'}
-        >
-          <span className="sidebar-icon" style={{ position: 'relative' }}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/>
-              <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
-            </svg>
-            {pendingInvitesCount > 0 && (
-              <span
-                aria-label={`${pendingInvitesCount} pending invites`}
-                style={{
-                  position: 'absolute',
-                  top: -4,
-                  right: -6,
-                  minWidth: 14,
-                  height: 14,
-                  padding: '0 3px',
-                  borderRadius: 7,
-                  background: '#EF4444',
-                  color: '#fff',
-                  fontSize: 9,
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  lineHeight: 1,
-                  boxShadow: '0 0 0 1.5px var(--bg-primary, #0a0a0a)',
-                }}
+            <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
+              <Button
+                variant={moreOpen ? 'secondary' : 'ghost'}
+                size="default"
+                className={cn(
+                  'h-8 w-full justify-start gap-2.5 px-2.5 font-normal',
+                  !moreOpen && 'text-muted-foreground hover:text-foreground',
+                )}
+                onClick={() => setMoreOpen(v => !v)}
+                title={moreOpen ? 'Hide more tools' : 'Show more tools'}
               >
-                {pendingInvitesCount > 9 ? '9+' : pendingInvitesCount}
-              </span>
-            )}
-          </span>
-          <span className="sidebar-label">Team</span>
-        </div>
+                <span className="sidebar-icon">
+                  <ChevronRight size={ICON_SIZE.lg} style={{ transform: moreOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms ease' }} aria-hidden />
+                </span>
+                <span className="sidebar-label">More tools</span>
+              </Button>
 
-        <div
-          className="sidebar-item sidebar-item-panel sidebar-item-team"
-          style={{ cursor: 'pointer' }}
-          onClick={plan === 'pro' || plan === 'team' || plan === 'enterprise' ? onMyReposOpen : onUpgrade}
-          title="My Repos"
-        >
-          <span className="sidebar-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          </span>
-          <span className="sidebar-label">My Repos</span>
-          {expanded && plan === 'free' && <span className="sidebar-plan-badge">Pro</span>}
-        </div>
-
-        {/* ── 4. MORE TOOLS (desplegable) ─────────────────── */}
-        <div className={`sidebar-more${moreOpen ? ' open' : ''}`}>
-          <button
-            className="sidebar-item sidebar-more-toggle"
-            onClick={() => setMoreOpen(v => !v)}
-            title={moreOpen ? 'Hide more tools' : 'Show more tools'}
-          >
-            <span className="sidebar-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: moreOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms ease' }}>
-                <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </span>
-            <span className="sidebar-label">More tools</span>
-          </button>
-
-          {moreOpen && (
-            <div className="sidebar-more-list">
-              {LayoutItem}
-              {/* Filtro de panes — junto al layout selector: ambos son
-                  controles de vista del workspace (pedido de Bautista). */}
-              {onPaneFilterChange && (
-                <PaneFilterControl
-                  panes={paneFilterPanes ?? []}
-                  filter={paneFilter ?? 'all'}
-                  onChange={onPaneFilterChange}
-                  expanded={expanded}
-                />
+              {moreOpen && (
+                <div className="sidebar-more-list">
+                  {ToolsListContent}
+                </div>
               )}
-              {SnippetsItem}
-              {WorkspacesItem}
-              {MCPItem}
-              {VoiceItem}
-              {BroadcastItem}
-              {JoinTerminalItem}
-              {ConversationHistoryItem}
-              {CommandHistoryItem}
             </div>
-          )}
-        </div>
+          </>
+        )}
 
-        {/* ── 4.5. LAYOUT SELECTOR — trigger now lives inside "More tools"
+        {/* ── 4.5. LAYOUT SELECTOR — trigger lives inside "More tools"
              (see LayoutItem). Only the popover renders here (position:fixed,
              anchored to the LayoutItem). ── */}
         {layoutOpen && layoutPopPos && (
@@ -751,20 +874,34 @@ export default function Sidebar({
 
         {/* ── 5. NEW TERMINAL (acción primaria; oculto al tope) ── */}
         {!isHub && paneCount < MAX_PANES && (
-          <button
-            className="sidebar-item sidebar-new-terminal"
+          <Button
+            variant="ghost"
+            size="default"
+            className="h-8 w-full justify-start gap-2.5 px-2.5 font-normal text-foreground hover:text-primary"
             onClick={onNewPane}
             title={`New terminal (${isWin ? 'Ctrl+T' : '⌘T'})`}
           >
             <span className="sidebar-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-              </svg>
+              <Plus size={ICON_SIZE.lg} aria-hidden />
             </span>
             <span className="sidebar-label">New Terminal</span>
-          </button>
+          </Button>
         )}
       </div>{/* /.sidebar-scroll */}
+
+      {/* Personal — the one door for repos, teams and pending invites. Lives
+          outside the scroll area and the tabs so it renders the same way in
+          every mode (expanded/collapsed, repo/Hub sidebar) directly above
+          the user row. */}
+      {PersonalItem}
+
+      {/* Memories — hermana de Personal (spec §4.1). Fuera del scroll y de las pestanas por
+          la misma razon que Personal: las 3 pestanas son del repo abierto, y esto es de la
+          cuenta. */}
+      {/* `MemoriesItem.onOpen` es `() => void` pero por dentro hace `<Button onClick={onOpen}>`
+          — pasar `onMemoriesOpen` DIRECTO le entregaria el SyntheticEvent del click como si
+          fuera `vista`. Envolver en una arrow sin argumentos corta esa cadena desde el origen. */}
+      {onMemoriesOpen && <MemoriesItem expanded={expanded} onOpen={() => onMemoriesOpen?.()} />}
 
       {/* User menu — hidden while loading to avoid flash */}
       {!profileLoading && (
@@ -780,9 +917,7 @@ export default function Sidebar({
       {/* Settings — always at the bottom */}
       <div className="sidebar-item sidebar-item-settings">
         <span className="sidebar-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.58-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64L4.57 11c-.04.32-.07.65-.07.99s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65a.5.5 0 0 0 .49.43h4a.5.5 0 0 0 .49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z" fill="currentColor"/>
-          </svg>
+          <Settings size={ICON_SIZE.lg} aria-hidden />
         </span>
         <span className="sidebar-label">Settings</span>
         <SettingsPanel
@@ -792,6 +927,9 @@ export default function Sidebar({
           activeRepoPath={activeCellRepoPath}
           onOpenTutorial={onOpenTutorial}
           userPrefs={userPrefs}
+          onFileOpen={onFileOpen}
+          onOpenMemories={(v, s) => onMemoriesOpen?.(v, s)}
+          pedidoDeCuenta={pedidoDeCuenta}
         />
       </div>
 

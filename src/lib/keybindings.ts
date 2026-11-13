@@ -1,3 +1,5 @@
+import { DEFAULT_MEMORY_PREFS, type MemoryPrefs } from './memory-prefs'
+
 export interface Keybindings {
   voiceInput: string
   newPane: string
@@ -17,10 +19,16 @@ export interface Keybindings {
 export interface AppSettings {
   keybindings: Keybindings
   voiceLanguage: string
+  hasSeenMemoryHub: boolean
+  hasSeenMemoriesWelcome: boolean
+  memoryPrefs: MemoryPrefs
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   voiceLanguage: 'es',
+  hasSeenMemoryHub: false,
+  hasSeenMemoriesWelcome: false,
+  memoryPrefs: DEFAULT_MEMORY_PREFS,
   keybindings: {
     voiceInput: 'F5',
     newPane: 'Meta+t',

@@ -1,0 +1,663 @@
+<title>Guía de Nest para el equipo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: cuaderno de estudio con pestañas arriba (una hoja por tema), una columna de ~70ch, tablas con scroll propio */
+:root {
+  --bg: #f4f6f3;
+  --surface: #ffffff;
+  --fg: #1a1d1a;
+  --muted: #5c625c;
+  --line: #dce1db;
+  --accent: #23704a;
+  --accent-soft: #e1efe6;
+  --ok: #2c6e49;
+  --warn: #9a5b13;
+  --bad: #a23a2a;
+  --display: "Fraunces", Georgia, serif;
+  --body: "Source Sans 3", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121513; --surface: #1a1e1b; --fg: #e5e8e4; --muted: #9ea59e; --line: #2b302c;
+    --accent: #7fd1a3; --accent-soft: #19281f; --ok: #7cc79a; --warn: #e3a95c; --bad: #ef8d7c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121513; --surface: #1a1e1b; --fg: #e5e8e4; --muted: #9ea59e; --line: #2b302c;
+  --accent: #7fd1a3; --accent-soft: #19281f; --ok: #7cc79a; --warn: #e3a95c; --bad: #ef8d7c; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 72px;
+}
+.wrap { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(30px, 5vw, 44px); line-height: 1.05; margin: 6px 0 0; text-wrap: balance; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 26px; line-height: 1.2; margin: 0; text-wrap: balance; }
+h3 { font-size: 17px; font-weight: 600; margin: 8px 0 0; }
+p { margin: 0; max-width: 70ch; }
+ul, ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; max-width: 72ch; }
+code { font-family: var(--mono); font-size: .85em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre.cmd { margin: 0; font-family: var(--mono); font-size: 13.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre.cmd .c { color: var(--muted); }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+header .sub { color: var(--muted); font-size: 17px; margin-top: 8px; }
+
+nav.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); display: flex; gap: 4px; overflow-x: auto; padding-block: 8px 0; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+nav.tabs button { font: inherit; font-size: 14.5px; font-weight: 600; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px 10px; cursor: pointer; white-space: nowrap; }
+nav.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+nav.tabs button .n { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-right: 6px; }
+
+section.sheet { display: flex; flex-direction: column; gap: 16px; }
+.lede { font-size: 18px; color: var(--muted); }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.card .k { font-family: var(--mono); font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.card .t { font-family: var(--display); font-size: 19px; font-weight: 600; line-height: 1.25; }
+.card p { font-size: 14.5px; color: var(--muted); }
+@media (max-width: 720px) { .cards { grid-template-columns: 1fr; } }
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 13px; border-top: 1px solid var(--line); }
+thead th { border-top: 0; font-family: var(--mono); font-weight: 500; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+tbody th { font-weight: 600; }
+.tag { font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 99px; white-space: nowrap; border: 1px solid currentColor; }
+.tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); } .tag.bad { color: var(--bad); }
+.flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.step .k { font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
+.step p { font-size: 13.5px; color: var(--muted); }
+@media (max-width: 820px) { .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 440px) { .flow { grid-template-columns: 1fr; } }
+.small { font-size: 13.5px; color: var(--muted); }
+.trap { border: 1px solid var(--line); border-left: 3px solid var(--warn); background: var(--surface); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.trap strong { font-size: 15px; }
+.trap p { font-size: 14.5px; color: var(--muted); }
+.traps { display: flex; flex-direction: column; gap: 10px; }
+.week { display: flex; flex-direction: column; gap: 10px; }
+.task { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.task input { margin-top: 5px; width: 16px; height: 16px; accent-color: var(--accent); }
+.task label { display: flex; flex-direction: column; gap: 3px; cursor: pointer; }
+.task label strong { font-size: 15.5px; }
+.task label span { font-size: 14px; color: var(--muted); }
+.progress { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+.next { display: flex; justify-content: flex-end; }
+.next button { font: inherit; font-size: 14px; color: var(--accent); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+dl.gloss { margin: 0; display: grid; grid-template-columns: minmax(140px, 200px) minmax(0, 1fr); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+dl.gloss dt, dl.gloss dd { margin: 0; padding: 10px 13px; border-top: 1px solid var(--line); }
+dl.gloss dt:first-of-type, dl.gloss dd:first-of-type { border-top: 0; }
+dl.gloss dt { font-family: var(--mono); font-size: 13.5px; font-weight: 500; }
+dl.gloss dd { font-size: 14.5px; color: var(--muted); }
+@media (max-width: 560px) { dl.gloss { grid-template-columns: 1fr; } dl.gloss dd { border-top: 0; padding-top: 0; } }
+.script { display: flex; flex-direction: column; gap: 10px; }
+.script blockquote { margin: 0; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.script blockquote .k { font-family: var(--mono); font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); }
+.script blockquote p { font-size: 15.5px; max-width: 72ch; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Para estudiar · al día al 3-nov-2026 · rama feat/memories-settings</div>
+    <h1>Guía de Nest para el equipo</h1>
+    <p class="sub">Qué es Nest, con qué está hecho y cómo funciona Memories por dentro. Leela en orden la primera vez; después usala de consulta.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hojas">
+    <button role="tab" id="t-nest" aria-controls="nest" data-sheet="nest"><span class="n">1</span>Qué es Nest</button>
+    <button role="tab" id="t-stack" aria-controls="stack" data-sheet="stack"><span class="n">2</span>El stack</button>
+    <button role="tab" id="t-memories" aria-controls="memories" data-sheet="memories"><span class="n">3</span>Cómo funciona Memories</button>
+    <button role="tab" id="t-cifrado" aria-controls="cifrado" data-sheet="cifrado"><span class="n">4</span>El cifrado</button>
+    <button role="tab" id="t-infra" aria-controls="infra" data-sheet="infra"><span class="n">5</span>Infraestructura</button>
+    <button role="tab" id="t-codigo" aria-controls="codigo" data-sheet="codigo"><span class="n">6</span>Mapa del código</button>
+    <button role="tab" id="t-ruta" aria-controls="ruta" data-sheet="ruta"><span class="n">7</span>Ruta de estudio</button>
+    <button role="tab" id="t-ayudar" aria-controls="ayudar" data-sheet="ayudar"><span class="n">8</span>Dónde ayudar</button>
+    <button role="tab" id="t-glosario" aria-controls="glosario" data-sheet="glosario"><span class="n">9</span>Glosario</button>
+    <button role="tab" id="t-pitch" aria-controls="pitch" data-sheet="pitch"><span class="n">10</span>Para el pitch</button>
+  </nav>
+
+  <!-- ============ 1 QUÉ ES NEST ============ -->
+  <section class="sheet" id="nest" role="tabpanel" aria-labelledby="t-nest">
+    <h2>Qué es Nest</h2>
+    <p class="lede">Nest (NestMux) es una app de escritorio para trabajar con agentes de código: Claude Code, Codex, Cursor, Gemini. Junta terminales, worktrees de git, un navegador, un editor y el equipo en una sola ventana. Nest Memories es la memoria que esos agentes van acumulando mientras trabajan.</p>
+    <div class="cards">
+      <div class="card"><span class="k">El workspace</span><span class="t">Muchos agentes a la vez</span><p>Panes de terminal con un agente en cada uno, cada uno en su worktree, con git, puertos y procesos a la vista.</p></div>
+      <div class="card"><span class="k">La memoria</span><span class="t">Lo que el agente aprende queda</span><p>Decisiones, bugs resueltos y convenciones. Se busca, se ve como grafo, llega a tus otras máquinas y a tu equipo.</p></div>
+      <div class="card"><span class="k">La promesa</span><span class="t">Nadie más la puede leer</span><p>Lo que sube a la nube se cifra en tu máquina. El servidor guarda bytes que no puede abrir, ni siquiera nosotros.</p></div>
+    </div>
+
+    <h3>Por qué importa la memoria</h3>
+    <p>Cada sesión de un agente arranca de cero. Si ayer Claude Code descubrió que el webhook de Stripe falla cuando el customer se borró, hoy Cursor no lo sabe, y tu compañero tampoco. Memories hace que eso quede guardado y que lo herede el próximo agente, en cualquier herramienta.</p>
+
+    <h3>Lo que nos diferencia</h3>
+    <ul>
+      <li><strong>Neutral entre vendors.</strong> La memoria de Claude Code no anda en Cursor ni la de Copilot en Claude Code. La de Nest anda en todos.</li>
+      <li><strong>Cifrada en el cliente.</strong> Cursor, GitHub, Mem0 o Zep necesitan leer tu memoria en su servidor. Nest busca en tu máquina, así que el servidor puede ser ciego.</li>
+      <li><strong>Atada a git.</strong> Hay un hilo de notas por rama que nace con la rama y se cierra cuando se mergea.</li>
+    </ul>
+
+    <h3>Dónde está el producto hoy</h3>
+    <ul>
+      <li>La versión pública es la <strong>1.5.1</strong>, sin Memories. Memories vive en la rama <code>feat/memories-settings</code> como <code>1.6.0-beta.1</code> y no está mergeada a <code>main</code>.</li>
+      <li>Estamos en la <strong>Fase 1 del lanzamiento</strong>: cifrado obligatorio al conectar, login y compra sin Nest (para quien usa sólo el plugin) y la TUI del plugin, que es lo próximo a implementar.</li>
+      <li>Planes: <strong>Free</strong> con un proyecto en la nube, <strong>Cloud</strong> individual y <strong>Teams</strong> desde dos personas.</li>
+    </ul>
+    <div class="next"><button type="button" data-go="stack">Siguiente: el stack →</button></div>
+  </section>
+
+  <!-- ============ 2 STACK ============ -->
+  <section class="sheet" id="stack" role="tabpanel" aria-labelledby="t-stack" hidden>
+    <h2>El stack</h2>
+    <p class="lede">Una app Electron con TypeScript de punta a punta, un servidor Node propio para la memoria en la nube y Supabase para cuentas y equipos.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Capa</th><th>Tecnología</th><th>Para qué</th></tr></thead>
+        <tbody>
+          <tr><th>App de escritorio</th><td>Electron 33, Vite 6, React 18, TypeScript 5.7</td><td>Todo lo que ve el usuario. Se empaqueta con electron-builder: DMG (Mac, firmado y notarizado), NSIS (Windows), AppImage y deb (Linux).</td></tr>
+          <tr><th>Terminales</th><td>xterm.js (renderer WebGL) y node-pty</td><td>Cada pane es un PTY real del sistema, con su shell.</td></tr>
+          <tr><th>Editores</th><td>CodeMirror y Monaco</td><td>El editor de código integrado.</td></tr>
+          <tr><th>UI</th><td>Tailwind v4 (sin preflight) + shadcn/ui, conviviendo con <code>global.css</code></td><td>Migración en curso. Lo nuevo se escribe con shadcn y utilidades.</td></tr>
+          <tr><th>Grafo de memorias</th><td>three + react-force-graph</td><td>La vista de grafo de Memories, con wikilinks estilo Obsidian.</td></tr>
+          <tr><th>Base local</th><td>SQLite con FTS5: better-sqlite3 en la app, <code>node:sqlite</code> en el plugin</td><td>La memoria en tu disco. La búsqueda de texto completo corre acá.</td></tr>
+          <tr><th>Cuentas y equipos</th><td>Supabase: Auth, Postgres con RLS, Realtime y edge functions (Deno)</td><td>Login, perfiles y plan, equipos, chat, compartir terminal, Stripe.</td></tr>
+          <tr><th>Sync de memoria</th><td>Servidor Node + Postgres 16, en Docker, en Railway</td><td>Push y pull de memoria cifrada, máquinas, claves, límites por plan.</td></tr>
+          <tr><th>Backups y betas</th><td>Cloudflare R2</td><td>Backup diario del Postgres del sync e instaladores beta privados.</td></tr>
+          <tr><th>Cobro</th><td>Stripe</td><td>Checkout y portal de Cloud, con webhook a una edge function.</td></tr>
+          <tr><th>Agentes</th><td>MCP (Model Context Protocol)</td><td>Cómo los agentes leen y escriben la memoria: 7 herramientas <code>memory_*</code>.</td></tr>
+          <tr><th>Tests</th><td>Vitest (unitarios), Playwright (e2e contra el build)</td><td>Unos 4.350 tests en la raíz y 566 en el servidor, más 20 specs e2e.</td></tr>
+          <tr><th>CI y releases</th><td>GitHub Actions</td><td>Typecheck, tests, servidor contra Postgres real, gitleaks y el release firmado.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Los tres procesos de Electron</h3>
+    <p>Si nunca tocaste Electron, esto es lo primero que hay que entender:</p>
+    <ul>
+      <li><strong>main</strong> (<code>electron/</code>): Node completo. Abre terminales, corre git, maneja la base de memoria, el daemon de sync y el MCP. Punto de entrada: <code>electron/main.ts</code>.</li>
+      <li><strong>preload</strong>: el puente. Expone al renderer sólo las funciones que elegimos, por IPC.</li>
+      <li><strong>renderer</strong> (<code>src/</code>): la UI en React. No tiene acceso a Node; todo lo pide al main por IPC.</li>
+    </ul>
+    <p class="small">La ventana está aislada (contextIsolation, sandbox, sin nodeIntegration). Si algo de la UI necesita el disco o la red, va por un handler IPC en el main, nunca directo.</p>
+    <div class="next"><button type="button" data-go="memories">Siguiente: cómo funciona Memories →</button></div>
+  </section>
+
+  <!-- ============ 3 MEMORIES ============ -->
+  <section class="sheet" id="memories" role="tabpanel" aria-labelledby="t-memories" hidden>
+    <h2>Cómo funciona Memories</h2>
+    <p class="lede">Es una sola memoria, guardada en tu máquina, que leen y escriben todos tus agentes. Nest es la forma más cómoda de usarla. El plugin <code>@nestmux/memory</code> es esa misma memoria sin Nest, en cualquier editor.</p>
+
+<pre class="mermaid">
+flowchart LR
+  subgraph ED["Tus agentes"]
+    CC["Claude Code"]
+    CU["Cursor"]
+    CX["Codex"]
+    GE["Gemini · Qwen · opencode"]
+  end
+  MCP["Servidor MCP nest-memory<br/>7 herramientas"]
+  CC & CU & CX & GE --> MCP
+  MCP -- "con Nest abierto<br/>socket con token" --> D["Daemon de Nest"]
+  MCP -- "sin Nest" --> P["Plugin @nestmux/memory"]
+  D --> DB[("memory.db<br/>SQLite + FTS5<br/>en tu disco")]
+  P --> DB
+  DB --> V["Vault .md<br/>se abre en Obsidian"]
+  DB -- "se cifra antes de salir" --> S["sync.nestmux.com<br/>sólo bytes cifrados"]
+  S --> O["Tus otras máquinas<br/>y tu equipo"]
+</pre>
+    <p class="small">La idea que explica todo lo demás: <strong>la búsqueda corre en tu máquina</strong>. Por eso el servidor no necesita entender lo que guarda.</p>
+
+    <h3>Lo que ve el agente: las herramientas MCP</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Herramienta</th><th>Cuándo la usa</th></tr></thead>
+        <tbody>
+          <tr><th><code>memory_context</code></th><td>Al arrancar la sesión. Devuelve un índice corto de lo que importa en ese proyecto, con los cuerpos truncados.</td></tr>
+          <tr><th><code>memory_search</code></th><td>Cuando le preguntás «¿cómo lo resolvimos la otra vez?». Búsqueda de texto completo (FTS5).</td></tr>
+          <tr><th><code>memory_get</code></th><td>Para leer entera una memoria que encontró en el índice o en la búsqueda.</td></tr>
+          <tr><th><code>memory_save</code></th><td>Sin que se lo pidas, después de una decisión, un bug resuelto o una convención. Lo exige el protocolo que Nest le instala al agente.</td></tr>
+          <tr><th><code>memory_update</code></th><td>Cuando algo cambió. La versión nueva reemplaza a la vieja del mismo tema en vez de acumularse.</td></tr>
+          <tr><th><code>memory_promote</code></th><td>Para pasar algo de personal a equipo.</td></tr>
+          <tr><th><code>memory_graph</code></th><td>Para seguir los wikilinks <code>[[así]]</code> entre memorias.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>El recorrido de una memoria</h3>
+    <div class="flow" aria-label="Recorrido de una memoria">
+      <div class="step"><span class="k">1 · Captura</span><h3>MCP</h3><p>El agente llama <code>memory_save</code> con título, contenido, tipo y tema.</p></div>
+      <div class="step"><span class="k">2 · Limpieza</span><h3>Sin secretos</h3><p>Antes de tocar el disco se redactan tokens y claves (<code>memory-redaction.ts</code>).</p></div>
+      <div class="step"><span class="k">3 · Local</span><h3>SQLite</h3><p>Se guarda con un reloj de Lamport y su tema. Si el tema ya existía, la vieja queda reemplazada.</p></div>
+      <div class="step"><span class="k">4 · Nube</span><h3>Daemon</h3><p>Cifra y sube (push). Baja lo nuevo de otras máquinas por cursor de proyecto (pull).</p></div>
+      <div class="step"><span class="k">5 · Lectura</span><h3>UI y vault</h3><p>Se ve en Memories, en el grafo, en Obsidian y en el hilo de la rama.</p></div>
+    </div>
+
+    <h3>Tres alcances</h3>
+    <div class="cards">
+      <div class="card"><span class="k">Personal</span><span class="t">Sólo vos</span><p>Llega a todas tus máquinas, cifrada con tu clave maestra.</p></div>
+      <div class="card"><span class="k">Equipo</span><span class="t">Los miembros del proyecto</span><p>Cifrada con una clave de equipo. Pasa a equipo sólo lo de ciertos tipos, y lo que parece secreto se queda en personal.</p></div>
+      <div class="card"><span class="k">Hilo por rama</span><span class="t">Lo que pasa en esta rama</span><p>Notas en <code>.nest/team</code> de cada worktree. Nacen con la rama y se apagan con el merge.</p></div>
+    </div>
+
+    <h3>Cómo convergen dos máquinas</h3>
+    <ul>
+      <li><strong>Last-writer-wins (LWW):</strong> si dos máquinas editan lo mismo, gana la de <code>updated_at</code> más nuevo y, en empate, la de lamport más alto. Cliente y servidor ordenan igual; si no, no converge.</li>
+      <li><strong>Lamport leído de la base</strong>, no de un contador en memoria: la app instalada y un build de desarrollo pueden abrir la misma base a la vez.</li>
+      <li><strong>Escrituras <code>IMMEDIATE</code></strong> con <code>busy_timeout</code>, para que dos procesos no se pisen al subir de lock.</li>
+      <li><strong>Un candado de sync</strong> evita dos sincronizaciones al mismo tiempo.</li>
+    </ul>
+
+    <h3>Nest y el plugin</h3>
+    <ul>
+      <li><strong>Con Nest abierto</strong>, el MCP habla con el daemon de Nest por un socket local con token. Nest le pasa al pane las variables <code>NEST_MEMORY_SOCKET</code> y <code>NEST_MEMORY_TOKEN</code>; si no están, el MCP lo encuentra por disco.</li>
+      <li><strong>Sin Nest</strong>, el plugin abre la misma base él mismo. Se instala con <code>npx @nestmux/memory setup</code>, que configura el MCP en cada editor que encuentra; <code>login</code> vincula la máquina por un link a <code>nestmux.com/link</code>; <code>status</code> y <code>doctor</code> diagnostican.</li>
+      <li><strong>Lo próximo:</strong> la TUI. <code>nestmux-memory</code> sin argumentos va a abrir una interfaz de terminal (Ink + tu <code>$EDITOR</code>) para ver, buscar, crear, editar y borrar memorias.</li>
+    </ul>
+    <div class="next"><button type="button" data-go="cifrado">Siguiente: el cifrado →</button></div>
+  </section>
+
+  <!-- ============ 4 CIFRADO ============ -->
+  <section class="sheet" id="cifrado" role="tabpanel" aria-labelledby="t-cifrado" hidden>
+    <h2>El cifrado</h2>
+    <p class="lede">Es la parte más delicada del código y la que más tests tiene. La regla de oro: <strong>la clave nunca sale del cliente</strong>. El servidor guarda envolturas que no puede abrir.</p>
+
+    <h3>Las piezas, de abajo hacia arriba</h3>
+    <ol>
+      <li><strong>Clave maestra</strong> de 32 bytes por cuenta. Cada campo sensible se cifra con AES-256-GCM.</li>
+      <li><strong>Par de claves por máquina</strong> (X25519). La maestra viaja a otra máquina sellada para su clave pública: sólo esa máquina la abre.</li>
+      <li><strong>Prueba de posesión</strong> (<code>rotate_proof</code>). Para publicar una envoltura para otra máquina hay que probar que tenés la maestra. Si no, un device comprometido podría sellar SU maestra para la víctima.</li>
+      <li><strong>Huella que se muestra.</strong> Al autorizar una máquina, la tarjeta muestra una huella, y el main no envuelve si la pública que vuelve a pedir no da esa misma huella.</li>
+      <li><strong>Código de recuperación</strong>, protegido con scrypt, en un slot propio. Si perdés todas las máquinas y el código, la memoria de la nube es irrecuperable: es consecuencia del diseño.</li>
+      <li><strong>Clave de equipo</strong>, una por equipo. La activa y autoriza sólo el líder, y siempre probando que la tiene: el rol se transfiere, la clave no. Cada miembro verifica que la clave recibida coincida con el verificador publicado.</li>
+    </ol>
+
+    <h3>Qué ve el servidor</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Cifrado (no lo puede leer)</th><th>En claro (sí lo ve)</th></tr></thead>
+        <tbody><tr><td>Título, contenido, tags, cuenta de origen y nombre del proyecto.</td><td>Tipo, alcance, rama de git, lamport, fechas, IDs, clave del proyecto y tamaño. El tema viaja como HMAC: el servidor sabe si dos memorias son del mismo tema, pero no cuál es.</td></tr></tbody>
+      </table>
+    </div>
+
+    <h3>Fail-closed: si falta algo, no sube</h3>
+    <ul>
+      <li><strong>Desde el 2-nov el cifrado es obligatorio al conectar.</strong> Conectar corre <code>asegurarCifrado</code>: adopta la clave si ya existe, o la activa si la cuenta todavía no cifra.</li>
+      <li>El gate del push está siempre armado: sin maestra no sale nada (<code>needs_encryption_setup</code> o <code>needs_key</code>).</li>
+      <li>El servidor también rechaza claro personal (<code>encryption_required</code>) y claro de un equipo que cifra (<code>team_encryption_required</code>). Son dos barreras independientes.</li>
+      <li>El daemon se entera de que la cuenta cifra por <code>key_epoch</code> de <code>/v1/sync/status</code>, no por la UI. Antes dependía de que el usuario abriera la tarjeta, y en la máquina sin clave el gate nunca se armaba.</li>
+      <li>Si el status dice <code>plaintext_pending &gt; 0</code>, el main re-sube todo cifrado una vez por sesión, después de bajar todo (si no, subiría versiones viejas).</li>
+    </ul>
+
+    <h3>Lo que es a propósito</h3>
+    <ul>
+      <li><strong>La base local está en claro.</strong> La búsqueda FTS5 y el agente necesitan el texto. Tu máquina queda fuera del modelo de amenaza.</li>
+      <li>La clave local se guarda en el llavero del sistema (Keychain, Credential Manager, libsecret).</li>
+    </ul>
+    <p class="small">Si vas a tocar algo de esto: leé primero el spec del cifrado y los tests adversariales que nombra cada sección de <code>CLAUDE.md</code>.</p>
+    <div class="next"><button type="button" data-go="infra">Siguiente: infraestructura →</button></div>
+  </section>
+
+  <!-- ============ 5 INFRA ============ -->
+  <section class="sheet" id="infra" role="tabpanel" aria-labelledby="t-infra" hidden>
+    <h2>Infraestructura</h2>
+    <p class="lede">Todo corre en servicios gestionados. No hay servidores propios que mantener: Supabase, Railway, Cloudflare R2, Stripe, Vercel y GitHub.</p>
+<pre class="mermaid">
+flowchart LR
+  subgraph Cliente["La máquina del usuario"]
+    APP["Nest (Electron)"]
+    DB[("SQLite local")]
+    MCP["MCP / plugin"]
+    AG["Agentes"]
+  end
+  subgraph Supa["Supabase"]
+    AUTH["Auth (JWT)"]
+    PG[("Postgres + RLS")]
+    RT["Realtime"]
+    FN["Edge functions"]
+  end
+  subgraph Rail["Railway"]
+    SYNC["Servidor de sync"]
+    SPG[("Postgres 16<br/>memoria cifrada")]
+  end
+  R2[("Cloudflare R2")]
+  STRIPE["Stripe"]
+  WEB["nestmux.com<br/>Vercel"]
+  GH["GitHub Actions"]
+  AG --> MCP --> APP --> DB
+  APP -- "login" --> AUTH
+  APP --> PG
+  APP --> RT
+  APP -- "push / pull cifrado" --> SYNC --> SPG
+  SPG -- "backup diario" --> R2
+  STRIPE -- "webhook" --> FN -- "aviso de plan firmado" --> SYNC
+  WEB -- "/link · /upgrade" --> SYNC
+  GH -- "release" --> FN
+  GH -- "beta" --> R2
+</pre>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Servicio</th><th>Qué hace para Nest</th></tr></thead>
+        <tbody>
+          <tr><th>Supabase Auth</th><td>Login con email, Google, GitHub y GitLab. Emite el JWT que validan la app, las functions y el servidor de sync.</td></tr>
+          <tr><th>Supabase Postgres</th><td>Cuentas, perfiles y plan, equipos, repos, chat, snippets. RLS en todas las tablas y un trigger que impide que un usuario se cambie el plan.</td></tr>
+          <tr><th>Supabase Realtime</th><td>Chat de equipo, presencia y compartir terminal por código.</td></tr>
+          <tr><th>Edge functions</th><td>Stripe (checkout, portal, webhook), back-office, alta de usuarios, OAuth de GitHub y GitLab, mails de invitación.</td></tr>
+          <tr><th>Servidor de sync</th><td>Node + Postgres en Railway, detrás de <code>sync.nestmux.com</code>. Sin estado: se puede reiniciar o escalar. Migraciones que corren solas al arrancar.</td></tr>
+          <tr><th>Cloudflare R2</th><td>Backup diario del Postgres del sync (con restore probado) e instaladores de la beta.</td></tr>
+          <tr><th>Vercel</th><td>La landing <code>nestmux.com</code> (repo aparte, <code>pagina-nest</code>), con las páginas de checkout, <code>/link</code> y <code>/upgrade</code>.</td></tr>
+          <tr><th>GitHub</th><td>Código, CI y releases. El auto-update de la app estable sale de los releases de GitHub.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Cómo se publica una versión</h3>
+    <ul>
+      <li>Se sube el campo <code>version</code> de <code>package.json</code> y se pushea a <code>main</code>. Eso dispara <code>release.yml</code>, que hace todo: firma, notariza el DMG, publica el release y deploya las functions.</li>
+      <li><strong>Nunca correr <code>build.yml</code> en un release:</strong> genera un DMG sin firmar que pisa al firmado y rompe la notarización. Ya pasó con v1.3.1 y v1.3.2.</li>
+      <li>El canal beta sube al R2 privado y no toca prod.</li>
+      <li>Releases y deploys a prod los hace Gero. Si algo tuyo necesita salir, avisale.</li>
+    </ul>
+
+    <h3>Secretos</h3>
+    <ul>
+      <li>En <code>.env</code> / <code>.env.local</code> (gitignored), Doppler o 1Password. Nunca en git, en un handoff ni en una memoria.</li>
+      <li><code>gitleaks</code> corre en CI. Si te marca un falso positivo en un test, se agrega el archivo puntual a <code>.gitleaks.toml</code>, nunca una carpeta entera.</li>
+    </ul>
+    <div class="next"><button type="button" data-go="codigo">Siguiente: mapa del código →</button></div>
+  </section>
+
+  <!-- ============ 6 CÓDIGO ============ -->
+  <section class="sheet" id="codigo" role="tabpanel" aria-labelledby="t-codigo" hidden>
+    <h2>Mapa del código</h2>
+    <p class="lede">Un repo con cinco paquetes que comparten el núcleo de memoria. La regla de fondo: <strong>la lógica vive en módulos puros con tests, y los bordes</strong> (IPC de Electron, el handler HTTP, Deno) <strong>sólo cablean</strong>.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Carpeta</th><th>Qué hay</th><th>Para empezar, leé</th></tr></thead>
+        <tbody>
+          <tr><th><code>electron/</code></th><td>El proceso main: terminales, git, worktrees, updater, daemon, store y MCP</td><td><code>main.ts</code> sólo para ubicarte: tiene más de 5.800 líneas y unos 224 handlers IPC. Buscá el handler, no lo leas entero.</td></tr>
+          <tr><th><code>electron/memory-*</code></th><td>El corazón de Memories: unos 40 módulos</td><td><code>memory-store.ts</code> (la base), <code>memory-daemon.ts</code> (sync), <code>memory-crypto.ts</code>, <code>memory-envelope.ts</code>, <code>memory-redaction.ts</code>, <code>memory-protocol.ts</code></td></tr>
+          <tr><th><code>electron/memory-provisioner-*</code></th><td>Cómo se instala el MCP en cada editor</td><td>Uno por editor: Codex, Gemini, Qwen, opencode</td></tr>
+          <tr><th><code>electron/*-del-paquete.ts</code></th><td>El plugin portátil, compilado desde el mismo código</td><td><code>cli-del-paquete.ts</code>. Sin módulos nativos: hay un test que lo vigila.</td></tr>
+          <tr><th><code>electron/integrations/</code></th><td>Orquestación de agentes (graphs), automations, tickets, vault Markdown, hilo de equipo</td><td>Escribe en memoria sólo por <code>store.save()</code></td></tr>
+          <tr><th><code>src/</code></th><td>La UI en React: unos 150 componentes, 53 hooks, 86 módulos de lógica en <code>lib/</code></td><td><code>App.tsx</code>, después la carpeta del overlay de Memories y sus hooks (<code>useMemory</code>)</td></tr>
+          <tr><th><code>server/</code></th><td>El servidor de sync: auth, push, pull, LWW, claves, límites, rate limit, backups, betas, link</td><td><code>server/README.md</code> (incluye el orden de despliegue) y los tests contra Postgres real</td></tr>
+          <tr><th><code>supabase/</code></th><td>Migraciones (RLS, triggers) y edge functions</td><td>La lógica pura está testeada con vitest; los <code>index.ts</code> de Deno sólo cablean</td></tr>
+          <tr><th><code>packages/</code></th><td><code>nest-memory</code> (el paquete de npm) y la extensión de VS Code</td><td>Se construyen desde <code>electron/</code></td></tr>
+          <tr><th><code>e2e/</code></th><td>Specs de Playwright contra la app buildeada</td><td><code>04-contraste.spec.ts</code> (lo pasa todo cambio de UI) y <code>16-cifrado-de-equipo.spec.ts</code></td></tr>
+          <tr><th><code>docs/</code></th><td>Specs, planes, runbooks y handoffs</td><td><code>docs/superpowers/specs/</code> (el porqué de cada feature) y el último <code>HANDOFF-*.md</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Patrones que conviene respetar</h3>
+    <ul>
+      <li><strong>Lo puro primero.</strong> Las decisiones van en funciones sin red ni SDK, con tests baratos, y el borde sólo las llama.</li>
+      <li><strong>Dependencias inyectadas.</strong> El daemon recibe store, fetch y reloj; se testea sin red.</li>
+      <li><strong>Fail-closed</strong> en todo lo de cifrado.</li>
+      <li><strong>Local-first.</strong> La app anda sin red y la nube converge sola cuando vuelve.</li>
+      <li><strong>Idioma:</strong> la conversación, los commits y los specs en castellano. <strong>Todo lo que ve el usuario va en inglés</strong>: UI, salida del CLI, textos del MCP y hasta los datos de prueba visibles.</li>
+      <li><strong>UI:</strong> Tailwind sin preflight (no importes <code>"tailwindcss"</code> entero), los tokens viven en <code>global.css</code>, y lo nuevo se escribe con shadcn, no con clases nuevas en <code>global.css</code>. Receta: <code>docs/RECETA-MIGRACION-UI.md</code>.</li>
+      <li><strong>Color:</strong> el acento es acromático y el color indica estado (<code>--ok</code>, <code>--warn</code>, <code>--destructive</code>). Un literal de color se mira caso por caso antes de tocarlo.</li>
+    </ul>
+
+    <h3>Lo que lo hace pesado</h3>
+    <ul>
+      <li>Archivos gigantes: <code>main.ts</code>, <code>global.css</code> (más de 12k líneas), <code>memory-store.ts</code>, <code>App.tsx</code>. Usá búsqueda, no lectura entera.</li>
+      <li>Hooks montados varias veces con efectos globales (<code>useProfile</code>, <code>useMemory</code>): si agregás un efecto en uno, pensá que corre N veces.</li>
+    </ul>
+    <div class="next"><button type="button" data-go="ruta">Siguiente: ruta de estudio →</button></div>
+  </section>
+
+  <!-- ============ 8 RUTA ============ -->
+  <section class="sheet" id="ruta" role="tabpanel" aria-labelledby="t-ruta" hidden>
+    <h2>Ruta de estudio</h2>
+    <p class="lede">Dos semanas para pasar de «nunca vi Nest» a entender cómo funciona por dentro. Cada paso dice qué leer y qué hacer para saber que lo entendiste. Las tildes quedan guardadas en tu navegador.</p>
+    <p class="progress" id="progress" aria-live="polite">0 de 10 hechos</p>
+
+    <h3>Semana 1 · Entender</h3>
+    <div class="week">
+      <div class="task"><input type="checkbox" id="r1"><label for="r1"><strong>Usar Nest como usuario</strong><span>Instalá la beta, abrí dos panes con agentes, guardá tres memorias y miralas en Memories y en el grafo.</span></label></div>
+      <div class="task"><input type="checkbox" id="r2"><label for="r2"><strong>Leer <code>CLAUDE.md</code> entero</strong><span>Es la memoria institucional del repo: cada trampa que figura ahí ya le costó horas a alguien.</span></label></div>
+      <div class="task"><input type="checkbox" id="r3"><label for="r3"><strong>Seguir un <code>memory_save</code> de punta a punta</strong><span>Desde la herramienta MCP hasta la fila en SQLite. Archivos: el MCP, <code>memory-ipc-server.ts</code>, <code>memory-redaction.ts</code>, <code>memory-store.ts</code>. Dibujá el recorrido en papel.</span></label></div>
+      <div class="task"><input type="checkbox" id="r4"><label for="r4"><strong>Entender el esquema local</strong><span>Abrí <code>memory.db</code> con cualquier cliente SQLite. Ubicá la tabla de memorias, la de FTS5, <code>meta</code> y <code>undecryptable</code>. ¿Qué agregó cada versión de esquema hasta la 8?</span></label></div>
+      <div class="task"><input type="checkbox" id="r5"><label for="r5"><strong>Leer el daemon</strong><span><code>memory-daemon.ts</code>: <code>doPush</code>, <code>doPull</code> y los gates. Respondé: ¿qué pasa si una máquina sin clave intenta subir?</span></label></div>
+      <div class="task"><input type="checkbox" id="r6"><label for="r6"><strong>Leer el spec del cifrado</strong><span><code>docs/superpowers/specs/2026-09-09-nest-memories-plugin-y-cifrado.md</code> y después el de cifrado obligatorio del 2-nov. Explicale a alguien qué ve el servidor y qué no.</span></label></div>
+    </div>
+
+    <h3>Semana 2 · Profundizar</h3>
+    <div class="week">
+      <div class="task"><input type="checkbox" id="r9"><label for="r9"><strong>Leer un test adversarial</strong><span><code>server/__tests__/team-keys.test.ts</code>. Cada caso es un ataque: anotá cuál y por qué falla.</span></label></div>
+      <div class="task"><input type="checkbox" id="r10"><label for="r10"><strong>Probar el plugin sin Nest</strong><span><code>setup</code>, <code>status</code> y <code>doctor</code> desde otra terminal. ¿De dónde lee? ¿Puede descifrar?</span></label></div>
+      <div class="task"><input type="checkbox" id="r13"><label for="r13"><strong>Seguir un pull de otra máquina</strong><span>En <code>memory-daemon.ts</code>, de <code>doPull</code> a la fila guardada. Respondé: si dos máquinas editaron la misma memoria, ¿cuál gana y por qué?</span></label></div>
+      <div class="task"><input type="checkbox" id="r11"><label for="r11"><strong>Leer el spec de la TUI</strong><span><code>docs/superpowers/specs/2026-11-02-tui-de-memory-design.md</code>. Es lo próximo que se construye: buen lugar para entrar.</span></label></div>
+    </div>
+
+    <h3>Preguntas para chequearte</h3>
+    <ul>
+      <li>¿Por qué la base local está en claro y eso no rompe la promesa de seguridad?</li>
+      <li>¿Por qué el lamport se lee de la base y no de un contador en memoria?</li>
+      <li>¿Por qué ser líder del equipo no alcanza para autorizar a un miembro?</li>
+      <li>¿Qué dos barreras impiden que memoria en claro llegue al servidor?</li>
+      <li>Si el MCP dice «Nest is not running» con Nest abierto, ¿por dónde empezás a buscar?</li>
+    </ul>
+    <div class="next"><button type="button" data-go="ayudar">Siguiente: dónde ayudar →</button></div>
+  </section>
+
+  <!-- ============ 9 DÓNDE AYUDAR ============ -->
+  <section class="sheet" id="ayudar" role="tabpanel" aria-labelledby="t-ayudar" hidden>
+    <h2>Dónde ayudar</h2>
+    <p class="lede">Lo que está abierto al 3-nov, ordenado por cuánto contexto pide. Antes de arrancar algo, hablalo con Gero para no pisarse.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Tema</th><th>Qué hay que hacer</th><th>Contexto que pide</th></tr></thead>
+        <tbody>
+          <tr><th>TUI del plugin</th><td>Spec aprobado; falta el plan y la implementación con Ink.</td><td><span class="tag ok">bajo</span> React + leer el store</td></tr>
+          <tr><th><code>setup</code> para Claude Desktop</th><td>Ubicar <code>claude_desktop_config.json</code> en cada SO y agregar el MCP.</td><td><span class="tag ok">bajo</span> mirar un provisioner existente</td></tr>
+          <tr><th>Tests y e2e</th><td>Cubrir los bordes que hoy no tienen test (los <code>index.ts</code> de Deno, por ejemplo).</td><td><span class="tag ok">bajo</span></td></tr>
+          <tr><th>Migración de UI</th><td>Pasar componentes de <code>global.css</code> a shadcn, siguiendo la receta.</td><td><span class="tag ok">bajo</span> pasar <code>04-contraste</code></td></tr>
+          <tr><th>Partir <code>main.ts</code></th><td>Sacar los handlers IPC a módulos por dominio, sin cambiar comportamiento.</td><td><span class="tag warn">medio</span></td></tr>
+          <tr><th>Nest para no programadores</th><td>Tutoriales interactivos, personalización y conceptos de agentes para principiantes. Sin diseñar todavía.</td><td><span class="tag warn">medio</span> producto y diseño</td></tr>
+          <tr><th>Cifrado y sync</th><td>Cualquier cambio en claves, gates o LWW.</td><td><span class="tag bad">alto</span> sólo después de la semana 2</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>Cómo pedir ayuda</h3>
+    <ul>
+      <li>Decí qué intentaste, qué esperabas y qué pasó, con la salida del comando.</li>
+      <li>Si es algo que ya pasó, buscalo primero en <code>CLAUDE.md</code>, en el último handoff y en las memorias del proyecto.</li>
+      <li>Cuando resuelvas algo que no era obvio, guardalo como memoria (con <code>memory_save</code> o desde la app). Así el próximo no lo vuelve a descubrir.</li>
+    </ul>
+    <div class="next"><button type="button" data-go="glosario">Siguiente: glosario →</button></div>
+  </section>
+
+  <!-- ============ 10 GLOSARIO ============ -->
+  <section class="sheet" id="glosario" role="tabpanel" aria-labelledby="t-glosario" hidden>
+    <h2>Glosario</h2>
+    <dl class="gloss">
+      <dt>Pane</dt><dd>Un panel de terminal dentro de Nest. Normalmente tiene un agente corriendo.</dd>
+      <dt>Worktree</dt><dd>Una copia de trabajo de git con su propia rama, al lado de las otras. Permite tener varios agentes en ramas distintas a la vez.</dd>
+      <dt>MCP</dt><dd>Model Context Protocol. El estándar con el que un agente usa herramientas externas; Memories se expone así.</dd>
+      <dt>Daemon</dt><dd>El proceso dentro del main de Nest que sincroniza la memoria con la nube.</dd>
+      <dt>Plugin / paquete</dt><dd><code>@nestmux/memory</code>: la memoria sin Nest, con CLI y MCP propios.</dd>
+      <dt>Vault</dt><dd>La copia en archivos <code>.md</code> de la memoria, que Obsidian abre tal cual.</dd>
+      <dt>Tema (topic)</dt><dd>La clave que identifica de qué trata una memoria. Una versión nueva del mismo tema reemplaza a la vieja (supersede).</dd>
+      <dt>Lamport</dt><dd>Un reloj lógico: un número que sube con cada escritura y sirve para ordenar sin confiar en la hora de cada máquina.</dd>
+      <dt>LWW</dt><dd>Last-writer-wins: ante dos versiones, gana la más nueva por <code>updated_at</code> y, en empate, por lamport.</dd>
+      <dt>Tombstone</dt><dd>La marca de que una memoria se borró, para que el borrado también viaje a las otras máquinas.</dd>
+      <dt>Clave maestra</dt><dd>La clave de 32 bytes que cifra tu memoria personal. Nunca sale de tus máquinas.</dd>
+      <dt>Envoltura (wrap)</dt><dd>La maestra sellada para la clave pública de una máquina, guardada en el servidor sin poder abrirse.</dd>
+      <dt>Época (key_epoch)</dt><dd>El número de versión de la clave de la cuenta. Época 0 significa que la cuenta todavía no cifra.</dd>
+      <dt>HMAC del tema</dt><dd>El tema cifrado de forma que el servidor pueda saber si dos memorias son del mismo tema sin saber cuál es.</dd>
+      <dt>Fail-closed</dt><dd>Si falta algo (la clave, el estado), el sistema se niega a actuar en vez de seguir sin protección.</dd>
+      <dt>Gate</dt><dd>La barrera del push que retiene lo que no puede subir cifrado.</dd>
+      <dt>RLS</dt><dd>Row Level Security de Postgres: las reglas que deciden qué filas puede ver o tocar cada usuario en Supabase.</dd>
+      <dt>Edge function</dt><dd>Una función serverless de Supabase, escrita en Deno.</dd>
+      <dt>Spec · plan · handoff</dt><dd>El diseño de una feature, sus pasos de implementación y el estado al cerrar el día. Viven en <code>docs/</code>.</dd>
+    </dl>
+    <div class="next"><button type="button" data-go="pitch">Siguiente: para el pitch →</button></div>
+  </section>
+
+  <!-- ============ 11 PITCH ============ -->
+  <section class="sheet" id="pitch" role="tabpanel" aria-labelledby="t-pitch" hidden>
+    <h2>Para el pitch</h2>
+    <p class="lede">Todo lo que hace falta para trabajar el guion y las diapositivas de la semifinal de ATICMA Emprende 2026: el formato, lo que evalúa el jurado, las 11 diapos, el guion vigente y de dónde sale cada número.</p>
+
+    <div class="cards">
+      <div class="card"><span class="k">Formato</span><span class="t">3 minutos, habla Gero</span><p>Semifinal de ATICMA Emprende 2026. Un solo orador (el CEO), con el deck en pantalla.</p></div>
+      <div class="card"><span class="k">El jurado</span><span class="t">No es técnico</span><p>Nada de stack ni de cómo se guarda o cifra la memoria. El foco es que el negocio tenga futuro.</p></div>
+      <div class="card"><span class="k">El hilo</span><span class="t">La historia de Bianca</span><p>Todo se cuenta como la historia de Bianca y su equipo. Bianca va sólo en la voz; las diapos hablan sólo de Nest.</p></div>
+    </div>
+
+    <h3>Lo que evalúa el jurado</h3>
+    <p>Según el Taller de Pitch de ATICMA: innovación, viabilidad, capacidad de escalar, equipo, mercado, cómo ganamos plata, que conozcamos el problema, la industria y la competencia, que haya un norte (roadmap) y, sobre todo, un <strong>diferencial notorio</strong>. Cada diapo tiene que responder al menos uno de estos puntos.</p>
+
+    <h3>Estructura y tiempos</h3>
+    <p class="small">Los tiempos son los de la guía del taller. El deck calca los cuadros que pide el taller (usaron CuraTrack de ejemplo).</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Bloque</th><th>Tiempo</th><th>Diapos</th><th>Qué tiene que lograr</th></tr></thead>
+        <tbody>
+          <tr><th>Hook</th><td>20 s</td><td>1 · portada</td><td>Enganchar con una historia, sin presentarse.</td></tr>
+          <tr><th>Problema</th><td>40 s</td><td>2 · problema, 3 · dato</td><td>Que se entienda el dolor y cuánto cuesta.</td></tr>
+          <tr><th>Solución + demo</th><td>50 s</td><td>4 · Nest, 5 · Memories, 6 · competencia</td><td>Qué es, que ya funciona y en qué somos distintos.</td></tr>
+          <tr><th>Negocio y mercado</th><td>40 s</td><td>7 · negocio, 8 · mercado, 9 · roadmap</td><td>Cómo ganamos plata, qué tan grande es y adónde vamos.</td></tr>
+          <tr><th>Equipo</th><td>20 s</td><td>10 · equipo</td><td>Por qué nosotros.</td></tr>
+          <tr><th>CTA</th><td>10 s</td><td>11 · pedido</td><td>Qué pedimos y cómo contactarnos.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Las 11 diapositivas</h3>
+    <p>Deck vigente (v2, última edición el 2-nov): <a href="https://claude.ai/artifact/2FsvSL1a9ccN2PE29mwzg1">Nest · Pitch ATICMA (historia de Bianca)</a>. Es el único que vale: los PDF y decks anteriores son viejos. Cada diapo trae las notas del orador con el texto del guion y los <code>[clic]</code> de las animaciones. Si no te abre, pedíselo a Gero.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>#</th><th>Diapo</th><th>Qué muestra</th></tr></thead>
+        <tbody>
+          <tr><th>1</th><td>Portada</td><td>«Trabajá con IA, sepas programar o no. Y con todo tu equipo.» Una tarjeta de «memoria del equipo al día» con tres notas que no escribió nadie y que leen todos.</td></tr>
+          <tr><th>2</th><td>Problema</td><td>«Cada persona del equipo trabaja con su IA. Ninguna comparte lo que sabe.» Cinco roles aislados: desarrollo con Claude, desarrollo con Codex, producto con Cursor, diseño con Gemini y marketing con Copilot. Abajo, el «por qué ahora»: hace dos años la IA era un chat personal; hoy cada equipo trabaja con varias y nada las conecta.</td></tr>
+          <tr><th>3</th><td>El dato</td><td>En pantalla: «8 de 10» programadores pierden más de media hora por día buscando respuestas y «US$ 6000» por mes en un equipo de 10. La voz dice otra cosa: ver «Lo que falta resolver».</td></tr>
+          <tr><th>4</th><td>Nest</td><td>Cuatro puntos: tutoriales interactivos, todas tus IAs juntas, Nest Memories, se escribe sola. v1.5 en macOS, Windows y Linux.</td></tr>
+          <tr><th>5</th><td>Memories</td><td>Animación en loop de 10 s: alguien resuelve algo con Copilot («El cliente aprueba los martes»), pasa por Nest Memories y Codex, Gemini, Cursor y Claude «ya lo saben». Al costado, el diferencial («funciona con cualquier IA y se escribe sola») y los 250 usuarios activos. Es ilustrativa y está rotulada así: todavía no hay capturas reales.</td></tr>
+          <tr><th>6</th><td>Competencia</td><td>Tabla de cuatro criterios: se anota sola, la ve todo el equipo, con cualquier IA y sin instalar nada raro. Los demás tienen 2 de 4; Nest, 4 de 4.</td></tr>
+          <tr><th>7</th><td>Negocio</td><td>Gratis (la puerta de entrada), Equipo a US$ 15 por persona al mes (US$ 12 pagando el año) y Empresa a medida. «Un usuario gratis trae a su equipo.»</td></tr>
+          <tr><th>8</th><td>Mercado</td><td>TAM US$ 6.970 M, SAM US$ 2.680 M y SOM US$ 14,4 M al año.</td></tr>
+          <tr><th>9</th><td>Roadmap</td><td>«De 250 usuarios a 100.000 en 3 años.» 2026 StartLab → hoy 250 usuarios activos → 6 meses, con cualquier IA sin abrir Nest → 12 meses, «los primeros 100 equipos pagando» (la voz dice diez) → 2 años en América y Europa → 3 años, 100.000 personas y US$ 14,4 M al año.</td></tr>
+          <tr><th>10</th><td>Equipo</td><td>Gerónimo (CEO), Matías (CTO) y Bautista (CMO). Ganadores de StartLab, semifinalistas de ATICMA.</td></tr>
+          <tr><th>11</th><td>Pedido</td><td>El viaje a Silicon Valley para levantar la ronda, con los datos de Gero y el QR.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>El guion vigente (v3)</h3>
+    <p class="small">Unas 430 palabras, alrededor de 3:00. Todavía no se cronometró en voz alta.</p>
+    <div class="script">
+      <blockquote><span class="k">Hook · 20 s</span><p>Les quiero contar la historia de Bianca. Bianca estudia marketing, y en la facultad le pidieron convertir una idea en un producto real. Nunca había programado ni usado inteligencia artificial para trabajar. Le recomendé Nest, nuestra aplicación, y con Nest armó su producto, lo publicó y ganó la competencia del curso.</p></blockquote>
+      <blockquote><span class="k">Problema · 40 s</span><p>Entusiasmada, quiso convertirlo en un emprendimiento y armó un equipo: dos desarrolladores, una chica de marketing y una amiga. Cada uno con una IA distinta: Claude, Gemini, Codex, Cursor. Y ahí chocaron: todo lo que Bianca sabía estaba en su computadora y en ningún otro lado. Hace dos años, la IA era un chat que usabas solo; hoy cada persona de un equipo trabaja con la suya, y nada las conecta. Seis de cada diez programadores pierden más de media hora por día buscando respuestas: en un equipo de diez, son cuatro mil quinientos dólares por mes tirados.</p></blockquote>
+      <blockquote><span class="k">Solución + demo · 50 s</span><p>Nest resuelve las dos partes de la historia de Bianca. Primero, te lleva de la mano: te enseña a trabajar con inteligencia artificial, sepas programar o no, y te deja usar todas tus IAs juntas en un solo lugar. Así Bianca, sin saber programar, creó su producto. Y segundo, Nest Memories: la memoria compartida del equipo. [DEMO EN PANTALLA] Miren: lo que Bianca resolvió con su IA, la IA de su compañero ya lo sabe. Nadie anotó nada. Las grandes IAs recuerdan, pero solo para su dueño. Nest es la memoria de equipo que funciona con cualquier IA y se escribe sola. Y ya funciona: tenemos doscientos cincuenta usuarios activos.</p></blockquote>
+      <blockquote><span class="k">Negocio y mercado · 40 s</span><p>Bianca empezó gratis. Para compartir la memoria con su equipo, cada uno paga quince dólares por mes. Y así crecemos: cada usuario gratis trae a su equipo. Y hay muchas Biancas: cuarenta y ocho millones de programadores en el mundo, la mitad ya trabaja con IA todos los días, y cada vez más gente que no programa empieza a crear con IA. Hoy es un mercado de dos mil seiscientos ochenta millones de dólares al año. Nuestro norte: en seis meses, que funcione con cualquier IA; en doce, los primeros diez equipos pagando; en dos años, equipos en América y Europa; y en tres años, cien mil personas.</p></blockquote>
+      <blockquote><span class="k">Equipo · 20 s</span><p>Somos tres: yo, Jerónimo, CEO; Matías, CTO; y Bautista, CMO. Somos desarrolladores: armamos software para clientes todos los días con estas IAs, y este problema lo sufríamos nosotros. Por eso construimos Nest. Ganamos StartLab y clasificamos a esta semifinal de ATICMA Emprende.</p></blockquote>
+      <blockquote><span class="k">CTA · 10 s</span><p>Queremos ir a Silicon Valley a levantar nuestra ronda y llevar Nest a cada equipo del mundo. Mis datos y el QR están en pantalla. Gracias.</p></blockquote>
+    </div>
+
+    <h3>Los números y de dónde salen</h3>
+    <p>Si el jurado pregunta, cada cifra tiene que poder defenderse:</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Cifra</th><th>Cálculo</th><th>Fuente</th></tr></thead>
+        <tbody>
+          <tr><th>6 de cada 10 pierden más de 30 min/día</th><td>El 61 % de los programadores.</td><td>Stack Overflow 2024</td></tr>
+          <tr><th>US$ 4.500/mes en un equipo de 10</th><td>Entre 110 y 150 horas por mes a US$ 30 la hora: de US$ 3.300 a 4.500.</td><td>Stack Overflow 2024</td></tr>
+          <tr><th>TAM US$ 6.970 M/año</th><td>48,4 M de programadores × US$ 144 al año.</td><td>SlashData Q3 2025</td></tr>
+          <tr><th>SAM US$ 2.680 M/año</th><td>36,5 M de profesionales × 51 % que usa IA a diario = 18,6 M × US$ 144.</td><td>SlashData Q3 2025 y Stack Overflow 2025</td></tr>
+          <tr><th>SOM US$ 14,4 M/año</th><td>La meta a 3 años: 100.000 personas × US$ 144.</td><td>Meta propia</td></tr>
+          <tr><th>US$ 144 al año</th><td>El precio más bajo: el plan de equipo pagando el año (US$ 12 por mes). Mes a mes son US$ 15.</td><td>Planes de Nest</td></tr>
+          <tr><th>250 usuarios activos</th><td>Dato de Gero del 1-nov.</td><td>Interno</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Reglas que ya están decididas</h3>
+    <ul>
+      <li><strong>Las diapos hablan sólo de Nest.</strong> Bianca aparece en la voz y en las notas del orador, no en pantalla.</li>
+      <li><strong>Nada técnico en la voz:</strong> ni stack, ni MCP, ni cifrado, ni cómo se guarda la memoria. Si el jurado pregunta por seguridad, alcanza con decir que lo que sube a la nube se cifra en la máquina del usuario y ni nosotros podemos leerlo.</li>
+      <li><strong>Qué IAs nombrar.</strong> Nest trae de fábrica Claude, Gemini, Codex, Copilot, OpenCode, DeepSeek, Grok, Qwen y Cursor, y acepta cualquier otra por línea de comandos. ChatGPT, como tal, no corre adentro de Nest (lo de OpenAI que corre es Codex): no decir que «funciona con ChatGPT». En la tabla de competencia sí aparece, porque ahí es un competidor.</li>
+      <li><strong>La competencia, en una línea:</strong> Anthropic, OpenAI y Microsoft tienen memoria, pero personal. Onyx y Cursor sirven al equipo, pero alguien tiene que escribir. Nest es de equipo, con cualquier IA, y se escribe sola.</li>
+      <li><strong>Modelo de negocio:</strong> le vendemos al equipo, no a la persona. El usuario gratis es la puerta de entrada y trae a su equipo, que paga.</li>
+    </ul>
+
+    <h3>Lo que falta resolver</h3>
+    <div class="traps">
+      <div class="trap"><strong>La diapo del dato no coincide con la voz ni con la fuente</strong><p>En pantalla dice «8 de 10» y «US$ 6000»; las notas del orador y el guion dicen seis de cada diez y cuatro mil quinientos. La fuente que figura en la misma diapo (Stack Overflow 2024, 61 %; 110 a 150 h × US$ 30) sostiene 6 de 10 y US$ 3.300–4.500, no 8 de 10 ni 6.000. Hay que decidir una versión y, si cambia la cifra, cambiar también la fuente.</p></div>
+      <div class="trap"><strong>Roadmap: ¿10 o 100 equipos?</strong><p>La diapo dice «los primeros 100 equipos pagando» a 12 meses; la voz dice diez. Tienen que decir lo mismo.</p></div>
+      <div class="trap"><strong>Ojo con el mercado</strong><p>Los US$ 2.680 M se calculan sobre programadores, pero la meta dice «cien mil personas» y el guion suma a la gente que no programa. Si preguntan, el cálculo es sobre programadores. Conviene que voz y diapo digan lo mismo.</p></div>
+      <div class="trap"><strong>Qué significa «activos»</strong><p>No está definido si los 250 usuarios activos son diarios, semanales o mensuales. Hay que tenerlo claro por si el jurado pregunta.</p></div>
+      <div class="trap"><strong>Roadmap a confirmar</strong><p>Lo de «2 años, equipos en América y Europa» fue una propuesta, no está confirmado. Al hito de StartLab le falta el mes: hoy dice sólo «2026».</p></div>
+      <div class="trap"><strong>Capturas reales</strong><p>La diapo de Memories usa una animación ilustrativa. Quedaría más fuerte con capturas reales de Nest, o con la demo en vivo que pide el guion.</p></div>
+      <div class="trap"><strong>Cronometrar y exportar</strong><p>Falta pasarlo en voz alta con reloj. Para el día del evento: exportar el deck a .pptx (Share → Export → PowerPoint) y, en la Mac, abrirlo con Keynote.</p></div>
+      <div class="trap"><strong>Consentimiento de Bianca</strong><p>Falta confirmar que está de acuerdo con que contemos su historia.</p></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('nav.tabs button'));
+  var sheets = Array.prototype.slice.call(document.querySelectorAll('section.sheet'));
+  var ids = sheets.map(function (s) { return s.id; });
+  function show(id, focus) {
+    if (ids.indexOf(id) < 0) id = ids[0];
+    sheets.forEach(function (s) { s.hidden = s.id !== id; });
+    tabs.forEach(function (t) {
+      var on = t.dataset.sheet === id;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      if (on && focus) t.focus();
+    });
+    try { history.replaceState(null, '', '#' + id); } catch (e) {}
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () { show(t.dataset.sheet); });
+    t.addEventListener('keydown', function (e) {
+      var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (!d) return;
+      e.preventDefault();
+      show(tabs[(i + d + tabs.length) % tabs.length].dataset.sheet, true);
+    });
+  });
+  document.querySelectorAll('[data-go]').forEach(function (b) {
+    b.addEventListener('click', function () { show(b.dataset.go); window.scrollTo(0, 0); });
+  });
+  show((location.hash || '').slice(1));
+
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.task input'));
+  var KEY = 'guia-nest-ruta';
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) {}
+  var progress = document.getElementById('progress');
+  function update() {
+    var n = boxes.filter(function (b) { return b.checked; }).length;
+    progress.textContent = n + ' de ' + boxes.length + ' hechos';
+  }
+  boxes.forEach(function (b) {
+    b.checked = !!saved[b.id];
+    b.addEventListener('change', function () {
+      saved[b.id] = b.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+      update();
+    });
+  });
+  update();
+})();
+</script>

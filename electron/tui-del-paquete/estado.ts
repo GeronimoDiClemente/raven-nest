@@ -1,0 +1,365 @@
+/**
+ * El estado de la TUI de Nest Memory, sin Ink y sin I/O.
+ *
+ * `reducir` recibe el estado y una acción (una tecla, o el resultado de algo que pidió) y
+ * devuelve el estado nuevo MÁS los efectos que hay que ejecutar. Quien los ejecuta es un
+ * runner aparte: acá nada toca disco, red ni procesos, así que todo se prueba con vitest.
+ *
+ * La cancelación del debounce de búsqueda también es del runner: `buscar` lleva `enMs` y un
+ * pedido nuevo reemplaza al anterior.
+ */
+import type { ObservationSummary, WikilinkResuelto } from '../memory-protocol'
+import { enmascararCodigo } from '../wikilinks'
+
+export type Pestana = 'recent' | 'search' | 'status' | 'doctor'
+
+export interface Vista { tipo: 'detalle'; syncId: string; linkEnfocado: number | null; scroll: number }
+
+/** Lo que devuelve `memory.get`; de los vecinos, sólo los backlinks. */
+export interface DetalleDeMemoria {
+  item: ObservationSummary
+  resolvedLinks: WikilinkResuelto[]
+  pendingLinks: string[]
+  /** Las que la citan con `[[...]]`: el «Mentioned in» de la app. */
+  mencionadaEn?: Array<{ syncId: string; title: string }>
+  /** Las propiedades del panel lateral de la app; un Nest viejo no las manda. */
+  scope?: string
+  revisiones?: number
+}
+
+export interface EstadoDeLaTui {
+  pestana: Pestana
+  todosLosProyectos: boolean
+  lista: ObservationSummary[]
+  cursor: number
+  consulta: string
+  /** Vacía = se ve la pestaña; el tope es el detalle visible. */
+  pila: Vista[]
+  /** El del tope de la pila. */
+  detalle: DetalleDeMemoria | null
+  aviso: { texto: string; tipo: 'info' | 'error' } | null
+  confirmando: { syncId: string; titulo: string } | null
+  errorDeEditor: { mensaje: string; archivo: string } | null
+  /**
+   * Hay un editar/reabrir en curso: desde que se pidió hasta que vuelve su resultado (que
+   * incluye la escritura por la fuente). Mientras tanto n/e/r/d no hacen nada: un segundo
+   * editor o un Reopen doble sobre la misma edición duplicarían la memoria.
+   */
+  editando: boolean
+  ayuda: boolean
+  cargando: boolean
+}
+
+/** Los campos de `key` de Ink `useInput` que usamos; no importamos ink para no atar el reducer. */
+export interface Tecla {
+  upArrow?: boolean
+  downArrow?: boolean
+  return?: boolean
+  escape?: boolean
+  tab?: boolean
+  shift?: boolean
+  ctrl?: boolean
+  meta?: boolean
+  backspace?: boolean
+  delete?: boolean
+}
+
+export type Accion =
+  | { tipo: 'tecla'; input: string; key: Tecla }
+  /** `de` dice qué pedido responde: un resultado que no coincide con lo que se ve se descarta. */
+  | { tipo: 'lista-cargada'; lista: ObservationSummary[]; de: { pestana: 'recent'; todos: boolean } | { pestana: 'search'; consulta: string } }
+  | { tipo: 'detalle-cargado'; detalle: DetalleDeMemoria | null }
+  /** Se guardó (nueva o editada): refresca lo que se ve. */
+  | { tipo: 'escrito'; syncId: string | null }
+  | { tipo: 'borrado'; syncId: string }
+  | { tipo: 'error-de-editor'; mensaje: string; archivo: string }
+  | { tipo: 'fallo'; mensaje: string }
+  /** La edición no tiene arreglo (su temporal ya no está): se avisa y se suelta el error. */
+  | { tipo: 'edicion-perdida'; mensaje: string }
+  | { tipo: 'limpiar-aviso' }
+
+export type Efecto =
+  | { tipo: 'cargar-recientes'; todos: boolean }
+  | { tipo: 'buscar'; consulta: string; enMs: 150 }
+  | { tipo: 'abrir'; syncId: string }
+  | { tipo: 'editar'; syncId: string | null }
+  | { tipo: 'reabrir-editor'; archivo: string }
+  | { tipo: 'borrar'; syncId: string }
+  | { tipo: 'cargar-status' }
+  | { tipo: 'cargar-doctor' }
+  | { tipo: 'salir' }
+
+type Resultado = { estado: EstadoDeLaTui; efectos: Efecto[] }
+
+const PESTANAS: Pestana[] = ['recent', 'search', 'status', 'doctor']
+
+export function estadoInicial(): EstadoDeLaTui {
+  return {
+    pestana: 'recent', todosLosProyectos: false, lista: [], cursor: 0, consulta: '',
+    pila: [], detalle: null, aviso: null, confirmando: null, errorDeEditor: null, editando: false,
+    ayuda: false, cargando: true,
+  }
+}
+
+const sin = (estado: EstadoDeLaTui, efectos: Efecto[] = []): Resultado => ({ estado, efectos })
+
+/** Pide de nuevo lo que la pestaña actual muestra. */
+function refrescar(e: EstadoDeLaTui): Efecto[] {
+  switch (e.pestana) {
+    case 'recent': return [{ tipo: 'cargar-recientes', todos: e.todosLosProyectos }]
+    case 'search': return e.consulta ? [{ tipo: 'buscar', consulta: e.consulta, enMs: 150 }] : []
+    case 'status': return [{ tipo: 'cargar-status' }]
+    case 'doctor': return [{ tipo: 'cargar-doctor' }]
+  }
+}
+
+function irAPestana(e: EstadoDeLaTui, p: Pestana): Resultado {
+  if (p === e.pestana) return sin(e)
+  const base: EstadoDeLaTui = { ...e, pestana: p, lista: [], cursor: 0, aviso: null }
+  if (p === 'recent') return sin({ ...base, cargando: true }, refrescar(base))
+  if (p === 'search') {
+    const hay = base.consulta !== ''
+    return sin({ ...base, cargando: hay }, refrescar(base))
+  }
+  return sin({ ...base, cargando: true }, refrescar(base))
+}
+
+/**
+ * Índices a los que se puede ir con Tab: primero los de `resolvedLinks` (los huecos se
+ * saltean) y después los backlinks, numerados a continuación (`resolvedLinks.length + j`).
+ */
+function linksNavegables(d: DetalleDeMemoria | null): number[] {
+  if (!d) return []
+  const r: number[] = []
+  d.resolvedLinks.forEach((l, i) => { if (l.syncId) r.push(i) })
+  ;(d.mencionadaEn ?? []).forEach((_, j) => r.push(d.resolvedLinks.length + j))
+  return r
+}
+
+/** El destino de un índice de `linksNavegables`, o `null` si es un hueco. */
+export function destinoDelLink(d: DetalleDeMemoria, indice: number): string | null {
+  if (indice < d.resolvedLinks.length) return d.resolvedLinks[indice]?.syncId ?? null
+  return d.mencionadaEn?.[indice - d.resolvedLinks.length]?.syncId ?? null
+}
+
+const esTexto = (input: string, key: Tecla) => input.length > 0 && !key.ctrl && !key.meta
+
+function conTope(e: EstadoDeLaTui, cambio: Partial<Vista>): EstadoDeLaTui {
+  const pila = e.pila.slice()
+  pila[pila.length - 1] = { ...pila[pila.length - 1]!, ...cambio }
+  return { ...e, pila }
+}
+
+function apilar(e: EstadoDeLaTui, syncId: string): Resultado {
+  return sin(
+    { ...e, pila: [...e.pila, { tipo: 'detalle', syncId, linkEnfocado: null, scroll: 0 }], detalle: null, cargando: true },
+    [{ tipo: 'abrir', syncId }],
+  )
+}
+
+function teclaEnDetalle(e: EstadoDeLaTui, input: string, key: Tecla): Resultado {
+  const tope = e.pila[e.pila.length - 1]!
+  if (key.escape) {
+    const pila = e.pila.slice(0, -1)
+    const previa = pila[pila.length - 1]
+    // Volvemos a la memoria anterior: su detalle ya no está a mano, hay que pedirlo otra vez.
+    if (previa) return sin({ ...e, pila, detalle: null, cargando: true }, [{ tipo: 'abrir', syncId: previa.syncId }])
+    return sin({ ...e, pila, detalle: null, cargando: false })
+  }
+  if (key.tab) {
+    const nav = linksNavegables(e.detalle)
+    if (nav.length === 0) return sin(e)
+    const pos = tope.linkEnfocado === null ? -1 : nav.indexOf(tope.linkEnfocado)
+    const siguiente = key.shift
+      ? nav[pos <= 0 ? nav.length - 1 : pos - 1]!
+      : nav[(pos + 1) % nav.length]!
+    return sin(conTope(e, { linkEnfocado: siguiente }))
+  }
+  if (key.return) {
+    const destino = tope.linkEnfocado === null || !e.detalle ? null : destinoDelLink(e.detalle, tope.linkEnfocado)
+    return destino ? apilar(e, destino) : sin(e)
+  }
+  if (key.upArrow || input === 'k') return sin(conTope(e, { scroll: Math.max(0, tope.scroll - 1) }))
+  if (key.downArrow || input === 'j') return sin(conTope(e, { scroll: tope.scroll + 1 }))
+  if (input === 'n') return sin(e, [{ tipo: 'editar', syncId: null }])
+  if (input === 'e') return sin(e, [{ tipo: 'editar', syncId: tope.syncId }])
+  if (input === 'd') {
+    const titulo = e.detalle?.item.syncId === tope.syncId ? e.detalle.item.title : tope.syncId
+    return sin({ ...e, confirmando: { syncId: tope.syncId, titulo } })
+  }
+  return sin(e)
+}
+
+function teclaEnSearch(e: EstadoDeLaTui, input: string, key: Tecla): Resultado | null {
+  if (key.escape) return sin(e.consulta ? { ...e, consulta: '', lista: [], cursor: 0, cargando: false } : e)
+  if (key.backspace || key.delete) {
+    if (!e.consulta) return sin(e)
+    const consulta = e.consulta.slice(0, -1)
+    return sin(
+      { ...e, consulta, lista: consulta ? e.lista : [], cursor: 0, cargando: consulta !== '' },
+      [{ tipo: 'buscar', consulta, enMs: 150 }],
+    )
+  }
+  if (esTexto(input, key) && !key.tab && !key.return) {
+    const consulta = e.consulta + input
+    return sin({ ...e, consulta, cursor: 0, cargando: true }, [{ tipo: 'buscar', consulta, enMs: 150 }])
+  }
+  return null // flechas, ⏎, Tab y Ctrl: las resuelve la lógica común
+}
+
+function teclaEnPestana(e: EstadoDeLaTui, input: string, key: Tecla): Resultado {
+  const enLista = e.pestana === 'recent' || e.pestana === 'search'
+  if (key.tab) {
+    const i = PESTANAS.indexOf(e.pestana)
+    return irAPestana(e, PESTANAS[(i + (key.shift ? PESTANAS.length - 1 : 1)) % PESTANAS.length]!)
+  }
+  if (enLista) {
+    if (key.upArrow || (e.pestana === 'recent' && input === 'k')) return sin({ ...e, cursor: Math.max(0, e.cursor - 1) })
+    if (key.downArrow || (e.pestana === 'recent' && input === 'j')) {
+      return sin({ ...e, cursor: Math.max(0, Math.min(e.lista.length - 1, e.cursor + 1)) })
+    }
+    if (key.return) {
+      const f = e.lista[e.cursor]
+      return f ? apilar(e, f.syncId) : sin(e)
+    }
+  }
+  // En Search las letras son texto: lo que sigue sólo vale en las otras pestañas.
+  if (e.pestana !== 'search') {
+    if (input >= '1' && input <= '4' && input.length === 1) return irAPestana(e, PESTANAS[Number(input) - 1]!)
+    if (input === '/') return irAPestana(e, 'search')
+    if (input === 'q') return sin(e, [{ tipo: 'salir' }])
+    if (input === '?') return sin({ ...e, ayuda: true })
+    if (input === 'n') return sin(e, [{ tipo: 'editar', syncId: null }])
+    if (enLista) {
+      const f = e.lista[e.cursor]
+      if (input === 'e' && f) return sin(e, [{ tipo: 'editar', syncId: f.syncId }])
+      if (input === 'd' && f) return sin({ ...e, confirmando: { syncId: f.syncId, titulo: f.title } })
+      if (input === 'g' && e.pestana === 'recent') {
+        const todosLosProyectos = !e.todosLosProyectos
+        return sin({ ...e, todosLosProyectos, cursor: 0, cargando: true }, [{ tipo: 'cargar-recientes', todos: todosLosProyectos }])
+      }
+    }
+  }
+  return sin(e)
+}
+
+const abreEditor = (ef: Efecto) => ef.tipo === 'editar' || ef.tipo === 'reabrir-editor'
+
+/** La tecla, con la guarda de la edición en curso alrededor. */
+function alApretar(e: EstadoDeLaTui, input: string, key: Tecla): Resultado {
+  const r = teclaSinGuarda(e, input, key)
+  if (e.editando) {
+    // Otro editor, un borrado, la confirmación de uno, o tocar el error (Reopen/Discard)
+    // mientras la edición anterior no terminó: se ignora la tecla entera.
+    const choca = r.efectos.some((ef) => abreEditor(ef) || ef.tipo === 'borrar')
+      || (r.estado.confirmando !== null && e.confirmando === null)
+      || r.estado.errorDeEditor !== e.errorDeEditor
+    return choca ? sin(e) : r
+  }
+  return r.efectos.some(abreEditor) ? { ...r, estado: { ...r.estado, editando: true } } : r
+}
+
+function teclaSinGuarda(e: EstadoDeLaTui, input: string, key: Tecla): Resultado {
+  if (key.ctrl && input === 'c') return sin(e, [{ tipo: 'salir' }])
+
+  if (e.confirmando) {
+    const { syncId } = e.confirmando
+    const estado = { ...e, confirmando: null }
+    return input === 'y' || input === 'Y' ? sin(estado, [{ tipo: 'borrar', syncId }]) : sin(estado)
+  }
+  if (e.errorDeEditor) {
+    if (input === 'r') return sin(e, [{ tipo: 'reabrir-editor', archivo: e.errorDeEditor.archivo }])
+    if (input === 'd' || key.escape) return sin({ ...e, errorDeEditor: null })
+    return sin(e)
+  }
+  if (e.ayuda) {
+    return input === '?' || key.escape ? sin({ ...e, ayuda: false }) : sin(e)
+  }
+  if (e.pila.length > 0) {
+    if (input === 'q') return sin(e, [{ tipo: 'salir' }])
+    if (input === '?') return sin({ ...e, ayuda: true })
+    return teclaEnDetalle(e, input, key)
+  }
+  if (e.pestana === 'search') {
+    const r = teclaEnSearch(e, input, key)
+    if (r) return r
+  }
+  return teclaEnPestana(e, input, key)
+}
+
+export function reducir(e: EstadoDeLaTui, a: Accion): Resultado {
+  switch (a.tipo) {
+    case 'tecla':
+      return alApretar(e, a.input, a.key)
+    case 'lista-cargada': {
+      // Un resultado tardío (búsqueda vieja, recientes tras cambiar de pestaña) no pisa la lista.
+      const vigente = a.de.pestana === 'recent'
+        ? e.pestana === 'recent' && e.todosLosProyectos === a.de.todos
+        : e.pestana === 'search' && e.consulta === a.de.consulta
+      if (!vigente) return sin(e)
+      return sin({ ...e, lista: a.lista, cursor: Math.min(e.cursor, Math.max(0, a.lista.length - 1)), cargando: false })
+    }
+    case 'detalle-cargado': {
+      const tope = e.pila[e.pila.length - 1]
+      // Un detalle que llega tarde, de una memoria que ya no es la del tope, se descarta.
+      if (!tope) return sin({ ...e, cargando: false })
+      if (!a.detalle) {
+        // La memoria ya no existe (la borraron en otro lado): se saca esa vista.
+        const pila = e.pila.slice(0, -1)
+        const previa = pila[pila.length - 1]
+        const estado = { ...e, pila, detalle: null, cargando: !!previa, aviso: { texto: 'This memory no longer exists', tipo: 'error' as const } }
+        return sin(estado, previa ? [{ tipo: 'abrir', syncId: previa.syncId }] : [])
+      }
+      if (a.detalle.item.syncId !== tope.syncId) return sin(e)
+      return sin({ ...e, detalle: a.detalle, cargando: false })
+    }
+    case 'escrito': {
+      const estado = { ...e, errorDeEditor: null, editando: false, aviso: { texto: 'Saved', tipo: 'info' as const } }
+      const tope = e.pila[e.pila.length - 1]
+      return sin(estado, [...refrescar(e), ...(tope ? [{ tipo: 'abrir' as const, syncId: tope.syncId }] : [])])
+    }
+    case 'borrado':
+      return sin(
+        { ...e, pila: [], detalle: null, aviso: { texto: 'Deleted', tipo: 'info' } },
+        refrescar(e),
+      )
+    case 'error-de-editor':
+      return sin({ ...e, editando: false, errorDeEditor: { mensaje: a.mensaje, archivo: a.archivo } })
+    case 'fallo':
+      return sin({ ...e, editando: false, cargando: false, aviso: { texto: a.mensaje, tipo: 'error' } })
+    case 'edicion-perdida':
+      return sin({ ...e, editando: false, errorDeEditor: null, aviso: { texto: a.mensaje, tipo: 'error' } })
+    case 'limpiar-aviso':
+      return sin({ ...e, editando: false, aviso: null })
+  }
+}
+
+/**
+ * Parte el texto en tramos, marcando los `[[...]]` que son links de verdad. El código no
+ * cuenta: la regla es la de `parsearWikilinks` (ver `enmascararCodigo`), así lo que la
+ * pantalla resalta es exactamente lo que el índice resolvió.
+ */
+export function segmentosDeContenido(
+  texto: string,
+  links: WikilinkResuelto[],
+): Array<{ texto: string; link?: { indice: number; syncId: string | null } }> {
+  const salida: Array<{ texto: string; link?: { indice: number; syncId: string | null } }> = []
+  const mascara = enmascararCodigo(texto)
+  let desde = 0
+  for (const m of mascara.matchAll(/\[\[([^\[\]]+?)\]\]/g)) {
+    const destino = m[1]!.split('|')[0]!.split('#')[0]!.trim().toLowerCase()
+    const indice = destino ? links.findIndex((l) => l.name.trim().toLowerCase() === destino) : -1
+    if (indice === -1) continue
+    const ini = m.index!
+    if (ini > desde) salida.push({ texto: texto.slice(desde, ini) })
+    salida.push({ texto: texto.slice(ini, ini + m[0].length), link: { indice, syncId: links[indice]!.syncId } })
+    desde = ini + m[0].length
+  }
+  if (desde < texto.length) salida.push({ texto: texto.slice(desde) })
+  return salida
+}
+
+/** Dos umbrales: bajo 60 columnas se oculta la fecha; bajo 40 ya no hay forma de dibujar. */
+export function columnas(ancho: number): { conFecha: boolean; demasiadoAngosta: boolean } {
+  return { conFecha: ancho >= 60, demasiadoAngosta: ancho < 40 }
+}

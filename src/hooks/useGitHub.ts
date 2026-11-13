@@ -19,6 +19,21 @@ export function useGitHub() {
   })
 
   useEffect(() => {
+    // Override E2E: gateado DOBLE al bypass, igual que e2ePlan en useProfile. Si la
+    // sesion sembro repos (RAVEN_E2E_REPOS) esta simulando una cuenta conectada, asi
+    // que no hace falta una segunda variable para decirlo. El token es un centinela,
+    // no una credencial: sirve solo para pasar el `githubToken || gitlabToken` que
+    // gatea la vista de My Repos. Los tests que lo usan interceptan api.github.com.
+    if (window.appFlags?.e2eBypass && window.appFlags.e2eRepos) {
+      setState({
+        isConnected: true,
+        githubLogin: 'e2e-user',
+        githubToken: 'e2e-not-a-real-token',
+        loading: false,
+        error: null,
+      })
+      return
+    }
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { setState(s => ({ ...s, loading: false })); return }
       const { data } = await supabase

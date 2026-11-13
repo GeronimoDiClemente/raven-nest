@@ -1,14 +1,27 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type ReactNode } from 'react'
 import { PaneNode, AI_CONFIG, COLOR_PALETTE, AIType } from '../types'
+import { indicesDeIdentidad, NOMBRE_ANSI, colorDeTema, resolverColorDePane, TEMA_NEST, type TemaDeTerminal } from '../lib/terminal-themes'
+import { ETIQUETA_DE_ESTADO, DETALLE_DE_ESTADO, ESTADOS_VISIBLES, type EstadoDePane } from '../lib/pane-state'
 import { AILogo } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
 import { PortChipsGroup } from './PortChipsGroup'
+import {
+  ArrowRight, Rows3, Copy, Download, Share2, Minimize2, Maximize2, Check, RotateCw,
+} from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DragHandleProps = Record<string, any>
 
 interface Props {
   pane: PaneNode
+  /**
+   * El tema de terminal activo. El selector de color ofrece SU paleta, no una rueda fija.
+   * Opcional para los callers y tests que montan el header solo.
+   */
+  temaDeTerminal?: TemaDeTerminal
+  /** En qué estado está el pane. Ver `lib/pane-state.ts`. */
+  estado?: EstadoDePane
   zoomed: boolean
   onZoom: () => void
   onClose: () => void
@@ -28,10 +41,26 @@ interface Props {
   repoPathDiverged?: boolean
   onSyncCwd?: () => void
   ports?: number[]
+  /** When true, this pane's worktree is mid worker-pipeline and a next step
+   *  exists — show "Hand off →" to advance to it. */
+  hasNextStep?: boolean
+  onHandoff?: () => void
   onRename?: (label: string) => void  // rename the pane (sets customLabel; '' clears it back to the default)
+  /** Pane de un worker de orquestación: su badge de estado (WorkerPaneBadge), al lado del nombre. */
+  workerBadge?: ReactNode
 }
 
-export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, ports = [], onRename }: Props) {
+export default function PaneHeader({ pane, temaDeTerminal, estado = 'idle', zoomed, onZoom, onClose, onColorChange, onNoteChange, dragHandleProps, processEnded, isBusy, onRestart, onSaveConversation, onCopyLastResponse, showBlocks, blockCount, onToggleBlocks, onShare, isSharing, repoPathDiverged, onSyncCwd, hasNextStep, onHandoff, ports = [], onRename, workerBadge }: Props) {
+  /**
+   * El color REAL del pane, resuelto contra el tema.
+   *
+   * `pane.borderColor` no es siempre un hex: el selector guarda el índice del tema
+   * (`ansi:5`), y usarlo crudo como valor CSS no pinta nada — el navegador descarta la
+   * declaración inválida en silencio y el disco y el borde quedan sin color.
+   */
+  const colorDelPane = resolverColorDePane(pane.borderColor, temaDeTerminal ?? TEMA_NEST)
+  const sinColor = colorDelPane === 'transparent'
+
   const config = AI_CONFIG[pane.aiType]
   const displayLabel = pane.customLabel ?? config.label
   const displayColor = pane.customColor ?? config.color
@@ -96,28 +125,80 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
       <div className="pane-header-left">
         <div className="pane-color-btn-wrap" ref={pickerRef}>
           <button
-            className={`pane-color-btn${pane.borderColor === 'transparent' ? ' off' : ''}`}
-            style={pane.borderColor === 'transparent' ? undefined : { background: pane.borderColor }}
+            className={`pane-color-btn${sinColor ? ' off' : ''}`}
+            style={sinColor ? undefined : { background: colorDelPane }}
             onClick={() => setShowPicker((v) => !v)}
-            title={pane.borderColor === 'transparent' ? 'Border off' : 'Change border color'}
+            title={sinColor ? 'Border off' : 'Change border color'}
           />
           {showPicker && (
             <div className="pane-color-popover">
-              {/* Cruz = apagar el borde del pane (marco transparente). El acento
-                  del header/label no depende de borderColor, así que sigue visible. */}
+              <div className="pane-color-grid">
+              {/* Los colores salen de la PALETA DEL TEMA, no de una rueda fija.
+                  
+                  Un hex suelto ata el color al momento en que se eligió: alguien elige un
+                  azul eléctrico, después importa Gruvbox —una paleta tierra— y ese azul
+                  queda encima desentonando, porque no pertenece a ninguna parte. Guardando
+                  el índice, el pane sigue siendo "el rojo" pero es el rojo DE TU TEMA, y al
+                  cambiar de tema se reasigna solo y sigue armonizando.
+                  
+                  Sin tema (tests, callers viejos) cae a la paleta fija de siempre. */}
+              {temaDeTerminal
+                ? indicesDeIdentidad(temaDeTerminal).map((i) => {
+                    const valor = colorDeTema(i)
+                    return (
+                      <button
+                        key={valor}
+                        className={`color-swatch${pane.borderColor === valor ? ' selected' : ''}`}
+                        style={{ background: temaDeTerminal.ansi[i] }}
+                        title={NOMBRE_ANSI[i]}
+                        onClick={() => { onColorChange(valor); setShowPicker(false) }}
+                      />
+                    )
+                  })
+                : COLOR_PALETTE.map((c) => (
+                    <button
+                      key={c}
+                      className={`color-swatch${pane.borderColor === c ? ' selected' : ''}`}
+                      style={{ background: c }}
+                      onClick={() => { onColorChange(c); setShowPicker(false) }}
+                    />
+                  ))}
+              </div>
+              {/* Color libre, además de los del tema.
+                  
+                  La grilla de arriba es el atajo: colores que ya armonizan con lo que estás
+                  leyendo y que siguen al tema si lo cambiás. Pero acotar la elección a esa
+                  paleta sería una decisión nuestra sobre algo que es tuyo — el borde de un pane
+                  es una etiqueta que le ponés vos, no una parte del tema.
+                  
+                  `type="color"` abre el selector del sistema, que en macOS trae cuentagotas y
+                  la paleta que ya usás. Lo guardado es un hex, que es lo que `borderColor`
+                  siempre supo manejar: los del tema se guardan como índice justamente para
+                  poder seguirlo, y un color tuyo no tiene a qué seguir. */}
+              <div className="pane-color-libre">
+                <label className="pane-color-libre-label">
+                  <input
+                    type="color"
+                    value={sinColor ? '#888888' : colorDelPane}
+                    onChange={(e) => onColorChange(e.target.value)}
+                    aria-label="Custom colour"
+                  />
+                  <span>Custom…</span>
+                </label>
+              </div>
+
+              {/* Apagar el borde va fuera de la grilla, como una acción con nombre.
+                  
+                  Como casillero dejaría 13 elementos en una grilla de 6 columnas: 6, 6 y uno
+                  solo colgando abajo. Y con los doce colores del tema —seis tonos y sus
+                  brillantes— ese corte parte los pares al medio, así que se leería una lista
+                  desordenada con colores repetidos en vez de dos filas de seis. */}
               <button
-                className={`color-swatch color-swatch-off${pane.borderColor === 'transparent' ? ' selected' : ''}`}
+                className={`pane-color-off${pane.borderColor === 'transparent' ? ' selected' : ''}`}
                 onClick={() => { onColorChange('transparent'); setShowPicker(false) }}
-                title="No border"
-              >✕</button>
-              {COLOR_PALETTE.map((c) => (
-                <button
-                  key={c}
-                  className={`color-swatch${pane.borderColor === c ? ' selected' : ''}`}
-                  style={{ background: c }}
-                  onClick={() => { onColorChange(c); setShowPicker(false) }}
-                />
-              ))}
+              >
+                No border
+              </button>
             </div>
           )}
         </div>
@@ -149,6 +230,8 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
           </span>
         )}
 
+        {workerBadge}
+
         <PortChipsGroup ports={ports} paneId={pane.id} />
 
         {editingNote ? (
@@ -175,6 +258,22 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
           </span>
         )}
 
+        {/* El estado del agente.
+            
+            Que hubo salida (un punto que parpadea) o que el proceso murió ("ended") no
+            contesta, con ocho panes abiertos, la pregunta que importa: cuál me necesita.
+            
+            `ended` gana: un proceso muerto no está trabajando ni esperando nada. */}
+        {!editingNote && !processEnded && ESTADOS_VISIBLES.has(estado) && (
+          <span
+            className={`pane-estado pane-estado--${estado}`}
+            title={DETALLE_DE_ESTADO[estado]}
+            data-testid="pane-estado"
+          >
+            {ETIQUETA_DE_ESTADO[estado]}
+          </span>
+        )}
+
         {!editingNote && processEnded && (
           <span className="pane-ended-badge">ended</span>
         )}
@@ -185,68 +284,31 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
             onClick={onSyncCwd}
             title={`Live cwd is ${pane.runningRepoPath ?? 'unset'} but the active repo is ${pane.repoPath ?? 'unset'}. Restart the pane to apply.`}
           >
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-              <path d="M10 6A4 4 0 1 1 6 2a4 4 0 0 1 2.83 1.17L10 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-              <path d="M10 1v3H7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <RotateCw size={ICON_SIZE.sm} aria-hidden />
             Sync cwd
           </button>
         )}
       </div>
 
-      {onToggleBlocks && (
+      {hasNextStep && (
         <button
-          className={`pane-blocks-btn${showBlocks ? ' active' : ''}`}
-          onClick={onToggleBlocks}
-          title={showBlocks ? 'Show terminal' : 'Show response blocks'}
+          className="pane-handoff-btn"
+          onClick={() => onHandoff?.()}
+          title="Hand off to the next step in this worker pipeline"
         >
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <rect x="1" y="1" width="10" height="3" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-            <rect x="1" y="5" width="10" height="3" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-            <rect x="1" y="9" width="10" height="2" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-          </svg>
-          {blockCount !== undefined && blockCount > 0 && (
-            <span className="pane-blocks-count">{blockCount}</span>
-          )}
+          Hand off
+          <ArrowRight size={ICON_SIZE.sm} aria-hidden />
         </button>
       )}
 
-      {onCopyLastResponse && (
-        <button className="pane-copy-btn" onClick={handleCopy} title="Copy last response">
-          {copied ? (
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6l3 3 5-5" stroke="#22C55E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          ) : (
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <rect x="4" y="1" width="7" height="8" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-              <path d="M1 4v7h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          )}
-        </button>
-      )}
-
-      {onSaveConversation && (
-        <button className="pane-save-btn" onClick={handleSave} title="Save conversation to history">
-          {saved ? (
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6l3 3 5-5" stroke="#22C55E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          ) : (
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M6 1v7M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M1 10h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-            </svg>
-          )}
-        </button>
-      )}
+      {/* Bloques de respuesta, copiar la última respuesta y guardar la conversación no tienen
+          botón acá: serían tres iconos permanentes en el encabezado de CADA pane para
+          acciones que casi nadie usa, y el lugar queda para las tres que sí: compartir,
+          agrandar y cerrar. Los handlers siguen llegando por props. */}
 
       {processEnded && onRestart && (
         <button className="pane-restart-btn" onClick={onRestart} title="Restart process">
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path d="M10 6A4 4 0 1 1 6 2a4 4 0 0 1 2.83 1.17L10 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-            <path d="M10 1v3H7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <RotateCw size={ICON_SIZE.sm} aria-hidden />
           Restart
         </button>
       )}
@@ -257,24 +319,15 @@ export default function PaneHeader({ pane, zoomed, onZoom, onClose, onColorChang
           onClick={onShare}
           title={isSharing ? 'Sharing — click to manage' : 'Share terminal'}
         >
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <circle cx="10" cy="2" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <circle cx="2" cy="6" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <circle cx="10" cy="10" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M3.5 5.2L8.5 2.8M3.5 6.8L8.5 9.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-          </svg>
+          <Share2 size={ICON_SIZE.sm} aria-hidden />
         </button>
       )}
 
       <button className="pane-zoom-btn" onClick={onZoom} title={zoomed ? 'Restore (Esc)' : 'Zoom'}>
         {zoomed ? (
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path d="M2 5h3V2M10 7H7v3M7 2v3h3M2 7h3v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <Minimize2 size={ICON_SIZE.sm} aria-hidden />
         ) : (
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path d="M1 4V1h3M8 1h3v3M11 8v3H8M4 11H1V8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <Maximize2 size={ICON_SIZE.sm} aria-hidden />
         )}
       </button>
       <button className="pane-close-btn" onClick={() => setConfirmingClose(true)} title="Close pane">

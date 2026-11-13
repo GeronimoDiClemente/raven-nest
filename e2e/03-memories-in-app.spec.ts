@@ -1,0 +1,588 @@
+// La verificacion manual que el plan de la fase 1 dejo pendiente en dos lugares:
+// Task 7 Step 4 (la escala de z-index) y Task 10 Step 4 (la fila, el overlay y la puerta
+// desde Settings). Es el riesgo #1 de la spec §11: "el codigo del rediseño nunca corrio en
+// la app real — solo en jsdom".
+//
+// Escrito como e2e y no como una pasada a ojo para que el dia que alguien mueva un z-index
+// o saque la fila de la sidebar, esto grite en vez de descubrirse en produccion.
+//
+// LO QUE ESTE ARCHIVO **NO** CUBRE, y conviene saberlo antes de creerle:
+//
+// · El perfil que levanta el harness es **Free**. Hasta el 2026-09-10, en Free la fila
+//   `Personal` abria el modal de upgrade en vez del workspace — ya no: el corte comercial
+//   saco ese gate (lo local es gratis en todo plan) y Personal abre igual que en cualquier
+//   otro plan. Este archivo sigue verificando "el overlay queda encima" contra el panel de
+//   Settings en vez de Personal (mas la escala numerica del §5.4 leida del CSS real) porque
+//   ya estaba escrito asi, no porque Personal siga inalcanzable en Free.
+// · El lado VERDE del §2.2: una CLI que SI llega al bridge y deja su fila en `sessions`.
+//   Eso si necesita un agente con credenciales. El lado rojo —el que importa, porque es el
+//   unico donde el usuario pierde trabajo sin enterarse— ya no: ver mas abajo.
+// · Un equipo de VERDAD. El ultimo test abre el workspace de equipo con cero equipos, que
+//   es su estado vacio; lo que hay adentro con equipos joineados sigue sin mirarse.
+//
+// (Hasta el 2026-09-24 esta lista decia ademas que el §2.2 entero, el overlay con un repo
+// vinculado y el CRITICAL de `feat/sidebar-tabs` quedaban afuera. Los tres ultimos tests
+// del archivo los cubren.)
+import { test, expect } from '@playwright/test'
+import { launchHarness, teardown, type Harness } from './helpers/harness'
+import { avisarStatus, fingirCloudSobreElTope, fingirMaquinas, revocacionesFingidas } from './helpers/fingir-cuenta'
+import { existsSync, mkdirSync } from 'fs'
+import { basename, join } from 'path'
+
+const SHOTS = join(__dirname, '..', 'test-results', 'memories-in-app')
+mkdirSync(SHOTS, { recursive: true })
+
+// Un harness por test, no uno compartido: `app.close()` cuelga (ver `teardown` en el
+// harness), y un worker que muere en teardown reinicia el `beforeAll` del siguiente, con lo
+// que los tests dejan de ver el estado que el anterior creyo dejarles.
+
+test('la fila Memories esta debajo de Personal y encima del usuario, con su punto', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    // La app arranca con la sidebar COLAPSADA. Sin esto, este test y el de abajo probaban
+    // los dos el mismo estado y la captura "expandida" mostraba la colapsada.
+    // Locator por rol + nombre accesible (el title, unico nombre disponible: el
+    // boton no tiene texto visible, solo el icono) en vez de la clase — sobrevive a
+    // la proxima migracion de markup. El estado expandido/colapsado se lee de
+    // aria-expanded, no de una clase en el contenedor.
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    }
+
+    const memories = page.getByTitle(/^Memories/).first()
+    await expect(memories).toBeVisible({ timeout: 15_000 })
+    // Expandida la fila muestra ademas el texto de estado al lado del nombre (§4.2).
+    await expect(page.locator('.memories-status-text')).toBeVisible()
+
+    // El orden es la mitad del pedido del §4.1 ("hermana de Personal"), asi que se mide por
+    // posicion real en pantalla y no por orden en el DOM.
+    // getByTitle, no getByRole: Personal es un <div> hoy (Task 7 todavia no llego al
+    // pie de la sidebar) y el title es su unico nombre estable — sigue siendo valido
+    // aunque la fila pase a <button> mas adelante, porque el atributo no se saca.
+    const personal = page.getByTitle(/^Personal/).first()
+    const settings = page.locator('.sidebar-item-settings').first()
+    const yDe = async (loc: ReturnType<typeof page.locator>) => (await loc.boundingBox())!.y
+
+    expect(await yDe(memories)).toBeGreaterThan(await yDe(personal))
+    expect(await yDe(memories)).toBeLessThan(await yDe(settings))
+
+    const dot = page.getByTestId('memories-dot').first()
+    await expect(dot).toBeVisible()
+    await expect(dot).toHaveAttribute('data-dot', /green|amber|red|grey/)
+
+    await page.screenshot({ path: join(SHOTS, '01-sidebar-expandida.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+test('colapsada, el punto se sigue viendo — es la unica señal de estado que queda', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    // `title`, no `aria-label`: el boton no tiene texto visible (solo el icono), asi
+    // que el title ES el nombre accesible. Anclarlo al rol+nombre Y al title deja el
+    // test roto a proposito si alguien le saca la etiqueta accesible en vez de pasar
+    // en falso.
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    await expect(toggle).toHaveAttribute('title', /Collapse sidebar|Expand sidebar/)
+
+    // Arranca colapsada, pero no se asume: se fuerza el estado que este test quiere probar.
+    if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    // Colapsada, el nombre y el texto de estado desaparecen — el punto es lo unico que queda.
+    await expect(page.locator('.memories-status-text')).toHaveCount(0)
+
+    await expect(page.getByTestId('memories-dot').first()).toBeVisible()
+    await page.screenshot({ path: join(SHOTS, '02-sidebar-colapsada.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+test('la escala de z-index del §5.4 es la que dice el plan, y Memories esta en el tope', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    // Task 7 Step 1: las tres custom properties, leidas del CSS que la app CARGO — no del
+    // archivo fuente. Un build que no las incluya se ve aca y en ningun otro lado.
+    const vars = await page.evaluate(() => {
+      const s = getComputedStyle(document.documentElement)
+      return {
+        base: s.getPropertyValue('--z-overlay-base').trim(),
+        front: s.getPropertyValue('--z-overlay-front').trim(),
+        top: s.getPropertyValue('--z-overlay-top').trim(),
+      }
+    })
+    expect(vars).toEqual({ base: '1000', front: '1100', top: '1200' })
+
+    await page.getByTitle(/^Memories/).first().click()
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay).toBeVisible({ timeout: 10_000 })
+
+    // Que use la variable del tope, no un numero suelto — la regla que la Task 7 existe
+    // para imponer.
+    expect(await overlay.evaluate((el) => Number(getComputedStyle(el).zIndex))).toBe(1200)
+    expect(await overlay.evaluate((el) => getComputedStyle(el).position)).toBe('fixed')
+
+    await page.screenshot({ path: join(SHOTS, '03-overlay-abierto.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+test('el overlay tapa de verdad lo que hay debajo, no solo por numero', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    // Settings como capa de abajo — ver la nota de arriba del archivo: ya no es el unico
+    // overlay alcanzable en Free (Personal tambien lo es desde el 2026-09-10), se usa
+    // porque su puerta a Memories es lo que la Task 10 dejo.
+    await page.locator('.sidebar-item-settings').first().click()
+    // Ya no hay pestaña "Account": Settings es una sola pagina con secciones (modelo de
+    // Orca). La seccion esta montada desde que se abre el panel, asi que no hay nada que
+    // clickear para llegar.
+
+    const puerta = page.getByRole('button', { name: 'Memory settings', exact: true })
+    await expect(puerta).toBeVisible({ timeout: 10_000 })
+    await puerta.click()
+
+    await expect(page.locator('.memories-workspace')).toBeVisible({ timeout: 10_000 })
+
+    // El chequeo que un z-index alto no garantiza: lo que el navegador entrega en el centro
+    // de la pantalla tiene que estar ADENTRO del overlay.
+    const arriba = await page.evaluate(() =>
+      Boolean(document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)?.closest('.memories-workspace'))
+    )
+    expect(arriba).toBe(true)
+
+    await page.screenshot({ path: join(SHOTS, '04-overlay-sobre-settings.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+test('el overlay se dibuja: fila de estado arriba y un cuerpo, nunca un hueco', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    await page.getByTitle(/^Memories/).first().click()
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay.locator('.memories-status-row')).toBeVisible({ timeout: 10_000 })
+
+    // 2026-10-19: lo que vincula un repo (o dibuja la tarjeta de compartir, con uno ya
+    // vinculado) se mudó de la vista principal a Memory settings → This project
+    // (Task 5). Sin repo esa sección ofrece vincular uno (la card del estado vacio, por rol
+    // y nombre accesible — la clase vieja `.memories-empty` desaparecio con la migracion);
+    // con repo dibuja la tarjeta de compartir y el toggle del hilo. Los dos son estados
+    // validos — lo que NO puede pasar es que no haya ninguno.
+    // El OR de abajo no distingue cual de los dos salio, y con `withRepo: false` siempre
+    // sale el mismo: el otro lado lo cubre el ultimo test del archivo, que linkea un repo
+    // y exige el panel.
+    // Review M3: el locator por rol queda ANCLADO al overlay (no a `page` entero) — sin
+    // esto el assert no prueba que el boton esta ADENTRO de `.memories-workspace`, solo
+    // que existe en algun lado de la pagina.
+    await overlay.getByRole('button', { name: 'Memory settings' }).click()
+    await overlay.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'This project', exact: true }).click()
+    // Con repo: la fila de compartir (con o sin plan, se llama igual). Sin repo: vincular uno.
+    const conRepo = await overlay.getByText('Share with a team', { exact: true }).count()
+    const sinRepo = await overlay.getByRole('button', { name: /link a repo/i }).count()
+    expect(conRepo + sinRepo).toBeGreaterThan(0)
+
+    await page.screenshot({ path: join(SHOTS, '05-overlay-cuerpo.png') })
+
+    // Y cierra: Back cierra el overlay entero, también con la pestaña Settings activa.
+    await overlay.locator('.tw-back-btn').click()
+    await expect(page.locator('.memories-workspace')).toHaveCount(0)
+  } finally {
+    await teardown(h)
+  }
+})
+
+test('Settings ya no tiene las tarjetas de memoria — solo la puerta', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    await page.locator('.sidebar-item-settings').first().click()
+    // Ya no hay pestaña "Account": Settings es una sola pagina con secciones (modelo de
+    // Orca). La seccion esta montada desde que se abre el panel, asi que no hay nada que
+    // clickear para llegar.
+    // La puerta se llama ahora "Memory settings" (era "Open Memories") y abre Memories
+    // con la pestaña Settings activa.
+    const puerta = page.getByRole('button', { name: 'Memory settings', exact: true })
+    await expect(puerta).toBeVisible({ timeout: 10_000 })
+
+    // Lo que la Task 10 SACO de Settings. Si alguna vuelve, es una regresion.
+    await expect(page.locator('.memory-vault-card')).toHaveCount(0)
+    await expect(page.locator('.memory-hub')).toHaveCount(0)
+    await expect(page.locator('.memory-status-card')).toHaveCount(0)
+
+    await puerta.click()
+    await expect(page.locator('.memories-workspace')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('.memories-workspace').getByRole('tab', { name: /Settings/, selected: true })).toBeVisible()
+
+    await page.screenshot({ path: join(SHOTS, '06-settings-solo-la-puerta.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+// El hueco que el test de arriba dejaba abierto por diseño: su assert es un OR
+// (`conGrafo + sinRepo > 0`), y como TODOS los tests de este archivo arrancan con
+// `withRepo: false`, la rama que se ejercitaba era siempre la misma — la nota al pie.
+// El lado del repo vinculado —el panel de ramas y la tarjeta de compartir, que juntos son
+// tres IPC encadenados contra el main real— no lo corrió nunca nadie fuera de jsdom, donde
+// esos tres IPC son mocks que devuelven lo que el test quiera.
+test('con un repo vinculado se dibuja el panel de ramas, y prenderlo escribe el hilo', async () => {
+  const h = await launchHarness()
+  const { page } = h
+  try {
+    // El picker de carpeta es un diálogo nativo. `__e2e_linkRepo` es el atajo que App.tsx
+    // expone bajo el mismo gate que el bypass de auth (RAVEN_E2E=1).
+    await page.evaluate((dir) => {
+      ;(window as unknown as { __e2e_linkRepo?: (p: string) => void }).__e2e_linkRepo?.(dir)
+    }, h.repoDir)
+    await expect(page.locator('.sidebar-repo-name')).toHaveText(basename(h.repoDir), { timeout: 10_000 })
+
+    await page.getByTitle(/^Memories/).first().click()
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay).toBeVisible({ timeout: 10_000 })
+
+    // 1. Estamos del otro lado del ternario: la nota al pie de "sin repo" no está.
+    await expect(overlay.getByRole('button', { name: /link a repo/i })).toHaveCount(0)
+
+    // 2. El panel de ramas vive en la vista PRINCIPAL, pero sólo cuando el hilo está
+    //    prendido (spec §7) — y arranca apagado (`loadTeamThreadSettings`), así que acá
+    //    todavía no se dibuja. Prenderlo se mudó a Memory settings → This project.
+    await expect(overlay.locator('.team-thread-panel')).toHaveCount(0)
+
+    // 3. La puerta a settings vive en el header: abre la pestaña Settings.
+    await overlay.getByRole('button', { name: 'Memory settings' }).click()
+    await expect(overlay.getByRole('tab', { name: /Settings/, selected: true })).toBeVisible()
+    await overlay.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'This project', exact: true }).click()
+
+    // 4. La fila de compartir: que se vea prueba que status y projectKeyForWorktree contestaron
+    //    contra el main de verdad.
+    await expect(overlay.getByText('Share with a team', { exact: true })).toBeVisible()
+
+    // El repo de e2e no tiene remote, así que el projectKey sale del PATH
+    // (resolveProjectKey: remote → path → global). Es el camino que una carpeta local
+    // recién abierta recorre de verdad, y el que un repo con remote nunca ejercita.
+
+    await page.screenshot({ path: join(SHOTS, '07-overlay-con-repo.png') })
+
+    // 5. El hilo arranca APAGADO, que es el default de `loadTeamThreadSettings`. Ahora es
+    //    un switch (role="switch"), no un botón que cambia de texto.
+    const hilo = overlay.getByRole('switch', { name: 'Branch notes' })
+    await expect(hilo).toHaveAttribute('aria-checked', 'false')
+
+    // 6. Prenderlo no es sólo un toggle de UI: corre `runTeamThreadForRepo` en main, que
+    //    escribe `.nest/team/` en el repo. Sin plan conocido no se bloquea
+    //    (`planAllowsTeamSharing(undefined) === true`), que es el caso de una máquina sin
+    //    conectar — o sea, el de este harness.
+    await hilo.click()
+    await expect(hilo).toHaveAttribute('aria-checked', 'true', { timeout: 30_000 })
+
+    // Y el hilo quedó ESCRITO, que es lo que el switch promete. Sin esto el test se
+    // conformaría con que cambie el estado visual: `setSettings` guarda el ajuste y recién
+    // después corre `runTeamThreadForRepo`, así que un fallo del pase de escritura se ve en
+    // el disco y en ningún otro lado.
+    expect(existsSync(join(h.repoDir, '.nest', 'team', '_index.md'))).toBe(true)
+
+    // 7. El toggle vive en una pestaña del mismo workspace: la pestaña Team thread aparece en
+    //    el acto, sin volver a ningún lado.
+    await overlay.getByRole('tab', { name: /Team thread/ }).click()
+    await expect(overlay.locator('.team-thread-panel')).toBeVisible({ timeout: 15_000 })
+    await expect(overlay.locator('.team-thread-error')).toHaveCount(0)
+    await expect(overlay.getByText(/No branch notes yet/)).toBeVisible()
+
+    await page.screenshot({ path: join(SHOTS, '08-hilo-prendido.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+// §2.2, el fallo mudo: una terminal que Nest cree que tiene memoria y que nunca llego al
+// bridge. Es el unico estado donde el usuario esta perdiendo trabajo sin enterarse, y por
+// eso es el que tapa a todos los demas en `summarizeMemories`.
+//
+// El plan lo dejo pendiente como "hay que abrir `claude` de verdad, con credenciales, y
+// esperar 15s". No hace falta: lo que produce el estado NO es que la CLI sea claude, es que
+// `pty-manager` haya registrado el pane en `memoryPanes` (lo hace en el mismo lugar donde
+// inyecta el socket) y que la tabla `sessions` no tenga su fila. Cualquier binario de nombre
+// simple que se quede vivo lo consigue — `cat` sobre una pty espera stdin para siempre y no
+// habla el protocolo del bridge, que es exactamente el sintoma.
+//
+// Lo que esto ejercita y ningun unit puede: que el registro del pane, el cruce del handler
+// `memory:sessions` y el poll del hook terminen pintando el punto. `reconcileSessions` sola
+// ya esta cubierta aparte, y es pura.
+test('una terminal con el bridge inyectado que nunca escribe pinta la fila de rojo', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    const dot = page.getByTestId('memories-dot').first()
+    await expect(dot).toBeVisible({ timeout: 15_000 })
+    await expect(dot).not.toHaveAttribute('data-dot', 'red')
+
+    // `accountDir` vacio a proposito: es el camino del §3.2 (un nodo headless corre con el
+    // HOME real y accountDir vacio, y antes se saltaba en silencio). El bridge se inyecta
+    // igual, derivando la cuenta del nombre del binario.
+    const creado = await page.evaluate(() =>
+      (window as unknown as { pty: { create(id: string, cmd: string, dir: string): Promise<{ ok: boolean }> } })
+        .pty.create('pane-9-1700000000000', 'cat', ''))
+    expect(creado.ok).toBe(true)
+
+    // Antes de la gracia NO es rojo: un falso "mudo" en cada terminal que se abre entrenaria
+    // al usuario a ignorar el indicador. Esta mitad es la que se rompe si alguien saca el
+    // `now - startedAt < graceMs`.
+    //
+    // Se SOSTIENE en el tiempo en vez de mirarse una vez. El poll de `useMemories` tarda
+    // hasta 5s en ver el pane recien creado, asi que un assert instantaneo pasa igual
+    // aunque la gracia no exista — probado: con `health = 'silent'` desde el arranque, la
+    // version de una sola mirada seguia en verde. 9s cae despues del poll y antes de los
+    // 15s de la gracia.
+    const hasta = Date.now() + 9_000
+    while (Date.now() < hasta) {
+      expect(await dot.getAttribute('data-dot')).not.toBe('red')
+      await page.waitForTimeout(500)
+    }
+
+    // Y pasada la gracia (SESSION_GRACE_MS = 15s) si, sin que nadie refresque nada: lo
+    // levanta el poll de `useMemories`.
+    await expect(dot).toHaveAttribute('data-dot', 'red', { timeout: 40_000 })
+    await expect(page.locator('.memories-status-text')).toHaveText('1 session not writing')
+
+    await page.screenshot({ path: join(SHOTS, '09-fila-roja.png') })
+
+    // Y el overlay lo explica en vez de dejar el punto rojo sin motivo: la fila de estado
+    // lista la terminal por su nombre.
+    await page.getByTitle(/^Memories/).first().click()
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay).toBeVisible({ timeout: 10_000 })
+    await expect(overlay.getByText(/terminal not writing to memory/)).toBeVisible()
+    await expect(overlay.getByText(/pane 9/)).toBeVisible()
+    await page.screenshot({ path: join(SHOTS, '10-overlay-fila-roja.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+// El CRITICAL que la review de `feat/sidebar-tabs` encontro y que la fase 1 dejo anotado
+// como "no verificable": Personal abajo, el workspace de equipo ENCIMA. La razon por la que
+// no se verifico —"el harness corre en Free y en Free la fila Personal abre el modal de
+// upgrade"— dejo de ser cierta en dos pasos: el 2026-09-11 `onPersonalOpen` perdio su gate
+// de plan (Personal es local, se cobra lo de adentro), y lo unico que todavia depende del
+// plan es la PUERTA al equipo (`allowTeam = planLimits.memoryTeamShare`), que `RAVEN_E2E_PLAN`
+// ya sabia simular desde antes. No hace falta un perfil pago de verdad, ni un equipo: con
+// cero equipos la puerta dice "Create or join a team" y abre el mismo workspace.
+//
+// Lo que se mide es lo que el bug era: las DOS superficies son `.teams-workspace` y Personal
+// se renderiza DESPUES en el DOM, asi que con el mismo z-index Personal pintaba encima y el
+// workspace de equipo quedaba invisible. La clase `--front` es el arreglo.
+test('el workspace de equipo queda encima de Personal, que sigue montado debajo', async () => {
+  const h = await launchHarness({ withRepo: false, env: { RAVEN_E2E_PLAN: 'team' } })
+  const { page } = h
+  try {
+    await page.getByTitle(/^Personal/).first().click()
+
+    // Que abra el workspace y no el UpgradeModal ya es parte del assert: si el seed del
+    // plan no llegara, esto seria `.upgrade-modal` y el resto del test no tendria sentido.
+    const superficies = page.locator('.teams-workspace')
+    await expect(superficies).toHaveCount(1, { timeout: 10_000 })
+    await expect(page.locator('.upgrade-modal')).toHaveCount(0)
+
+    // Con cero equipos la puerta es esta. Existe SOLO con un plan que admita equipos
+    // (`allowTeam`), y es la unica entrada desde que la sidebar perdio su fila Team.
+    await page.getByRole('button', { name: 'Create or join a team' }).click()
+
+    // Personal NO se desmonta: cerrar Teams tiene que devolverte a Personal.
+    await expect(superficies).toHaveCount(2, { timeout: 10_000 })
+    const frente = page.locator('.teams-workspace--front')
+    await expect(frente).toHaveCount(1)
+
+    // La escala, leida del CSS que la app CARGO.
+    expect(await frente.evaluate((el) => Number(getComputedStyle(el).zIndex))).toBe(1100)
+    const fondo = page.locator('.teams-workspace:not(.teams-workspace--front)')
+    expect(await fondo.evaluate((el) => Number(getComputedStyle(el).zIndex))).toBe(1000)
+
+    // Y el chequeo que un z-index mas alto no garantiza, que es el que el bug original
+    // hubiera fallado: lo que el navegador entrega en el centro de la pantalla esta
+    // ADENTRO del workspace de equipo, no del de Personal que se dibuja despues.
+    const arriba = await page.evaluate(() =>
+      Boolean(document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)?.closest('.teams-workspace--front')))
+    expect(arriba).toBe(true)
+
+    await page.screenshot({ path: join(SHOTS, '11-equipo-sobre-personal.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+// Spec 2b-1 (D14): Free ya no ve «Upgrade» en Cloud sync —ve Connect—, así que el Upgrade que
+// se mide es el de «Projects in the cloud». Sin servicio de sync en el e2e, main contesta un
+// estado FINGIDO: se reemplazan los handlers de `memory:status` y `memory:doctor` desde el
+// proceso main. Lo demás de la app corre de verdad.
+async function fingirFreeConUnProyecto(h: Harness): Promise<void> {
+  await h.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('memory:status')
+    ipcMain.handle('memory:status', () => ({
+      connected: true, deviceId: 'e2e-device', itemCount: 12, pendingCount: 0, daemonStatus: 'idle',
+      quota: { used_bytes: 1024 * 1024, max_bytes: 100 * 1024 * 1024 },
+      limits: { max_projects: 1 },
+      cloudProjects: [{ projectKey: 'k-nest', name: 'raven-nest' }],
+    }))
+    ipcMain.removeHandler('memory:doctor')
+    ipcMain.handle('memory:doctor', () => ({
+      ok: true, blockedTotal: 7,
+      groups: [{ reason: 'project_limit_reached', count: 7, oldestAt: 1, reversible: true }],
+      localOnlyProjects: [{ projectKey: 'k-api', name: 'api', count: 5 }, { projectKey: 'k-web', name: 'web', count: 2 }],
+    }))
+  })
+}
+
+// Review final de rama, CRITICAL #1 (19-10): lo que se abre desde ADENTRO de
+// `.memories-workspace` y porta a `document.body` (`.modal-backdrop`) tiene que quedar encima.
+test('Free con un proyecto: «Projects in the cloud» y su Upgrade abren el modal ENCIMA del overlay', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    await fingirFreeConUnProyecto(h)
+    await page.locator('.sidebar-item-settings').first().click()
+    const puerta = page.getByRole('button', { name: 'Memory settings', exact: true })
+    await expect(puerta).toBeVisible({ timeout: 10_000 })
+    await puerta.click()
+
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay.getByRole('heading', { name: 'Sync' })).toBeVisible({ timeout: 10_000 })
+    const fila = overlay.locator('[data-slot="setting-row"]', { hasText: 'Projects in the cloud' })
+    await expect(fila.getByText('1 of 1 · raven-nest')).toBeVisible({ timeout: 10_000 })
+    await expect(fila.getByText('Local only: api, web — Cloud syncs all your projects.')).toBeVisible()
+
+    // La fila de estado: el tope en palabras, y el semáforo sin «7 blocked».
+    await expect(overlay.getByText('7 memories stay on this machine — your plan syncs one project')).toBeVisible({ timeout: 10_000 })
+    await expect(overlay.getByText('7 blocked')).toHaveCount(0)
+
+    await fila.getByRole('button', { name: 'Upgrade', exact: true }).click()
+    const modal = page.locator('.upgrade-modal')
+    await expect(modal).toBeVisible({ timeout: 10_000 })
+    const arriba = await page.evaluate(() =>
+      Boolean(document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)?.closest('.modal-backdrop')))
+    expect(arriba).toBe(true)
+    expect(await modal.evaluate((el) => Number(getComputedStyle(el.parentElement!).zIndex)))
+      .toBeGreaterThan(await overlay.evaluate((el) => Number(getComputedStyle(el).zIndex)))
+
+    await page.screenshot({ path: join(SHOTS, '12-upgrade-sobre-settings.png') })
+  } finally {
+    await teardown(h)
+  }
+})
+
+test('la pestaña Settings: una captura por sección', async () => {
+  // Seis capturas con el overlay montado: en headless cada `screenshot` tarda 8-10 s
+  // (medido en el trace), y con el arranque no entran en los 60 s del default.
+  test.setTimeout(120_000)
+  const h = await launchHarness()
+  const { page } = h
+  try {
+    await page.evaluate((dir) => {
+      ;(window as unknown as { __e2e_linkRepo?: (p: string) => void }).__e2e_linkRepo?.(dir)
+    }, h.repoDir)
+    await page.getByTitle(/^Memories/).first().click()
+    const overlay = page.locator('.memories-workspace')
+    await overlay.getByRole('button', { name: 'Memory settings' }).click()
+    const nav = overlay.getByRole('navigation', { name: 'Settings sections' })
+    for (const [i, s] of ['Sync', 'Encryption', 'Editor & graph', 'This project', 'Notes on disk', 'Advanced'].entries()) {
+      await nav.getByRole('button', { name: s, exact: true }).click()
+      await expect(overlay.getByRole('heading', { name: s })).toBeVisible()
+      await page.waitForTimeout(600)
+      await page.screenshot({ path: join(SHOTS, `20-settings-${i + 1}-${s.toLowerCase().replace(/[^a-z]+/g, '-')}.png`) })
+    }
+  } finally {
+    await teardown(h)
+  }
+})
+
+// Spec 2b-3: Settings › Account con Cloud mensual, sobre el tope y tres máquinas. El plan y la
+// facturación salen de RAVEN_E2E_PLAN / RAVEN_E2E_BILLING; el status, el doctor y las máquinas
+// están fingidos en main (`e2e/helpers/fingir-cuenta.ts`).
+test('Account muestra Cloud, el uso y las máquinas', async () => {
+  const h = await launchHarness({
+    withRepo: false,
+    env: {
+      RAVEN_E2E_PLAN: 'cloud',
+      RAVEN_E2E_BILLING: JSON.stringify({ billingInterval: 'monthly', currentPeriodEnd: '2026-11-29T00:00:00Z', cancelAtPeriodEnd: false }),
+    },
+  })
+  const { page } = h
+  try {
+    await fingirMaquinas(h)
+    await fingirCloudSobreElTope(h)
+    await page.locator('.sidebar-item-settings').first().click()
+
+    // Plan
+    await expect(page.getByText('Cloud · Monthly', { exact: true })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Renews on Nov 29, 2026', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Manage subscription' })).toBeVisible()
+
+    // Usage y Machines
+    await expect(page.getByText('3 connected', { exact: true })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('macOS · This machine', { exact: true })).toBeVisible()
+    await expect(page.getByText('macOS · last seen 3d ago', { exact: true })).toBeVisible()
+    await expect(page.getByText('Windows · last seen never', { exact: true })).toBeVisible()
+    await expect(page.getByText('Disconnecting stops syncing on that machine. Memory it already downloaded stays there.')).toBeVisible()
+    // Ésta no se desconecta desde acá: sólo las otras dos tienen el botón.
+    await expect(page.getByRole('button', { name: /^Disconnect / })).toHaveCount(2)
+
+    // La confirmación es en línea, y Cancel la cierra sin revocar.
+    await page.getByRole('button', { name: 'Disconnect MacBook', exact: true }).click()
+    await expect(page.getByText('Disconnect MacBook?', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.getByText('Disconnect MacBook?', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('3 connected', { exact: true })).toBeVisible()
+    expect(await revocacionesFingidas(h)).toBe(0)
+
+    // 1 local only del doctor (api) + 1 que pasa del tope (web) = 2.
+    await page.getByRole('button', { name: '2 local only — Keep syncing in Memory settings ›', exact: true }).click()
+    const overlay = page.locator('.memories-workspace')
+    await expect(overlay.getByRole('heading', { name: 'Sync' })).toBeVisible({ timeout: 10_000 })
+    await expect(overlay.getByRole('combobox', { name: 'Keep syncing' })).toBeVisible({ timeout: 10_000 })
+
+    // La animación de entrada del overlay: sin esperar, la captura sale con Settings atravesado.
+    await page.waitForTimeout(600)
+    await page.screenshot({ path: join(SHOTS, '30-account-keep-syncing.png') })
+
+    // Task 10b: abrir y cerrar Memory settings monta y desmonta otro `useMemory`. Con el
+    // preload viejo su baja hacía removeAllListeners('memory:status') y Account quedaba
+    // sorda hasta reiniciar. Un proyecto más en la nube tiene que llegarle igual.
+    await overlay.locator('.tw-back-btn').click()
+    await expect(overlay).toHaveCount(0, { timeout: 10_000 })
+    await h.app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('memory:status')
+      ipcMain.handle('memory:status', () => ({
+        connected: true, deviceId: 'e2e-device', itemCount: 12, pendingCount: 0, daemonStatus: 'idle',
+        quota: { used_bytes: 1024 * 1024, max_bytes: 100 * 1024 * 1024 },
+        limits: { max_projects: 1 },
+        cloudProjects: [
+          { projectKey: 'k-nest', name: 'raven-nest' }, { projectKey: 'k-web', name: 'web' }, { projectKey: 'k-docs', name: 'docs' },
+        ],
+        keptProjectKey: 'k-nest',
+        overLimit: true,
+      }))
+    })
+    await avisarStatus(h)
+    // 1 local only (api) + 2 que pasan del tope (web, docs) = 3.
+    await expect(page.getByRole('button', { name: '3 local only — Keep syncing in Memory settings ›', exact: true })).toBeVisible({ timeout: 10_000 })
+  } finally {
+    await teardown(h)
+  }
+})

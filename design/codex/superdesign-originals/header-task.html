@@ -1,0 +1,270 @@
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raven Nest - Advanced Pane Identity</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+    <style>
+        @import url('https://fonts.cdnfonts.com/css/geist-var');
+
+        :root {
+            --background: #0a0a0a;
+            --card: #141414;
+            --popover: #1f1f1f;
+            --foreground: #f2f2f2;
+            --muted-foreground: #9b9b9b;
+            --ok: #4ade80;
+            --warn: #e3b341;
+            --destructive: #ff6568;
+            --border: rgb(255 255 255 / 0.08);
+            --header-height: 48px;
+            --sidebar-width: 44px;
+        }
+
+        body {
+            font-family: 'Geist Variable', 'Inter', sans-serif;
+            background-color: var(--background);
+            color: var(--foreground);
+            margin: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .mono {
+            font-family: 'Geist Mono Variable', 'JetBrains Mono', monospace;
+        }
+
+        .pane-border {
+            border: 1px solid var(--border);
+        }
+
+        .pane-header-gradient {
+            background: linear-gradient(to bottom, rgba(255, 255, 255, 0.03), transparent);
+        }
+
+        .terminal-scroll::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .terminal-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .terminal-scroll::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="flex h-screen overflow-hidden" data-sd-id="1">
+        <!-- Compact Sidebar (Collapsed View) -->
+        <aside class="w-[44px] flex flex-col items-center py-4 border-r border-[var(--border)] bg-[#0c0c0c] z-50" data-sd-id="2">
+            <div class="mb-8 opacity-90" data-sd-id="3">
+                <iconify-icon icon="ph:bird-bold" class="text-2xl"></iconify-icon>
+            </div>
+            <nav class="flex flex-col gap-6" data-sd-id="4">
+                <iconify-icon icon="ph:browser" class="text-xl text-[var(--muted-foreground)] hover:text-white cursor-pointer"></iconify-icon>
+                <iconify-icon icon="ph:git-branch" class="text-xl text-white cursor-pointer bg-[var(--border)] p-1.5 rounded-md"></iconify-icon>
+                <iconify-icon icon="ph:magnifying-glass" class="text-xl text-[var(--muted-foreground)] hover:text-white cursor-pointer"></iconify-icon>
+                <iconify-icon icon="ph:terminal-window" class="text-xl text-[var(--muted-foreground)] hover:text-white cursor-pointer"></iconify-icon>
+                <iconify-icon icon="ph:cube" class="text-xl text-[var(--muted-foreground)] hover:text-white cursor-pointer"></iconify-icon>
+            </nav>
+            <div class="mt-auto flex flex-col gap-6 mb-2" data-sd-id="5">
+                <iconify-icon icon="ph:gear" class="text-xl text-[var(--muted-foreground)] hover:text-white cursor-pointer"></iconify-icon>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="flex-1 grid grid-cols-2 grid-rows-2 p-2 gap-2 bg-black" data-sd-id="6">
+            
+            <!-- Pane 1: Working State -->
+            <section class="pane-border bg-[var(--card)] rounded-lg overflow-hidden flex flex-col" data-sd-id="7">
+                <!-- Header -->
+                <header class="h-[var(--header-height)] flex items-center justify-between px-3 pane-header-gradient border-b border-[var(--border)] relative overflow-hidden" data-sd-id="8">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-[#3b82f6]" data-sd-id="9"></div>
+                    <div class="flex items-center gap-3 min-w-0" data-sd-id="10">
+                        <div class="flex items-center gap-1.5" data-sd-id="11">
+                             <div class="w-5 h-5 flex items-center justify-center bg-white rounded-sm overflow-hidden" data-sd-id="12">
+                                <iconify-icon icon="logos:claude" class="text-sm"></iconify-icon>
+                             </div>
+                             <span class="text-[13px] font-medium tracking-tight whitespace-nowrap" data-sd-id="13">Claude 3.5</span>
+                             <span class="px-1 py-0.5 rounded bg-white/5 text-[10px] mono text-[var(--muted-foreground)]" data-sd-id="14">01</span>
+                        </div>
+                        <div class="h-4 w-[1px] bg-[var(--border)]" data-sd-id="15"></div>
+                        <div class="flex flex-col min-w-0" data-sd-id="16">
+                            <span class="text-[13px] font-normal leading-tight truncate" data-sd-id="17">Refactoring payment middleware</span>
+                            <div class="flex items-center gap-1.5 text-[10px] mono text-[var(--muted-foreground)] opacity-60" data-sd-id="18">
+                                <iconify-icon icon="ph:folder-simple" class="text-xs"></iconify-icon>
+                                <span class="truncate" data-sd-id="19">src/lib/auth/validators.ts</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3" data-sd-id="20">
+                        <div class="flex items-center gap-2 px-2 py-1 rounded bg-[rgba(74,222,128,0.06)] border border-[rgba(74,222,128,0.1)]" data-sd-id="21">
+                            <span class="w-1.5 h-1.5 rounded-full bg-[var(--ok)] animate-pulse" data-sd-id="22"></span>
+                            <span class="text-[11px] font-medium text-[var(--ok)] uppercase tracking-wider" data-sd-id="23">Working</span>
+                        </div>
+                        <iconify-icon icon="ph:dots-three-vertical-bold" class="text-[var(--muted-foreground)] hover:text-white cursor-pointer"></iconify-icon>
+                    </div>
+                </header>
+                <div class="flex-1 p-4 mono text-[13px] terminal-scroll overflow-y-auto leading-relaxed opacity-80" data-sd-id="24">
+                    <div class="mb-2 text-[var(--muted-foreground)] font-bold uppercase tracking-widest text-[10px]" data-sd-id="25">Agent log</div>
+                    <div class="mb-1" data-sd-id="26"><span class="text-[var(--ok)]" data-sd-id="27">$</span> analyzing dependencies in <span class="text-blue-400" data-sd-id="28">auth.ts</span>...</div>
+                    <div class="mb-1" data-sd-id="29"><span class="text-[var(--ok)]" data-sd-id="30">$</span> identified redundant interface <span class="text-yellow-500" data-sd-id="31">IAuthPayload</span></div>
+                    <div class="mb-1" data-sd-id="32"><span class="text-[var(--ok)]" data-sd-id="33">$</span> apply modification via <span class="italic" data-sd-id="34">file_edit</span> hook</div>
+                    <div class="mt-4 border-l-2 border-[var(--border)] pl-4 py-2 italic text-[var(--muted-foreground)]" data-sd-id="35">
+                        "I'm removing the legacy validation check from line 42 as the new Zod schema handles this more robustly."
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pane 2: Waiting State (Urgent) -->
+            <section class="pane-border bg-[var(--card)] rounded-lg overflow-hidden flex flex-col ring-1 ring-[rgba(227,179,65,0.2)]" data-sd-id="36">
+                <header class="h-[var(--header-height)] flex items-center justify-between px-3 pane-header-gradient border-b border-[var(--border)] relative" data-sd-id="37">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-[#f59e0b]" data-sd-id="38"></div>
+                    <div class="flex items-center gap-3 min-w-0" data-sd-id="39">
+                        <div class="flex items-center gap-1.5" data-sd-id="40">
+                             <div class="w-5 h-5 flex items-center justify-center bg-black rounded-sm border border-white/10" data-sd-id="41">
+                                <iconify-icon icon="simple-icons:openai" class="text-sm text-white"></iconify-icon>
+                             </div>
+                             <span class="text-[13px] font-medium tracking-tight" data-sd-id="42">Codex</span>
+                             <span class="px-1 py-0.5 rounded bg-white/5 text-[10px] mono text-[var(--muted-foreground)]" data-sd-id="43">02</span>
+                        </div>
+                        <div class="h-4 w-[1px] bg-[var(--border)]" data-sd-id="44"></div>
+                        <div class="flex flex-col min-w-0" data-sd-id="45">
+                            <span class="text-[13px] font-normal leading-tight truncate" data-sd-id="46">Confirm destructive migration</span>
+                            <div class="flex items-center gap-1.5 text-[10px] mono text-[var(--muted-foreground)] opacity-60" data-sd-id="47">
+                                <iconify-icon icon="ph:git-branch" class="text-xs"></iconify-icon>
+                                <span class="truncate" data-sd-id="48">feat/db-cleanup</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3" data-sd-id="49">
+                        <div class="flex items-center gap-2 px-2 py-1 rounded bg-[rgba(227,179,65,0.15)] border border-[rgba(227,179,65,0.3)] shadow-[0_0_15px_rgba(227,179,65,0.1)]" data-sd-id="50">
+                            <iconify-icon icon="ph:warning-circle-fill" class="text-[var(--warn)] text-xs"></iconify-icon>
+                            <span class="text-[11px] font-bold text-[var(--warn)] uppercase tracking-wider" data-sd-id="51">Waiting</span>
+                        </div>
+                        <iconify-icon icon="ph:dots-three-vertical-bold" class="text-[var(--muted-foreground)] hover:text-white cursor-pointer"></iconify-icon>
+                    </div>
+                </header>
+                <div class="flex-1 bg-[#1a1508] p-4 flex flex-col items-center justify-center text-center" data-sd-id="52">
+                    <iconify-icon icon="ph:seal-warning" class="text-4xl text-[var(--warn)] mb-4 opacity-50"></iconify-icon>
+                    <div class="text-sm font-medium mb-2" data-sd-id="53">Action Required</div>
+                    <div class="text-xs text-[var(--muted-foreground)] max-w-[240px] mb-6" data-sd-id="54">
+                        Codex wants to execute <code>DROP TABLE legacy_users</code>. This action is irreversible.
+                    </div>
+                    <div class="flex gap-2" data-sd-id="55">
+                        <button id="action-approve" class="px-4 py-1.5 bg-[var(--warn)] text-black text-[11px] font-bold rounded uppercase tracking-wider hover:opacity-90" data-sd-id="56">Approve</button>
+                        <button id="action-reject" class="px-4 py-1.5 border border-[var(--border)] text-[var(--foreground)] text-[11px] font-bold rounded uppercase tracking-wider hover:bg-white/5" data-sd-id="57">Details</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pane 3: Idle / Neutral -->
+            <section class="pane-border bg-[var(--card)] rounded-lg overflow-hidden flex flex-col" data-sd-id="58">
+                <header class="h-[var(--header-height)] flex items-center justify-between px-3 pane-header-gradient border-b border-[var(--border)] relative" data-sd-id="59">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-[#10b981]" data-sd-id="60"></div>
+                    <div class="flex items-center gap-3 min-w-0" data-sd-id="61">
+                        <div class="flex items-center gap-1.5" data-sd-id="62">
+                             <div class="w-5 h-5 flex items-center justify-center bg-[#1A73E8] rounded-sm" data-sd-id="63">
+                                <iconify-icon icon="logos:google-gemini" class="text-[10px] brightness-0 invert"></iconify-icon>
+                             </div>
+                             <span class="text-[13px] font-medium tracking-tight" data-sd-id="64">Gemini Pro</span>
+                             <span class="px-1 py-0.5 rounded bg-white/5 text-[10px] mono text-[var(--muted-foreground)]" data-sd-id="65">03</span>
+                        </div>
+                        <div class="h-4 w-[1px] bg-[var(--border)]" data-sd-id="66"></div>
+                        <div class="flex flex-col min-w-0" data-sd-id="67">
+                            <span class="text-[13px] font-normal leading-tight truncate" data-sd-id="68">Idle</span>
+                            <div class="flex items-center gap-1.5 text-[10px] mono text-[var(--muted-foreground)] opacity-60" data-sd-id="69">
+                                <iconify-icon icon="ph:house-simple" class="text-xs"></iconify-icon>
+                                <span class="truncate" data-sd-id="70">~/projects/nest-core</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3" data-sd-id="71">
+                        <div class="flex items-center gap-2 px-2 py-1 rounded bg-white/5 border border-[var(--border)]" data-sd-id="72">
+                            <span class="text-[11px] font-medium text-[var(--muted-foreground)] uppercase tracking-wider" data-sd-id="73">Zzz</span>
+                        </div>
+                        <iconify-icon icon="ph:dots-three-vertical-bold" class="text-[var(--muted-foreground)] hover:text-white cursor-pointer"></iconify-icon>
+                    </div>
+                </header>
+                <div class="flex-1 flex items-center justify-center" data-sd-id="74">
+                    <div class="text-[var(--muted-foreground)] mono text-[12px] opacity-20" data-sd-id="75">SYSTEM READY</div>
+                </div>
+            </section>
+
+            <!-- Pane 4: Unread / Result Ready -->
+            <section class="pane-border bg-[var(--card)] rounded-lg overflow-hidden flex flex-col" data-sd-id="76">
+                <header class="h-[var(--header-height)] flex items-center justify-between px-3 pane-header-gradient border-b border-[var(--border)] relative" data-sd-id="77">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-[#a855f7]" data-sd-id="78"></div>
+                    <div class="flex items-center gap-3 min-w-0" data-sd-id="79">
+                        <div class="flex items-center gap-1.5" data-sd-id="80">
+                             <div class="w-5 h-5 flex items-center justify-center bg-white rounded-sm overflow-hidden" data-sd-id="81">
+                                <iconify-icon icon="logos:claude" class="text-sm"></iconify-icon>
+                             </div>
+                             <span class="text-[13px] font-medium tracking-tight" data-sd-id="82">Claude 3.5</span>
+                             <span class="px-1 py-0.5 rounded bg-white/5 text-[10px] mono text-[var(--muted-foreground)]" data-sd-id="83">04</span>
+                        </div>
+                        <div class="h-4 w-[1px] bg-[var(--border)]" data-sd-id="84"></div>
+                        <div class="flex flex-col min-w-0" data-sd-id="85">
+                            <span class="text-[13px] font-normal leading-tight truncate" data-sd-id="86">Unit tests finished</span>
+                            <div class="flex items-center gap-1.5 text-[10px] mono text-[var(--muted-foreground)] opacity-60" data-sd-id="87">
+                                <iconify-icon icon="ph:check-square" class="text-xs"></iconify-icon>
+                                <span class="truncate" data-sd-id="88">tests/unit/api.test.ts</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3" data-sd-id="89">
+                        <div class="flex items-center gap-2 px-2 py-1 rounded bg-[rgba(168,85,247,0.1)] border border-[rgba(168,85,247,0.2)]" data-sd-id="90">
+                             <div class="w-2 h-2 rounded-full bg-purple-500" data-sd-id="91"></div>
+                            <span class="text-[11px] font-medium text-purple-400 uppercase tracking-wider" data-sd-id="92">Unread</span>
+                        </div>
+                        <iconify-icon icon="ph:dots-three-vertical-bold" class="text-[var(--muted-foreground)] hover:text-white cursor-pointer"></iconify-icon>
+                    </div>
+                </header>
+                 <div class="flex-1 p-4 mono text-[13px] terminal-scroll overflow-y-auto leading-relaxed" data-sd-id="93">
+                    <div class="text-emerald-500 mb-2" data-sd-id="94">PASS tests/unit/api.test.ts (4.82s)</div>
+                    <div class="grid grid-cols-[100px_1fr] gap-x-4 opacity-70" data-sd-id="95">
+                        <span class="text-[var(--muted-foreground)]" data-sd-id="96">Test Suites:</span>
+                        <span data-sd-id="97">1 passed, 1 total</span>
+                        <span class="text-[var(--muted-foreground)]" data-sd-id="98">Tests:</span>
+                        <span data-sd-id="99">24 passed, 24 total</span>
+                        <span class="text-[var(--muted-foreground)]" data-sd-id="100">Snapshots:</span>
+                        <span data-sd-id="101">0 total</span>
+                        <span class="text-[var(--muted-foreground)]" data-sd-id="102">Time:</span>
+                        <span data-sd-id="103">5.112s</span>
+                    </div>
+                    <div class="mt-4 text-[var(--muted-foreground)] italic" data-sd-id="104">
+                        All tests passed. Coverage 100%. Ready for merge.
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- Status Bar -->
+        <footer class="fixed bottom-0 left-[44px] right-0 h-6 bg-[var(--background)] border-t border-[var(--border)] flex items-center justify-between px-3 text-[10px] mono text-[var(--muted-foreground)] z-50" data-sd-id="105">
+            <div class="flex items-center gap-4" data-sd-id="106">
+                <div class="flex items-center gap-1.5" data-sd-id="107">
+                    <span class="w-1.5 h-1.5 rounded-full bg-[var(--ok)]" data-sd-id="108"></span>
+                    <span data-sd-id="109">CLUSTER ONLINE</span>
+                </div>
+                <div class="flex items-center gap-1.5" data-sd-id="110">
+                    <iconify-icon icon="ph:cpu-fill"></iconify-icon>
+                    <span data-sd-id="111">2.4% CPU</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-4" data-sd-id="112">
+                <div class="flex items-center gap-1 text-[var(--warn)]" data-sd-id="113">
+                    <iconify-icon icon="ph:warning-circle"></iconify-icon>
+                    <span class="font-bold" data-sd-id="114">1 AGENT WAITING</span>
+                </div>
+                <div class="text-white opacity-40" data-sd-id="115">EST 14:02:11</div>
+            </div>
+        </footer>
+    </div>
+
+</body></html>

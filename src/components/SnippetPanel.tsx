@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Snippet } from '../types'
 import { useSharedSnippets } from '../hooks/useSharedSnippets'
 import { useProfile } from '../hooks/useProfile'
+import { PLAN_LIMITS } from '../lib/stripe'
 import { useTeam } from '../hooks/useTeam'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import ConfirmDialog from './ConfirmDialog'
@@ -73,7 +74,15 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
   }
 
   const handleShare = async (name: string, content: string) => {
-    if (plan === 'free') { onRequireUpgrade?.(); return }
+    // El gate es `memoryTeamShare`, NO `plan === 'free'`. Dos motivos:
+    //
+    // 1. Se mira la capacidad, no el nombre del plan: con `plan === 'free'` un usuario
+    //    **Cloud** podria compartir al equipo, y PLAN_LIMITS.cloud tiene
+    //    `memoryTeamShare: false`. Compartir al equipo es Teams/Enterprise.
+    // 2. Solo aplica cuando HAY equipo: sin `team`, esto comparte a Community, que no es
+    //    la feature paga. Todo lo local es gratis; lo que se paga es la memoria en la
+    //    nube y Teams.
+    if (team && !PLAN_LIMITS[plan].memoryTeamShare) { onRequireUpgrade?.(); return }
     await share(name, content, team?.id)
   }
 
@@ -158,7 +167,7 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
               )}
               <div className="snippet-list">
                 {snippets.map((s) => (
-                  <div key={s.id} className="snippet-item">
+                  <div key={s.id} className="snippet-item snippet-item--compact">
                     <span className="snippet-name" title={s.content}>{s.name}</span>
                     <div className="snippet-item-actions">
                       <button className="snippet-send-btn" onClick={() => handleSend(s.content, 'send')} title="Send to active terminal">Send</button>
@@ -178,7 +187,7 @@ export default function SnippetPanel({ onSend, onBroadcast, onRequireUpgrade }: 
               {!sharedLoading && shared.length === 0 && <p className="snippet-empty">No team snippets yet.</p>}
               <div className="snippet-list">
                 {shared.map((s) => (
-                  <div key={s.id} className="snippet-item">
+                  <div key={s.id} className="snippet-item snippet-item--compact">
                     <span className="snippet-name" title={s.content}>{s.name}</span>
                     <div className="snippet-item-actions">
                       <button className="snippet-send-btn" onClick={() => handleSend(s.content, 'send')} title="Send">Send</button>

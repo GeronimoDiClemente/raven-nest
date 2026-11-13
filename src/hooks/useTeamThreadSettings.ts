@@ -1,0 +1,80 @@
+// El estado del hilo de equipo (projectKey + enabled), compartido entre TeamThreadPanel (que
+// ademas lee ramas para el grafo) y TeamThreadToggle (que vive solo), con los mismos textos de
+// error en los dos.
+import { useCallback, useEffect, useState } from 'react'
+
+const LOAD_ERROR = "Couldn't load the team thread. Try again in a moment."
+const TOGGLE_ERROR = "Couldn't update the team thread setting. Try again in a moment."
+
+export interface UseTeamThreadSettings {
+  ready: boolean
+  projectKey: string | null
+  enabled: boolean
+  error: string | null
+  /** La LECTURA falló. Un rechazo al cambiar no la marca: el hilo sigue como estaba. */
+  cargaFallida: boolean
+  setEnabled: (next: boolean) => Promise<void>
+}
+
+export function useTeamThreadSettings(activeRepoPath: string | null): UseTeamThreadSettings {
+  const [projectKey, setProjectKey] = useState<string | null>(null)
+  const [enabled, setEnabledState] = useState(false)
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [cargaFallida, setCargaFallida] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    setReady(false)
+    setError(null)
+    setCargaFallida(false)
+
+    if (!activeRepoPath) {
+      setProjectKey(null)
+      setEnabledState(false)
+      setReady(true)
+      return
+    }
+
+    void (async () => {
+      try {
+        const keyRes = await window.memory?.teamThreadProjectKeyForWorktree?.(activeRepoPath)
+        if (!alive) return
+        if (!keyRes?.ok || !keyRes.projectKey) { setError(LOAD_ERROR); setCargaFallida(true); setReady(true); return }
+        const key = keyRes.projectKey
+        setProjectKey(key)
+
+        const settingsRes = await window.memory?.teamThreadGetSettings?.(key)
+        if (!alive) return
+        if (!settingsRes?.ok) { setError(LOAD_ERROR); setCargaFallida(true); setReady(true); return }
+        setEnabledState(settingsRes.settings?.enabled ?? false)
+        setError(null)
+        setReady(true)
+      } catch {
+        if (!alive) return
+        setError(LOAD_ERROR)
+        setCargaFallida(true)
+        setReady(true)
+      }
+    })()
+
+    return () => { alive = false }
+  }, [activeRepoPath])
+
+  const setEnabled = useCallback(async (next: boolean) => {
+    if (!activeRepoPath || !projectKey) return
+    try {
+      const res = await window.memory?.teamThreadSetSettings?.(projectKey, activeRepoPath, { enabled: next })
+      // `message` viene cuando main tiene algo accionable que decir — p. ej., que el plan de
+      // la cuenta no admite compartir con el equipo. Un codigo de error crudo no se
+      // muestra nunca: para eso esta el texto generico.
+      if (!res?.ok) { setError(res?.message ?? TOGGLE_ERROR); return }
+      setError(null)
+      setEnabledState(next)
+    } catch {
+      setError(TOGGLE_ERROR)
+    }
+  }, [activeRepoPath, projectKey])
+
+  return { ready, projectKey, enabled, error, cargaFallida, setEnabled }
+}

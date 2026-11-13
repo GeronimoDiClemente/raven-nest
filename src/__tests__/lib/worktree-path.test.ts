@@ -32,6 +32,11 @@ describe('worktreeKey', () => {
   // ext4 es case-SENSITIVE: /home/User y /home/user son carpetas distintas —
   // lowercasear paths unix colapsaría dos worktrees reales en uno.
   it('stays case-sensitive for unix paths on linux', () => {
+    // Fijar la plataforma, igual que hace su hermano de macOS acá abajo. Sin esto el test
+    // usaba el default de la máquina que lo corre: en Linux y Windows pasaba, y en MAC
+    // FALLABA SIEMPRE — worktreeKey lowercasea en darwin, que es justo lo correcto. Era un
+    // bug del test que se leía como una regresión en cada corrida desde una Mac.
+    __setUnixCaseInsensitiveForTests(false)
     expect(worktreeKey('/home/User/repo')).not.toBe(worktreeKey('/home/user/repo'))
   })
 

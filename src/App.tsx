@@ -6,7 +6,7 @@ import {
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import {
   PaneNode, AIType, AI_CONFIG, SessionData, SessionPane, Workspace,
-  WorkspaceTab, LayoutId, MAX_PANES, EditorTab,
+  WorkspaceTab, LayoutId, MAX_PANES, WorktreeMeta, WorkerSpec, EditorTab, NEST_MEMORY_TUI_CMD,
 } from './types'
 import { PaneLayoutEngine } from './components/PaneLayoutEngine'
 import { defaultLayoutFor, hubLayoutFor, mapLegacyToPreset } from './layout/select'
@@ -15,8 +15,16 @@ import { reorderById } from './layout/reorder'
 import { paneAccentColor } from './lib/pane-accent-color'
 import { beginResizeSuppression, endResizeSuppression } from './lib/pane-resize-gate'
 import { nextFontSize, FONT_SIZE_DEFAULT } from './lib/pane-font-size'
+import { conPaneOcupado, conActividadDePane, mismosPuertos } from './lib/pane-activity-state'
+import { useIntervaloVisible } from './hooks/useIntervaloVisible'
 import { isInsideCodeEditor } from './lib/editor-owns-shortcut'
 import { basename } from './lib/path'
+import { temaPorId } from './lib/terminal-themes'
+import { handleLaunchPane } from './orchestration/place-worker-pane'
+import { useReviewEntries } from './orchestration/useOrchestration'
+import { reviewEntriesForTab } from './orchestration/review-for-tab'
+import WorkerReviewPanel from './components/orchestration/WorkerReviewPanel'
+import { groupAITypesByRepoPath } from './lib/repo-ai-logos'
 import { collectDragCaptures } from './layout/dragCaptures'
 import { getPreset } from './layout/presets'
 import TerminalPane from './components/TerminalPane'
@@ -42,6 +50,7 @@ import { useHubActivity } from './hub-activity'
 import { focusTerminal } from './terminal-registry'
 import logoUrl from './assets/logo.png'
 import { useProfile } from './hooks/useProfile'
+import { useAvisoDeCambioDePlan } from './hooks/useAvisoDeCambioDePlan'
 import { PLAN_LIMITS } from './lib/stripe'
 import { broadcastTargets, isAgentPane } from './lib/broadcast'
 import { moveTabAcrossWorkspaces, openFileInPane, splitEditorTabFromHub, removeEditorTab } from './lib/editor-tab-move'
@@ -49,10 +58,18 @@ import { openFileFromHub } from './lib/hub-open-file'
 import { pruneHubPanes } from './lib/hub-panes'
 import { dropTabBuffer } from './lib/editor-buffer-handoff'
 import UpgradeModal from './components/UpgradeModal'
+import CloudActivadoToast from './components/CloudActivadoToast'
+import MemoryHub from './components/MemoryHub'
 import TeamsWorkspace from './components/TeamsWorkspace'
-import MyReposPanel from './components/MyReposPanel'
+import PersonalWorkspace, { type Section as PersonalWorkspaceSection } from './components/PersonalWorkspace'
+import MemoriesWorkspace from './components/MemoriesWorkspace'
+import MemoriesWelcome from './components/MemoriesWelcome'
+import { shouldShowMemoriesWelcome } from './lib/memoriesWelcome'
+import { IntegrationsHub } from './components/IntegrationsHub'
+import { GraphBoard } from './components/GraphBoard'
 import { useGitHub } from './hooks/useGitHub'
 import { usePendingInvitesCount } from './hooks/usePendingInvitesCount'
+import { useDelayedUnmount } from './hooks/useDelayedUnmount'
 import { useSpeechRecognition } from './hooks/useSpeechRecognition'
 import { useSettings } from './hooks/useSettings'
 import { matchesBinding, formatBinding } from './lib/keybindings'
@@ -65,8 +82,11 @@ import { terminalShareService } from './lib/terminalShareService'
 import ResourceBar from './components/ResourceBar'
 import { useLocalPathsMigration } from './hooks/useLocalPathsMigration'
 import type { MetricsPaneInput } from './types'
+import { nextStep, composeStepInput, upsertWorkerSpec } from './lib/worker-run'
+import type { WorkerRun } from './lib/worker-run'
 import { OnboardingTour } from './tutorial/OnboardingTour'
 import { getTour } from './tutorial/registry'
+import type { SeccionDeSettings } from './lib/memory-tabs'
 
 
 let paneCounter = 0
@@ -96,12 +116,29 @@ export default function App() {
     setTabs(prev => prev.map(t => t.id === activeTabId ? updater(t) : t))
   }, [activeTabId])
 
-  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string }>(null)
+  // presetAgent/presetModel/presetAccount seed NewPaneDialog (agent + model
+  // dropdown, and — when the worker step stored one — the CLI account to
+  // launch with) when a board task is opened "with a worker"; worktreePath/
+  // initialInput are threaded into the created pane by addPane below.
+  const [addingPane, setAddingPane] = useState<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string; presetAccount?: string }>(null)
   // Mirror addingPane in a ref so addPane reads the freshest value without
   // depending on a closure that React may not have updated yet — the dialog
   // sometimes captures the previous addPane closure where worktreePath is null.
-  const addingPaneRef = useRef<null | { worktreePath?: string }>(null)
+  const addingPaneRef = useRef<null | { worktreePath?: string; initialInput?: string; presetAgent?: AIType; presetModel?: string; presetAccount?: string }>(null)
   addingPaneRef.current = addingPane
+  // Cooperative worker pipelines: which worker+step each worktree is running, so
+  // the pane header can offer "Hand off →" to advance to the next step. Keyed by
+  // worktree path (a pane's repoPath). Set when a worktree opens with a worker.
+  const [activeWorkerRun, setActiveWorkerRun] = useState<Record<string, WorkerRun>>({})
+  // Worker-specs loaded once so a running run is resolvable to its spec by id.
+  const [workerSpecs, setWorkerSpecs] = useState<WorkerSpec[]>([])
+  useEffect(() => {
+    let cancelled = false
+    window.workerSpecs?.list?.()
+      .then((list) => { if (!cancelled) setWorkerSpecs(list) })
+      .catch(() => { /* no bridge / failed load → handoff simply never arms */ })
+    return () => { cancelled = true }
+  }, [])
   const [zoomedPaneId, setZoomedPaneId] = useState<string | null>(null)
   const [zoomingOut, setZoomingOut] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -149,88 +186,107 @@ export default function App() {
   const activePanes = useHubActivity()
 
   const handleBusyChange = useCallback((paneId: string, busy: boolean) => {
-    setBusyPanes(prev => {
-      const next = new Set(prev)
-      if (busy) next.add(paneId)
-      else next.delete(paneId)
-      return next
-    })
+    setBusyPanes(prev => conPaneOcupado(prev, paneId, busy))
   }, [])
 
   const handlePaneActivity = useCallback((paneId: string, active: boolean) => {
-    setTabActivity(prev => {
-      const next = new Map(prev)
-      const tabSet = new Set(next.get(activeTabId) ?? new Set<string>())
-      if (active) tabSet.add(paneId)
-      else tabSet.delete(paneId)
-      next.set(activeTabId, tabSet)
-      return next
-    })
+    setTabActivity(prev => conActividadDePane(prev, activeTabId, paneId, active))
   }, [activeTabId])
 
   // Auto-clear activity indicators after 3s. Only return a new Map when at
   // least one tab had non-empty activity that got cleared — otherwise every
   // consumer of `tabActivity` re-renders every 3s for nothing (TabBar, etc.)
   // when all tabs are already idle.
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTabActivity(prev => {
-        let changed = false
-        const next = new Map(prev)
-        for (const [tabId, panes] of next) {
-          if (panes.size > 0) {
-            next.set(tabId, new Set())
-            changed = true
-          }
+  useIntervaloVisible(() => {
+    setTabActivity(prev => {
+      let changed = false
+      const next = new Map(prev)
+      for (const [tabId, panes] of next) {
+        if (panes.size > 0) {
+          next.set(tabId, new Set())
+          changed = true
         }
-        return changed ? next : prev
-      })
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [])
+      }
+      return changed ? next : prev
+    })
+  }, 3000)
 
   // Per-pane port poll. ports:byPane attributes each listening process to
   // the pane that owns it via PID tree → PPID → cwd (3 fallbacks), so a
   // dev server launched detached by Claude/OpenCode still maps to one
   // specific pane instead of broadcasting to every pane in the workspace.
-  useEffect(() => {
-    let cancelled = false
-    const tick = async () => {
-      try {
-        // Editor tampoco: no tiene PTY, y con repoPath poblado el fallback
-        // por cwd del main podía atribuirle el puerto de un dev server — el
-        // chip desaparecía (el editor no renderiza chips de puertos).
-        const livePanes = panesRef.current.filter(p => p.aiType !== 'browser' && p.aiType !== 'editor')
-        if (livePanes.length === 0) {
-          if (!cancelled) setPanePorts({})
-          return
-        }
-        const result = await window.port.byPane({
-          panes: livePanes.map(p => ({ paneId: p.id, repoPath: p.repoPath ?? null })),
-        })
-        if (cancelled) return
-        setPanePorts(result)
-      } catch (err) {
-        // IPC failures (handler throws, koffi crash, netstat timeout) bubble
-        // up here. Without this catch the rejection becomes an unhandled
-        // promise — the setInterval keeps firing but chips silently freeze
-        // on the last successful tick. Clear the state so the user can tell
-        // attribution is currently broken instead of seeing stale data.
-        console.warn('[App] port poll failed', err instanceof Error ? err.message : err)
-        if (!cancelled) setPanePorts({})
+  const pollDePuertos = useCallback(async () => {
+    try {
+      // Editor tampoco: no tiene PTY, y con repoPath poblado el fallback
+      // por cwd del main podría atribuirle el puerto de un dev server — el
+      // chip desaparecería (el editor no renderiza chips de puertos).
+      const livePanes = panesRef.current.filter(p => p.aiType !== 'browser' && p.aiType !== 'editor')
+      if (livePanes.length === 0) {
+        setPanePorts(prev => (mismosPuertos(prev, {}) ? prev : {}))
+        return
       }
+      const result = await window.port.byPane({
+        panes: livePanes.map(p => ({ paneId: p.id, repoPath: p.repoPath ?? null })),
+      })
+      // El main manda un objeto nuevo siempre, y los puertos no cambian casi nunca: sin
+      // esta comparación `App` entera se re-renderiza cada 5s para pintar los mismos chips.
+      setPanePorts(prev => (mismosPuertos(prev, result) ? prev : result))
+    } catch (err) {
+      // IPC failures (handler throws, koffi crash, netstat timeout) bubble
+      // up here. Without this catch the rejection becomes an unhandled
+      // promise — the poll keeps firing but chips silently freeze
+      // on the last successful tick. Clear the state so the user can tell
+      // attribution is currently broken instead of seeing stale data.
+      console.warn('[App] port poll failed', err instanceof Error ? err.message : err)
+      setPanePorts(prev => (mismosPuertos(prev, {}) ? prev : {}))
     }
-    tick()
-    const handle = setInterval(tick, 5000)
-    return () => { cancelled = true; clearInterval(handle) }
   }, [])
+  // Sólo mientras la ventana se vea: los chips de puertos son cosméticos, y despertar al
+  // procesador cada 5s para refrescar algo que nadie está mirando es lo que pesa en la
+  // pestaña Energía de macOS. Al volver a verse se refresca en el acto.
+  useIntervaloVisible(() => { void pollDePuertos() }, 5000)
 
-  const { plan, isTrialActive, trialDaysLeft, loading: profileLoading } = useProfile()
+  const { plan, isTrialActive, trialDaysLeft, loading: profileLoading, rawPlan, userId } = useProfile()
+  // El aviso de Cloud activo vive acá, la instancia de useProfile que está siempre montada.
+  // Compara el plan crudo y por usuario.
+  const avisoDeCloud = useAvisoDeCambioDePlan(rawPlan, profileLoading, userId)
   const planLimits = PLAN_LIMITS[plan]
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [teamsOpen, setTeamsOpen] = useState(false)
   const { count: pendingInvitesCount, refresh: refreshPendingInvitesCount } = usePendingInvitesCount()
-  const [myReposOpen, setMyReposOpen] = useState(false)
+  const [personalOpen, setPersonalOpen] = useState(false)
+  // Memories es hermana de Personal, con su propio overlay.
+  const [memoriesOpen, setMemoriesOpen] = useState(false)
+  // Account → "Memory settings" abre Memories con la pestaña Settings activa.
+  // `pedidoDeSettings` cuenta los pedidos (el workspace atiende cada uno una vez);
+  // `memoriesEnSettings` sólo evita que la bienvenida de la primera vez tape Settings.
+  const [pedidoDeSettings, setPedidoDeSettings] = useState(0)
+  const [memoriesEnSettings, setMemoriesEnSettings] = useState(false)
+  // La sección que trae el pedido (Keep syncing → 'sync') y el pedido de abrir Account.
+  const [seccionDeSettings, setSeccionDeSettings] = useState<SeccionDeSettings | undefined>(undefined)
+  const [pedidoDeCuenta, setPedidoDeCuenta] = useState(0)
+  // El tour de Memories apunta al explorer y al grafo; si arranca con la
+  // pestaña Settings activa, este pedido pone Graph adelante antes de que mida sus anclas.
+  const [pedidoDelGrafo, setPedidoDelGrafo] = useState(0)
+  const abrirMemories = (vista?: 'memorias' | 'settings', seccion?: SeccionDeSettings) => {
+    // Defensa en profundidad: SOLO el literal 'settings' abre
+    // Settings. Un caller que pase el SyntheticEvent de un click cae al grafo.
+    const enSettings = vista === 'settings'
+    setMemoriesEnSettings(enSettings)
+    if (enSettings) { setSeccionDeSettings(seccion); setPedidoDeSettings((n) => n + 1) }
+    setMemoriesOpen(true)
+  }
+  const abrirPlanYFacturacion = () => { setMemoriesOpen(false); setPedidoDeCuenta((n) => n + 1) }
+  // La salida (zoomOut, 0.2s) necesita que el overlay
+  // siga montado mientras anima — si no, se desmonta en el mismo tick que
+  // `xOpen` pasa a false y la animacion de salida nunca llega a pintar un frame.
+  // `useDelayedUnmount` retrasa el desmontaje real exactamente ese tiempo.
+  const teamsExit = useDelayedUnmount(teamsOpen, 200)
+  const personalExit = useDelayedUnmount(personalOpen, 200)
+  const memoriesExit = useDelayedUnmount(memoriesOpen, 200)
+  const [personalSection, setPersonalSection] = useState<PersonalWorkspaceSection>('repos')
+  const [integrationsHubOpen, setIntegrationsHubOpen] = useState(false)
+  const [graphBoardOpen, setGraphBoardOpen] = useState(false)
   const [showJoinViewer, setShowJoinViewer] = useState(false)
   const [joinRequest, setJoinRequest] = useState<{ paneId: string; paneTitle: string } | null>(null)
   const { githubToken, githubLogin, connectGitHub } = useGitHub()
@@ -248,9 +304,22 @@ export default function App() {
     }
   }, [userPrefs.loaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { settings } = useSettings()
+  const { settings, markMemoryHubSeen, markMemoriesWelcomeSeen } = useSettings()
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  // e2eBypass runs every test against a fresh RAVEN_HOME (no settings.json yet), which
+  // would otherwise pop this over every e2e spec — see the one existing check below.
+  const showMemoryHub = !settings.hasSeenMemoryHub && !window.appFlags?.e2eBypass
+  // «How it works» (el botón del header) fuerza la bienvenida de nuevo,
+  // incluso ya vista o bajo e2eBypass — ver shouldShowMemoriesWelcome.
+  const [memoriesWelcome, setMemoriesWelcome] = useState(false)
+  const showMemoriesWelcome = shouldShowMemoriesWelcome({
+    memoriesOpen,
+    abiertaEnSettings: memoriesEnSettings,
+    forced: memoriesWelcome,
+    hasSeenMemoriesWelcome: settings.hasSeenMemoriesWelcome,
+    e2eBypass: !!window.appFlags?.e2eBypass,
+  })
 
   const { isListening, isTranscribing, isModelLoading, toggle: toggleListening } = useSpeechRecognition(
     useCallback((text: string) => {
@@ -265,7 +334,7 @@ export default function App() {
   // Auto-updater listener
   useEffect(() => {
     if (!window.updater) return
-    window.updater.onStatus((status, msg) => setUpdateStatus({ type: status, msg }))
+    return window.updater.onStatus((status, msg) => setUpdateStatus({ type: status, msg }))
   }, [])
 
   const sensors = useSensors(
@@ -282,12 +351,6 @@ export default function App() {
       setAddingPane(null)
       return
     }
-    if (panesRef.current.length >= planLimits.maxPanes) {
-      // Plan cap (e.g. Free is 3) — offer upgrade rather than silently no-op.
-      setAddingPane(null)
-      setShowUpgrade(true)
-      return
-    }
     // A Hub tab owns no terminals of its own (HubView filters isHub tabs out
     // of the grid). Pushing a pane onto it would create an invisible,
     // unclosable pane, so route the new terminal into a fresh workspace.
@@ -298,8 +361,8 @@ export default function App() {
         id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
         customLabel, customColor, shellId,
         repoPath: addingPaneRef.current?.worktreePath,
-        // Sin el spread, un pane de editor creado desde el Hub perdía sus
-        // editorTabs iniciales y nacía cascarón (finding del review).
+        // Sin el spread, un pane de editor creado desde el Hub perdería sus
+        // editorTabs iniciales y nacería cascarón.
         ...initial,
       }
       setTabs(prev => [...prev, { id: newTabId, name: 'Workspace', layoutId: '1', panes: [pane] }])
@@ -308,12 +371,14 @@ export default function App() {
       return
     }
     const worktreePath = addingPaneRef.current?.worktreePath
+    const initialInput = addingPaneRef.current?.initialInput
     updateActiveTab(t => {
       const pane: PaneNode = {
         id: generateId(), aiType, accountName, accountDir, borderColor, cmd,
         customLabel, customColor, shellId,
         repoPath: worktreePath ?? t.repoPath,
         ...initial,
+        ...(initialInput ? { initialInput } : {}),
       }
       const nextPanes = [...t.panes, pane]
       // Promote layoutId if current preset is full and there's a default for the
@@ -329,7 +394,134 @@ export default function App() {
         : { ...t, panes: nextPanes, layoutId }
     })
     setAddingPane(null)
-  }, [updateActiveTab, planLimits.maxPanes])
+  }, [updateActiveTab])
+
+  // La TUI de memoria en un pane de terminal (el centinela lo resuelve pty-manager). Si el
+  // overlay de Memories está abierto se cierra antes: el pane nace abajo y no se vería. Sin
+  // gate por memoria habilitada: sin la integración el pty ya devuelve su error. En Windows no se
+  // ofrece: los comandos de PowerShell/cmd que esperan al exe GUI nunca se probaron ahí.
+  const abrirMemoriaEnTerminal = window.platform?.isWin ? undefined : () => {
+    setMemoriesOpen(false)
+    addPane('terminal', '', '', AI_CONFIG.terminal.color, NEST_MEMORY_TUI_CMD, 'Memory')
+  }
+
+  // "Arreglá el rojo": baja en main el log del run fallido del worktree y lo
+  // inyecta al agente. Si ya hay un pane en ese worktree, lo escribe y lo enfoca;
+  // si no, abre un pane nuevo con initialInput (se escribe al arrancar el PTY).
+  const onFixCi = useCallback(async (worktreePath: string) => {
+    const prompt = await window.signals?.fixCiPrompt(worktreePath).catch(() => null)
+    if (!prompt) return
+    const existing = panesRef.current.find((p) => p.repoPath === worktreePath)
+    if (existing) {
+      window.pty.write(existing.id, prompt + '\r')
+      setFocusedPaneId(existing.id)
+    } else {
+      setAddingPane({ worktreePath, initialInput: prompt })
+    }
+  }, [])
+
+  // "Hand off →": advance the worktree's worker pipeline to the next step. Reads
+  // the handoff the current agent wrote (.nest/handoff.md), composes the next
+  // step's input (prior handoff + its instructions + a "write your handoff"
+  // note when it isn't the final step) and opens a fresh pane on that step's
+  // agent/model via the same preset seam the board-open flow uses.
+  // Worktrees whose handoff is mid-flight, so a double-click can't resolve the
+  // same `next` twice (two panes + a double stepIndex bump) during the async
+  // handoff.read window. Set synchronously before the await, cleared after.
+  const handoffInFlightRef = useRef<Set<string>>(new Set())
+  const advanceHandoff = useCallback(async (worktreePath: string) => {
+    if (handoffInFlightRef.current.has(worktreePath)) return
+    const run = activeWorkerRun[worktreePath]
+    const spec = workerSpecs.find((s) => s.id === run?.workerId)
+    if (!run || !spec) return
+    const next = nextStep(spec, run)
+    if (!next) return
+    handoffInFlightRef.current.add(worktreePath)
+    try {
+      const handoff = await window.handoff.read(worktreePath)
+      const isFinal = next.index === spec.steps.length - 1
+      const initialInput = composeStepInput(next.step.instructions, handoff, isFinal)
+      setAddingPane({ worktreePath, initialInput, presetAgent: next.step.agent, presetModel: next.step.model, presetAccount: next.step.account })
+      setActiveWorkerRun((m) => ({ ...m, [worktreePath]: { ...run, stepIndex: next.index } }))
+    } finally {
+      handoffInFlightRef.current.delete(worktreePath)
+    }
+  }, [activeWorkerRun, workerSpecs])
+
+  // Shared by every "open a worktree, optionally running a worker" entry
+  // point (board flow via IntegrationsHub, My Repos via MyReposPanel): with a
+  // worker spec, step 0 seeds the first pane (compose its input — no prior
+  // handoff yet; append the "write your handoff" note unless it's a
+  // single-step worker) and initializes NewPaneDialog's agent/model, then
+  // arms the run so the pane can offer "Hand off →". No spec → the plain flow
+  // (calendar/None): use initialInput as-is. Callers own closing their own
+  // panel before/after calling this — it only does the pane/worker wiring.
+  const openWorktreeWithWorker = useCallback((worktreePath: string, initialInput?: string, worker?: WorkerSpec) => {
+    const step0 = worker?.steps[0]
+    const isFinal = !worker || worker.steps.length <= 1
+    setAddingPane({
+      worktreePath,
+      initialInput: step0 ? composeStepInput(step0.instructions, null, isFinal) : initialInput,
+      presetAgent: step0?.agent,
+      presetModel: step0?.model,
+      presetAccount: step0?.account,
+    })
+    if (worker) {
+      // Resolve the run's spec from the one that just flowed through, not the
+      // mount-loaded list: a worker created/edited in AutomationsView after
+      // App mounted isn't in `workerSpecs`, so hasNextStep/advanceHandoff
+      // would silently miss it. Upsert (filter-then-append) so an edited
+      // worker's fresh steps also replace any stale copy. Mount-load stays
+      // the initial seed.
+      setWorkerSpecs((list) => upsertWorkerSpec(list, worker))
+      setActiveWorkerRun((m) => ({ ...m, [worktreePath]: { workerId: worker.id, stepIndex: 0 } }))
+    }
+  }, [])
+
+  // === @Nest desde Slack ===
+  // Refs para leer valores frescos dentro de los listeners del socket sin tener
+  // que re-suscribir el effect en cada render.
+  const activeRepoPathRef = useRef<string | undefined>(undefined)
+  activeRepoPathRef.current = activeCellRepoPath
+  const githubLoginRef = useRef<string | null>(null)
+  githubLoginRef.current = githubLogin
+  // worktreePath → {channel, threadTs}: qué thread de Slack originó cada sesión.
+  // Se llena al crear la sesión (el "Trabajando en esto…" inicial ya se postea);
+  // queda como enganche para que un follow-up postee updates por evento del bus.
+  const paneThreadRef = useRef<Record<string, { channel: string; threadTs: string }>>({})
+
+  useEffect(() => {
+    if (!window.slackMentions) return
+    // Mención @Nest → worktree + pane con el texto del thread como initialInput
+    // (como "Arreglá el rojo"). El main ya ACKeó el envelope; acá sólo abrimos la sesión.
+    const offMention = window.slackMentions.onMention(async (m) => {
+      try {
+        const repoPath = activeRepoPathRef.current
+        if (!repoPath) return // sin repo activo no hay de dónde ramificar
+        const branch = await window.tickets.branchName(githubLoginRef.current ?? '', 'slack', m.text.slice(0, 24))
+        const res = await window.worktree.create({ repoPath, branch })
+        if (!res.ok) { console.warn('[slack] worktree.create failed', res.error); return }
+        const worktreePath = res.meta.repoPath
+        paneThreadRef.current[worktreePath] = { channel: m.channel, threadTs: m.threadTs }
+        setAddingPane({ worktreePath, initialInput: m.text })
+        void window.slackMentions.postThread({
+          channel: m.channel, threadTs: m.threadTs,
+          text: '🪺 Working on this — open Nest to watch the terminal.',
+        })
+      } catch (err) {
+        console.warn('[slack] onMention failed', err)
+      }
+    })
+    // Click de botón Block Kit → acción sobre el pane del worktree (a.value = worktreePath).
+    const offAction = window.slackMentions.onAction((a) => {
+      if (a.actionId === 'fix_ci' && a.value) { void onFixCi(a.value); return }
+      if (a.actionId === 'relaunch' && a.value) {
+        const pane = panesRef.current.find((p) => p.repoPath === a.value)
+        if (pane) setFocusedPaneId(pane.id)
+      }
+    })
+    return () => { offMention?.(); offAction?.() }
+  }, [onFixCi])
 
   const handleRepoLink = useCallback(async () => {
     try {
@@ -423,9 +615,8 @@ export default function App() {
 
   const [showNewWorktree, setShowNewWorktree] = useState(false)
   const handleNewWorktree = useCallback(() => {
-    if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }
     setShowNewWorktree(true)
-  }, [planLimits.allowCreateWorktree])
+  }, [])
   const [quickWorktreeOpen, setQuickWorktreeOpen] = useState(false)
   const [diffViewerOpen, setDiffViewerOpen] = useState(false)
   // The tutorial is launched on demand: from the "?" button in the Worktrees
@@ -442,26 +633,24 @@ export default function App() {
       if (isCmdShift && e.key.toLowerCase() === 'w') {
         if (!activeTab.repoPath) return
         e.preventDefault()
-        if (!planLimits.allowCreateWorktree) { setShowUpgrade(true); return }
         setQuickWorktreeOpen(true)
       }
       if (isCmdShift && e.key.toLowerCase() === 'd') {
         if (!activeCellRepoPath) return
         e.preventDefault()
-        if (!planLimits.allowDiffViewer) { setShowUpgrade(true); return }
         setDiffViewerOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [activeTab.repoPath, activeCellRepoPath, planLimits.allowCreateWorktree, planLimits.allowDiffViewer])
+  }, [activeTab.repoPath, activeCellRepoPath])
 
   const removePane = useCallback((paneId: string) => {
     window.pty.kill(paneId)
     // Sacar el pane de la tab activa Y podar su id de cualquier tab Hub que lo
-    // tuviera pinneado (auto-pin del Hub Explorer): sin la poda quedaba un id
-    // colgante que persistía en sesión y disparaba el confirm falso al cerrar
-    // el Hub (mismo motivo por el que removePaneAnywhere ya podaba).
+    // tuviera pinneado (auto-pin del Hub Explorer): sin la poda quedaría un id
+    // colgante que persiste en sesión y dispara el confirm falso al cerrar
+    // el Hub (mismo motivo por el que removePaneAnywhere poda).
     setTabs(prev => pruneHubPanes(prev.map(t => {
       if (t.id !== activeTabIdRef.current) return t
       const nextPanes = t.panes.filter(p => p.id !== paneId)
@@ -494,8 +683,8 @@ export default function App() {
   const removePaneAnywhere = useCallback((paneId: string) => {
     window.pty.kill(paneId)
     // Sacar el pane de su tab dueña y podar su id de cualquier tab Hub: sin la
-    // poda quedaban ids colgantes en la sesión (y shouldConfirmTabClose
-    // preguntaba por contenido que ya no existe). Poda compartida con removePane.
+    // poda quedarían ids colgantes en la sesión (y shouldConfirmTabClose
+    // preguntaría por contenido que ya no existe). Poda compartida con removePane.
     setTabs(prev => pruneHubPanes(prev.map(t => {
       if (!t.panes.some(p => p.id === paneId)) return t
       const nextPanes = t.panes.filter(p => p.id !== paneId)
@@ -548,7 +737,7 @@ export default function App() {
     const focusedPane = focusedId ? activeTab.panes.find(p => p.id === focusedId) : undefined
     // sameWorktree y no ===: repoPath tiene dos productores con normalización
     // distinta en Windows (C:/ de worktree-store vs C:\ de dialog/clone) —
-    // la comparación cruda abría un pane NUEVO en vez de reusar el existente.
+    // la comparación cruda abriría un pane NUEVO en vez de reusar el existente.
     const sameWorktreeEditor = (p: PaneNode) => p.aiType === 'editor' && sameWorktree(p.repoPath, worktreePath)
     const targetPane = focusedPane && sameWorktreeEditor(focusedPane) ? focusedPane : activeTab.panes.find(sameWorktreeEditor)
 
@@ -581,16 +770,12 @@ export default function App() {
     if ((sourcePane.editorTabs ?? []).length <= 1) return
     // Chequear el cap ANTES de sacar la tab del pane origen: addPane corre
     // después y se bloquea silencioso en el tope de plan/MAX_PANES — sin este
-    // pre-check la tab ya removida no se agregaba a ningún lado (se perdía).
+    // pre-check la tab ya removida no se agregaría a ningún lado (se perdería).
     if (panesRef.current.length >= MAX_PANES) return
-    if (panesRef.current.length >= planLimits.maxPanes) {
-      setShowUpgrade(true)
-      return
-    }
     updateActiveTab(t => ({
       ...t,
       // removeEditorTab preserva la vista activa si el tab movido no era el
-      // activo (antes saltaba a remaining[0] siempre — bug del review).
+      // activo.
       panes: t.panes.map(p => p.id === paneId ? removeEditorTab(p, relPath) : p),
     }))
     // El dirty viaja con la tab: el buffer sin guardar llega por el handoff
@@ -601,7 +786,7 @@ export default function App() {
       activeEditorTabPath: relPath,
       repoPath: sourcePane.repoPath,
     })
-  }, [activeTab, updateActiveTab, addPane, planLimits.maxPanes])
+  }, [activeTab, updateActiveTab, addPane])
 
   // Drag & drop: una tab soltada sobre OTRO pane de editor — del mismo
   // workspace o, en el Hub, de workspaces distintos (mismo worktree).
@@ -635,13 +820,9 @@ export default function App() {
     const sourceTab = tabsRef.current.find(t => !t.isHub && t.panes.some(p => p.id === paneId))
     if (!sourceTab) return
     if (sourceTab.panes.length >= MAX_PANES) return
-    if (sourceTab.panes.length >= planLimits.maxPanes) {
-      setShowUpgrade(true)
-      return
-    }
     const newId = generateId()
     setTabs(prev => splitEditorTabFromHub(prev, hubTabId, paneId, relPath, newId) ?? prev)
-  }, [planLimits.maxPanes])
+  }, [])
 
   const handlePtyStarted = useCallback((paneId: string, runningRepoPath: string | undefined) => {
     updateActiveTab(t => ({
@@ -677,9 +858,9 @@ export default function App() {
     const id = String(e.active.id)
     setDragSnapshots({})
     // Generacion del drag: las capturas son async y pueden resolver DESPUES de
-    // que el drag termino. Sin este token repoblaban dragSnapshots con PNGs de
-    // varios MB que quedaban en memoria hasta el drag siguiente, y una foto
-    // vieja podia mostrarse como freeze-frame de un pane cuyo contenido ya
+    // que el drag termino. Sin este token repoblarian dragSnapshots con PNGs de
+    // varios MB que quedarian en memoria hasta el drag siguiente, y una foto
+    // vieja podria mostrarse como freeze-frame de un pane cuyo contenido ya
     // cambio.
     beginResizeSuppression()
     const gen = ++dragGenRef.current
@@ -709,7 +890,7 @@ export default function App() {
   }, [])
 
   // dnd-kit dispara onDragCancel (NO onDragEnd) al cancelar con Escape / perder
-  // el puntero. Sin esto, draggingId nunca volvía a null y los browsers quedaban
+  // el puntero. Sin esto, draggingId nunca vuelve a null y los browsers quedan
   // colapsados en blanco con el fantasma pegado.
   const handleDragCancel = useCallback(() => {
     endResizeSuppression()
@@ -724,7 +905,7 @@ export default function App() {
     setDraggingId(null)
     setDragSnapshots({})
     // Swap AL SOLTAR: intercambia sólo los dos panes (el arrastrado y el que
-    // está bajo el cursor), dejando el resto quieto. Ver #2 del drag.
+    // está bajo el cursor), dejando el resto quieto.
     const { active, over } = e
     if (!over || active.id === over.id) return
     updateActiveTab(t => {
@@ -783,7 +964,7 @@ export default function App() {
         customColor: p.customColor,
         note: p.note,
         shellId: p.shellId,
-        // Misma omisión que tenía el save de sesión: sin repoPath el editor
+        // Igual que en el save de sesión: sin repoPath el editor
         // restaurado no sabe su worktree, y sin editorTabs queda cascarón.
         repoPath: p.repoPath,
         url: p.url,
@@ -831,17 +1012,17 @@ export default function App() {
         // because there's no global toast service in the app; both callers
         // (MyReposPanel/TeamsWorkspace) already validate themselves so this
         // is a defense-in-depth fallback rather than the primary UX.
-        window.alert(`La carpeta "${localPath}" ya no existe. Re-linkeala o cloná de nuevo desde My Repos.`)
+        window.alert(`The folder "${localPath}" no longer exists. Link it again or clone it from My Repos.`)
         return
       }
     }
     const id = generateTabId()
-    // H2: GitLab paths like `group/subgroup/repo` need the last segment, not [1].
+    // GitLab paths like `group/subgroup/repo` need the last segment, not [1].
     // Using split('/')[1] would yield "subgroup" instead of "repo".
     const folderName = repoFullName.includes('/') ? repoFullName.split('/').pop()! : repoFullName
     setTabs(prev => [...prev, { id, name: folderName, layoutId: '1', panes: [], repoPath: localPath }])
     setActiveTabId(id)
-    setMyReposOpen(false)
+    setPersonalOpen(false)
     setTeamsOpen(false)
   }, [])
 
@@ -939,6 +1120,31 @@ export default function App() {
   const activeTabIdRef = useRef(activeTabId)
   activeTabIdRef.current = activeTabId
 
+  // Orquestación: el main pide el pane de un worker. Cae en el tab que CONTIENE al
+  // coordinador (no en el activo), sin NewPaneDialog y sin mover el foco; la respuesta
+  // (ok / tab_full / no_tab) vuelve al main, que se la pasa al agente.
+  const ansiDelTemaRef = useRef<readonly string[] | undefined>(undefined)
+  ansiDelTemaRef.current = temaPorId(
+    userPrefs.prefs.ui_settings.terminalTheme,
+    userPrefs.prefs.ui_settings.terminalThemesImportados ?? [],
+  ).ansi
+  useEffect(() => {
+    const orq = window.orchestration
+    if (!orq) return
+    const bajaLaunch = orq.onLaunchPane((req) => handleLaunchPane(req, {
+      tabsRef,
+      setTabs,
+      reply: (r) => { void orq.replyLaunchPane(r) },
+      ansi: () => ansiDelTemaRef.current,
+    }))
+    // `stop` del coordinador, o el coordinador que se cierra: el main ya mató el PTY.
+    const bajaClose = orq.onClosePane(({ paneId }) => removePaneAnywhere(paneId))
+    return () => { bajaLaunch(); bajaClose() }
+  }, [removePaneAnywhere])
+
+  // Revisión de ramas de workers (spec §6.7): las del repo del tab activo, arriba del grid.
+  const reviewEntries = useReviewEntries()
+
   const cycleTab = useCallback((isPrev: boolean) => {
     const allTabs = tabsRef.current
     if (allTabs.length <= 1) return
@@ -952,10 +1158,7 @@ export default function App() {
 
   // Ctrl+Tab is reserved on Windows and never reaches the renderer keydown
   // listener; main intercepts before-input-event and forwards via IPC.
-  useEffect(() => {
-    window.keybinds?.onTabCycle((shift) => cycleTab(shift))
-    return () => window.keybinds?.removeTabCycleListener()
-  }, [cycleTab])
+  useEffect(() => window.keybinds?.onTabCycle((shift) => cycleTab(shift)), [cycleTab])
 
   const closeTab = useCallback((id: string) => {
     const currentTabs = tabsRef.current
@@ -967,7 +1170,7 @@ export default function App() {
       return next
     })
     setTabs(prev => {
-      // Podar del Hub los panes del workspace que se cierra: sus ids seguían
+      // Podar del Hub los panes del workspace que se cierra: sus ids seguirían
       // en hubPanes (id colgante + confirm falso al cerrar el Hub).
       const closedPaneIds = new Set((prev.find(t => t.id === id)?.panes ?? []).map(p => p.id))
       const next = pruneHubPanes(prev.filter(t => t.id !== id), closedPaneIds)
@@ -1013,20 +1216,16 @@ export default function App() {
 
   const openBrowserCell = useCallback((url: string) => {
     if (panesRef.current.length >= MAX_PANES) return
-    if (panesRef.current.length >= planLimits.maxPanes) {
-      setShowUpgrade(true)
-      return
-    }
     // Hub tabs own no panes — el browser vive en un workspace nuevo, pero se
-    // auto-pinnea al Hub y el usuario SE QUEDA en el Hub (antes esto
-    // navegaba al workspace nuevo, dejando la sensación de "no puedo tener
-    // un browser en el Hub").
+    // auto-pinnea al Hub y el usuario SE QUEDA en el Hub (navegar al
+    // workspace nuevo deja la sensación de "no puedo tener un browser en el
+    // Hub").
     const activeNow = tabsRef.current.find(t => t.id === activeTabIdRef.current)
     if (activeNow?.isHub) {
       const newTabId = generateTabId()
       const pane: PaneNode = {
         id: generateId(), aiType: 'browser', accountName: 'browser', accountDir: '',
-        borderColor: '#0066FF', cmd: '', url,
+        borderColor: 'var(--primary)', cmd: '', url,
         sessionPartition: `persist:browser-${newTabId}`,
       }
       setTabs(prev => prev
@@ -1039,7 +1238,7 @@ export default function App() {
       aiType: 'browser',
       accountName: 'browser',
       accountDir: '',
-      borderColor: '#0066FF',
+      borderColor: 'var(--primary)',
       cmd: '',
       url,
       sessionPartition: `persist:browser-${activeTabId}`,
@@ -1053,7 +1252,7 @@ export default function App() {
         ? { ...t, panes: nextPanes, layoutId, splitRatios: {} }
         : { ...t, panes: nextPanes, layoutId }
     })
-  }, [activeTabId, updateActiveTab, planLimits.maxPanes])
+  }, [activeTabId, updateActiveTab])
 
   // When a link click in xterm or a PortChip dispatches nest:pty-url and no
   // BrowserCell is mounted to capture it, create one. If a BrowserCell IS
@@ -1074,12 +1273,18 @@ export default function App() {
   // (e.g. Cmd+Q on macOS hides instead of quitting). main.ts emits 'window:shown'
   // on every BrowserWindow 'show' event — more reliable than the 'focus' DOM event
   // which Electron doesn't always fire after win.hide()/win.show().
-  useEffect(() => {
-    window.windowControls?.onShown(() => {
-      const id = focusedPaneIdRef.current
-      if (id) focusTerminal(id)
-    })
-  }, [])
+  useEffect(() => window.windowControls?.onShown(() => {
+    const id = focusedPaneIdRef.current
+    if (id) focusTerminal(id)
+  }), [])
+
+  /**
+   * En pantalla completa macOS esconde los semáforos, y la barra de pestañas les reserva
+   * 72px que quedan vacíos. No se puede detectar desde el renderer —no hay media query para
+   * esto— así que lo avisa el proceso principal.
+   */
+  const [pantallaCompleta, setPantallaCompleta] = useState(false)
+  useEffect(() => window.windowControls?.onFullScreen?.((full) => setPantallaCompleta(full)), [])
 
   // Open the new-pane dialog (engine handles slot placement)
   const addNextPane = useCallback(() => {
@@ -1101,7 +1306,7 @@ export default function App() {
 
       const COLOR_MIGRATION: Record<string, string> = {
         '#3B82F6': '#0055FF', '#EF4444': '#FF1A1A', '#10B981': '#00CC44',
-        '#F59E0B': '#FFB800', '#8B5CF6': '#CC44FF', '#EC4899': '#FF2D78',
+        '#F59E0B': '#FFB800', 'var(--primary)': '#CC44FF', '#EC4899': '#FF2D78',
         '#06B6D4': '#00CCCC', '#F97316': '#FF6600', '#6366F1': '#4455FF',
         '#84CC16': '#88FF00', '#6B7280': '#666666',
       }
@@ -1111,7 +1316,7 @@ export default function App() {
         return {
           ...sp,
           // Reusar el id persistido: hubPanes referencia ids — regenerarlos
-          // dejaba el Hub restaurado vacío (curación perdida en cada
+          // dejaría el Hub restaurado vacío (curación perdida en cada
           // relanzamiento). Sesiones viejas sin id siguen generando uno.
           id: sp.id ?? generateId(),
           cmd: sp.cmd ?? AI_CONFIG[sp.aiType]?.cmd ?? '',
@@ -1216,7 +1421,7 @@ export default function App() {
           layoutId: tab.layoutId,
           panes: tab.panes.map(p => ({
             // El id viaja: hubPanes referencia ids y regenerarlos en el
-            // restore dejaba el Hub vacío tras cada relanzamiento.
+            // restore dejaría el Hub vacío tras cada relanzamiento.
             id: p.id,
             aiType: p.aiType, accountName: p.accountName, accountDir: p.accountDir,
             borderColor: p.borderColor, cmd: p.cmd,
@@ -1227,7 +1432,7 @@ export default function App() {
             // Persist the browser pane's current URL so reopening Nest (or
             // switching workspaces) restores the page instead of the placeholder.
             url: p.url,
-            // Editor: sin estos dos, el pane restauraba como cascarón sin
+            // Editor: sin estos dos, el pane restauraría como cascarón sin
             // tabs (negro, incerrable). Las tabs dirty recargan de disco al
             // restaurar (el buffer no sobrevive el proceso) pero conservan
             // la señal de "tenías trabajo sin guardar".
@@ -1253,7 +1458,6 @@ export default function App() {
       // Voice input toggle
       if (matchesBinding(e, kb.voiceInput)) {
         e.preventDefault()
-        if (!planLimits.allowVoice) { setShowUpgrade(true); return }
         toggleListening()
         return
       }
@@ -1315,8 +1519,8 @@ export default function App() {
       }
 
       // Dentro del editor, Ctrl+F es de Monaco (buscar en el archivo). Este
-      // listener corre en CAPTURA: sin ceder, abría la búsqueda global Y dejaba
-      // pasar el evento a Monaco, que abría su Find encima.
+      // listener corre en CAPTURA: sin ceder, abriría la búsqueda global Y dejaría
+      // pasar el evento a Monaco, que abriría su Find encima.
       if (matchesBinding(e, kb.globalSearch) && isInsideCodeEditor(e.target)) return
       if (matchesBinding(e, kb.globalSearch)) { e.preventDefault(); setGlobalSearchOpen(true); return }
       if (matchesBinding(e, kb.commandPalette)) { e.preventDefault(); setCommandPaletteOpen(v => !v); return }
@@ -1353,7 +1557,7 @@ export default function App() {
     // means non-modified keystrokes still flow through to the terminal.
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, planLimits.allowVoice, openHub, closeHub])
+  }, [addNextPane, toggleListening, cycleTab, handleUnzoom, handleZoom, openHub, closeHub])
 
   const isInitialState = panes.length === 0
 
@@ -1467,6 +1671,26 @@ export default function App() {
   const filteredView = useMemo(() => applyPaneFilter(filterablePanes, paneFilter), [filterablePanes, paneFilter])
   const paneFilterActive = filteredView.active
 
+  // aiType de los panes abiertos AHORA, agrupados
+  // por repoPath — sobre TODOS los tabs, no solo el activo, porque un repo o
+  // worktree puede tener un pane corriendo en un tab que hoy no tiene el
+  // foco. Sin fetch nuevo: son los mismos panes que ya viven en memoria.
+  //
+  // e2eFakePaneAITypes: override solo-test para verificar visualmente la fila
+  // con logos sin tener que spawnear un PTY real por cada AI type — el
+  // harness de Playwright arranca con un HOME vacio, sin panes abiertos.
+  // Mismo gate que __e2e_linkRepo.
+  const [e2eFakePaneAITypes, setE2eFakePaneAITypes] = useState<Map<string, AIType[]> | null>(null)
+  useEffect(() => {
+    if (!window.appFlags?.e2eBypass) return
+    window.__e2e_setFakePaneAITypes = (byPath) => setE2eFakePaneAITypes(new Map(Object.entries(byPath)))
+    return () => { delete window.__e2e_setFakePaneAITypes }
+  }, [])
+  const paneAITypesByPath = useMemo(
+    () => e2eFakePaneAITypes ?? groupAITypesByRepoPath(tabs.flatMap(t => t.panes)),
+    [tabs, e2eFakePaneAITypes],
+  )
+
   const handlePaneFilterChange = useCallback((next: PaneFilter) => {
     setPaneFilters(f => ({ ...f, [activeTab.id]: next }))
     if (next === 'all') return
@@ -1503,8 +1727,8 @@ export default function App() {
   // resize ahí pisaría los splitRatios del layout real del tab.
   const ignoreSplitResize = useCallback(() => {}, [])
   // Un solo switch filtro-activo para AMBOS surfaces (Hub y workspace):
-  // duplicar estos ternarios por branch invitaba a arreglar uno y olvidar
-  // el otro (finding del review).
+  // duplicar estos ternarios por branch invita a arreglar uno y olvidar
+  // el otro.
   const filteredSplitProps = paneFilterActive
     ? { splitRatios: undefined, onResize: ignoreSplitResize }
     : { splitRatios: activeTab.splitRatios, onResize: handleSplitResize }
@@ -1545,23 +1769,19 @@ export default function App() {
       borderColor: AI_CONFIG.editor.color, cmd: '', repoPath,
       editorTabs: [{ relPath, dirty: false }], activeEditorTabPath: relPath,
     }
-    // Respetar el cap del workspace destino (hard MAX_PANES + tope de plan) igual
-    // que addPane, y el del Hub (MAX_PANES, lo que hubData muestra).
+    // Respetar el cap del workspace destino (MAX_PANES) igual que addPane, y el
+    // del Hub (MAX_PANES, lo que hubData muestra).
     const res = openFileFromHub(tabsRef.current, activeTabIdRef.current, workspaceTabId, repoPath, relPath, newPane, {
-      workspaceCapacity: Math.min(MAX_PANES, planLimits.maxPanes),
+      workspaceCapacity: MAX_PANES,
       hubCapacity: MAX_PANES,
     })
-    if (res.status === 'workspace-full') {
-      // Bloqueado por el tope del plan (no el hard cap) → ofrecer upgrade, como addPane.
-      if (planLimits.maxPanes < MAX_PANES) setShowUpgrade(true)
-      return
-    }
+    if (res.status === 'workspace-full') return
     setTabs(res.tabs)
-  }, [planLimits.maxPanes])
+  }, [])
 
   // El Hub muestra panes de OTROS workspaces: toda mutación va vía los
   // helpers *Anywhere (la tab activa es la del Hub y no posee estos panes).
-  // Sin el branch por tipo, un pane de editor agregado al Hub se renderizaba
+  // Sin el branch por tipo, un pane de editor agregado al Hub se renderizaría
   // como TerminalPane — un xterm sin PTY, roto.
   const renderHubPane = (pane: PaneNode) => pane.aiType === 'editor'
     ? (
@@ -1613,10 +1833,13 @@ export default function App() {
       onColorChange={(c) => updatePaneAnywhere(pane.id, p => ({ ...p, borderColor: c }))}
       onNoteChange={(note) => updatePaneAnywhere(pane.id, p => ({ ...p, note }))}
       fontSize={pane.fontSize ?? fontSize}
+                          enfocado={focusedPaneId === pane.id}
+                          temaDeTerminal={userPrefs.prefs.ui_settings.terminalTheme}
+                          ajustarContrasteDelTema={userPrefs.prefs.ui_settings.terminalThemeAutoContrast}
+                          temasImportados={userPrefs.prefs.ui_settings.terminalThemesImportados}
       onInput={(data) => {
         // El broadcast también aplica DESDE el Hub: los targets son los panes
-        // agentes visibles en el Hub (el onInput del workspace no corre acá —
-        // este es el camino que faltaba y por el que "no funcionaba").
+        // agentes visibles en el Hub (el onInput del workspace no corre acá).
         const targets = broadcastMode ? broadcastTargets(hubPanesRef.current, pane.id) : [pane.id]
         targets.forEach((id) => window.pty.write(id, data))
       }}
@@ -1625,14 +1848,12 @@ export default function App() {
       onActivity={handlePaneActivity}
       onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
       onPtyStarted={(id, rp) => updatePaneAnywhere(id, p => ({ ...p, runningRepoPath: rp }))}
-      allowSharing={planLimits.allowSharing}
-      onRequireUpgrade={() => setShowUpgrade(true)}
       onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
     />
     )
 
   return (
-    <div className="app" style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
+    <div className={`app dark bg-background text-foreground${pantallaCompleta ? ' pantalla-completa' : ''}`} style={{ '--tab-accent': activeTab.accentColor ?? 'var(--raven-blue)' } as React.CSSProperties}>
       <TabBar
         tabs={tabs}
         activeTabId={activeTabId}
@@ -1701,15 +1922,28 @@ export default function App() {
         trialDaysLeft={trialDaysLeft}
         profileLoading={profileLoading}
         onUpgrade={() => setShowUpgrade(true)}
-        onTeamsOpen={() => {
-          if (!planLimits.allowTeam) { setShowUpgrade(true); return }
-          setTeamsOpen(true)
+        onPersonalOpen={() => {
+          // SIN gate de plan. Personal es la puerta a los repos locales, los issues,
+          // el standup y las invitaciones pendientes: todo local o de GitHub, nada que
+          // toque los servidores de memoria. Gatearlo con `planLimits.memoryCloud` dejaria
+          // a un usuario Free sin ver sus repos ni ACEPTAR UNA INVITACION A UN EQUIPO,
+          // porque las invitaciones viven adentro de Personal. Lo que si se cobra —compartir al
+          // equipo— sigue gateado adentro, por capacidad, via `allowTeam`.
+          // Reset to 'repos': personalSection can be left on 'pendings' by
+          // the invites redirect (onOpenPersonalInvites below). Without this,
+          // the next normal open of Personal would show the stale invites
+          // list instead of repos, for the rest of the session.
+          setPersonalSection('repos')
+          setPersonalOpen(true)
         }}
+        // La memoria local es de todos los planes, asi que esta fila NO pasa por el
+        // gate de plan que si tiene Personal.
+        onMemoriesOpen={(vista, seccion) => abrirMemories(vista, seccion)}
+        pedidoDeCuenta={pedidoDeCuenta}
         pendingInvitesCount={pendingInvitesCount}
-        onMyReposOpen={() => {
-          if (!planLimits.allowMyRepos) { setShowUpgrade(true); return }
-          setMyReposOpen(true)
-        }}
+        // TODO: gate behind plan tier if needed
+        onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
+        onGraphBoardOpen={() => setGraphBoardOpen(true)}
         plan={plan}
         repoPath={activeTab.repoPath}
         isHub={activeTab.isHub ?? false}
@@ -1733,14 +1967,12 @@ export default function App() {
         isListening={isListening}
         isTranscribing={isTranscribing}
         isModelLoading={isModelLoading}
-        onMicToggle={() => {
-          if (!planLimits.allowVoice) { setShowUpgrade(true); return }
-          toggleListening()
-        }}
+        onMicToggle={toggleListening}
         onJoinTerminal={() => setShowJoinViewer(true)}
         activeCellRepoPath={activeCellRepoPath}
         onWorktreeSelect={handleWorktreeSelect}
         onNewWorktree={handleNewWorktree}
+        onFixCi={onFixCi}
         worktreeRefreshKey={worktreeRefreshKey}
         layoutId={activeTab.isHub ? (hubData?.layoutId ?? '1') : activeTab.layoutId}
         paneCount={activeTab.isHub ? (hubData?.panes.length ?? 0) : panes.length}
@@ -1751,6 +1983,7 @@ export default function App() {
         paneFilterPanes={filterablePanes}
         paneFilter={paneFilter}
         onPaneFilterChange={handlePaneFilterChange}
+        paneAITypesByPath={paneAITypesByPath}
       />
       <div
         ref={workspaceRef}
@@ -1760,9 +1993,10 @@ export default function App() {
         onDrop={handleDrop}
         // Captura: corre ANTES que cualquier onDrop hijo y no lo frena su
         // stopPropagation — sin esto, un drop consumido por un EditorPane
-        // dejaba el outline de drop-target colgado (handleDrop nunca corría).
+        // dejaría el outline de drop-target colgado (handleDrop nunca corre).
         onDropCapture={() => setDropActive(false)}
       >
+        <WorkerReviewPanel entries={reviewEntriesForTab(reviewEntries, activeTab)} ansi={ansiDelTemaRef.current} />
         {activeTab.isHub ? (
           <HubWorkspace
             panes={filteredView.panes}
@@ -1806,11 +2040,11 @@ export default function App() {
                   layoutId={paneFilterActive ? defaultLayoutFor(filteredView.panes.length) : activeTab.layoutId}
                   panes={filteredView.panes}
                   {...filteredSplitProps}
-                  renderPane={(pane) => pane.aiType === 'editor'
-                    ? (
-                      // Boundary solo en el editor: es el único pane que corre
-                      // código de terceros patcheando globals (Monaco/shiki) —
-                      // un throw ahí en pleno commit desmontaba la app entera.
+                  renderPane={(pane) => {
+                    // Boundary solo en el editor: es el unico pane que corre
+                    // codigo de terceros patcheando globals (Monaco/shiki) —
+                    // un throw ahi en pleno commit desmontaria la app entera.
+                    if (pane.aiType === 'editor') return (
                       <PaneErrorBoundary key={pane.id} onClose={() => removePane(pane.id)}>
                         <EditorPane
                           pane={pane}
@@ -1829,8 +2063,7 @@ export default function App() {
                         />
                       </PaneErrorBoundary>
                     )
-                    : pane.aiType === 'browser'
-                    ? (
+                    if (pane.aiType === 'browser') return (
                       <BrowserCell
                         key={pane.id}
                         pane={pane}
@@ -1851,7 +2084,12 @@ export default function App() {
                         onNavigate={(url) => updatePaneUrl(pane.id, url)}
                       />
                     )
-                    : (
+                    // Cooperative worker handoff: this pane's worktree may be
+                    // mid-pipeline. Offer "Hand off →" only when a next step exists.
+                    const run = pane.repoPath ? activeWorkerRun[pane.repoPath] : undefined
+                    const spec = run ? workerSpecs.find((s) => s.id === run.workerId) : undefined
+                    const hasNextStep = !!(spec && run && nextStep(spec, run))
+                    return (
                       <TerminalPane
                         key={pane.id}
                         pane={pane}
@@ -1864,6 +2102,10 @@ export default function App() {
                         onColorChange={(c) => updatePaneColor(pane.id, c)}
                         onNoteChange={(note) => updatePaneNote(pane.id, note)}
                         fontSize={pane.fontSize ?? fontSize}
+                          enfocado={focusedPaneId === pane.id}
+                          temaDeTerminal={userPrefs.prefs.ui_settings.terminalTheme}
+                          ajustarContrasteDelTema={userPrefs.prefs.ui_settings.terminalThemeAutoContrast}
+                          temasImportados={userPrefs.prefs.ui_settings.terminalThemesImportados}
                         onInput={(data) => {
                           // Broadcast solo a panes de AGENTE (más la propia):
                           // editor/browser no tienen PTY y una shell plana
@@ -1879,12 +2121,12 @@ export default function App() {
                         onActivity={handlePaneActivity}
                         onJoinRequest={() => setJoinRequest({ paneId: pane.id, paneTitle: pane.customLabel ?? pane.accountName ?? 'Terminal' })}
                         onPtyStarted={handlePtyStarted}
-                        allowSharing={planLimits.allowSharing}
-                        onRequireUpgrade={() => setShowUpgrade(true)}
+                        hasNextStep={hasNextStep}
+                        onHandoff={() => { if (pane.repoPath) void advanceHandoff(pane.repoPath) }}
                         onRename={(label) => updatePaneAnywhere(pane.id, p => ({ ...p, customLabel: label || undefined }))}
                       />
                     )
-                  }
+                  }}
                   renderEmpty={() => (
                     <EmptyCell onClick={() => setAddingPane({})} />
                   )}
@@ -1938,6 +2180,11 @@ export default function App() {
           onNewPane={addNextPane}
           onBroadcastToggle={() => setBroadcastMode(v => !v)}
           onHubOpen={openHub}
+          onPersonalOpen={() => setPersonalOpen(true)}
+          onMemoriesOpen={() => abrirMemories()}
+          onIntegrationsOpen={() => setIntegrationsHubOpen(true)}
+          onGraphBoardOpen={() => setGraphBoardOpen(true)}
+          onMemoryTerminalOpen={abrirMemoriaEnTerminal}
         />
       )}
 
@@ -1945,8 +2192,9 @@ export default function App() {
         <NewPaneDialog
           onConfirm={addPane}
           onCancel={() => setAddingPane(null)}
-          allowedAIs={planLimits.allowedAIs}
-          onUpgrade={() => { setAddingPane(null); setShowUpgrade(true) }}
+          presetAgent={addingPane.presetAgent}
+          presetModel={addingPane.presetModel}
+          presetAccount={addingPane.presetAccount}
         />
       )}
 
@@ -1954,29 +2202,106 @@ export default function App() {
         <SharedTerminalViewer onClose={() => setShowJoinViewer(false)} />
       )}
 
+      {avisoDeCloud.avisoVisible && <CloudActivadoToast onClose={avisoDeCloud.cerrarAviso} />}
+
       {showUpgrade && (
         <UpgradeModal currentPlan={plan} onClose={() => setShowUpgrade(false)} />
       )}
 
-      {teamsOpen && (
-        <TeamsWorkspace
-          onClose={() => { setTeamsOpen(false); refreshPendingInvitesCount() }}
-          onLoad={loadWorkspace}
-          onRequireUpgrade={() => setShowUpgrade(true)}
-          onOpenRepoTerminal={openRepoInNewTab}
-          onPendingInvitesChange={refreshPendingInvitesCount}
-          onStartTutorial={() => setTutorialTour('teams')}
+      {showMemoryHub && (
+        <MemoryHub
+          onClose={markMemoryHubSeen}
+          onUpgrade={() => { markMemoryHubSeen(); setShowUpgrade(true) }}
         />
       )}
 
-      {myReposOpen && (
-        <MyReposPanel
-          onClose={() => setMyReposOpen(false)}
+      {teamsExit.visible && (
+        <TeamsWorkspace
+          closing={teamsExit.closing}
+          onClose={() => { setTeamsOpen(false); refreshPendingInvitesCount() }}
+          onLoad={loadWorkspace}
+          onRequireUpgrade={() => setShowUpgrade(true)}
+          onPendingInvitesChange={refreshPendingInvitesCount}
+          onStartTutorial={() => setTutorialTour('teams')}
+          onOpenPersonalInvites={() => { setPersonalSection('pendings'); setTeamsOpen(false); setPersonalOpen(true) }}
+        />
+      )}
+
+      {personalExit.visible && (
+        <PersonalWorkspace
+          closing={personalExit.closing}
+          onClose={() => setPersonalOpen(false)}
           githubToken={githubToken}
           githubLogin={githubLogin}
           onConnectGitHub={connectGitHub}
           onOpenRepoTerminal={openRepoInNewTab}
+          onOpenTeamWorkspace={() => setTeamsOpen(true)}
+          allowTeam={planLimits.memoryTeamShare}
           onStartTutorial={() => setTutorialTour('my-repos')}
+          activeRepoPath={activeCellRepoPath ?? null}
+          focusedPaneId={focusedPaneId}
+          onOpenWorktree={(path, initialInput, worker) => { setPersonalOpen(false); openWorktreeWithWorker(path, initialInput, worker) }}
+          initialSection={personalSection}
+          onPendingInvitesChange={refreshPendingInvitesCount}
+          paneAITypesByPath={paneAITypesByPath}
+        />
+      )}
+
+      {/* Memories — el tercer overlay, encima de Personal y del team workspace. */}
+      {memoriesExit.visible && (
+        <MemoriesWorkspace
+          closing={memoriesExit.closing}
+          onClose={() => setMemoriesOpen(false)}
+          activeRepoPath={activeCellRepoPath ?? null}
+          onOpenFile={openFileInEditor}
+          // El estado vacio (sin repo) linkea desde el dialogo NATIVO de carpeta —
+          // sin conflicto de z-index con el overlay — y setea repoPath en la pestaña activa,
+          // que es de donde sale activeCellRepoPath. El grafo aparece sin salir de la pantalla.
+          onLinkRepo={handleRepoLink}
+          ansi={temaPorId(
+            userPrefs.prefs.ui_settings.terminalTheme,
+            userPrefs.prefs.ui_settings.terminalThemesImportados ?? [],
+          ).ansi}
+          // El botón "How it works" del header reabre la bienvenida a pedido (forced).
+          onHowItWorks={() => setMemoriesWelcome(true)}
+          pedidoDeSettings={pedidoDeSettings}
+          seccionDeSettings={seccionDeSettings}
+          onPlanYFacturacion={abrirPlanYFacturacion}
+          pedidoDelGrafo={pedidoDelGrafo}
+          onOpenInTerminal={abrirMemoriaEnTerminal}
+        />
+      )}
+
+      {showMemoriesWelcome && (
+        <MemoriesWelcome
+          onTour={() => {
+            markMemoriesWelcomeSeen()
+            setMemoriesWelcome(false)
+            setPedidoDelGrafo((n) => n + 1)
+            setTutorialTour('memories')
+          }}
+          onSkip={() => {
+            markMemoriesWelcomeSeen()
+            setMemoriesWelcome(false)
+          }}
+        />
+      )}
+
+      {integrationsHubOpen && (
+        <IntegrationsHub
+          onClose={() => setIntegrationsHubOpen(false)}
+          activeRepoPath={activeCellRepoPath ?? null}
+          onOpenWorktree={(path, initialInput, spec) => {
+            setIntegrationsHubOpen(false)
+            openWorktreeWithWorker(path, initialInput, spec)
+          }}
+        />
+      )}
+
+      {graphBoardOpen && (
+        <GraphBoard
+          onClose={() => setGraphBoardOpen(false)}
+          activeRepoPath={activeCellRepoPath ?? null}
         />
       )}
 
@@ -1991,7 +2316,7 @@ export default function App() {
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Someone is requesting interactive access to your terminal.</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => { terminalShareService.approveGuest(joinRequest.paneId); setJoinRequest(null) }}
-              style={{ flex: 1, background: '#0066FF', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              style={{ flex: 1, background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
               Allow
             </button>
             <button onClick={() => { terminalShareService.rejectGuest(joinRequest.paneId); setJoinRequest(null) }}
@@ -2046,7 +2371,12 @@ export default function App() {
       />
       {tutorialTour && (() => {
         const tour = getTour(tutorialTour)
-        return tour ? <OnboardingTour steps={tour.steps} onClose={() => setTutorialTour(null)} /> : null
+        return tour ? (
+          <OnboardingTour
+            steps={tour.steps}
+            onClose={() => setTutorialTour(null)}
+          />
+        ) : null
       })()}
     </div>
   )

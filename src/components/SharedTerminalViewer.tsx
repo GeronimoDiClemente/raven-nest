@@ -15,8 +15,8 @@ export default function SharedTerminalViewer({ onClose }: Props) {
 
   /**
    * El viewer NO reflowea: adopta las cols/rows del host y escala para entrar
-   * en su ventana. Reflowear implicaba redimensionar el PTY del host, que le
-   * rompia la terminal al que comparte (y se la dejaba rota al irse el invitado).
+   * en su ventana. Reflowear implicaria redimensionar el PTY del host, que le
+   * rompe la terminal al que comparte (y se la deja rota al irse el invitado).
    */
   const applyScale = useCallback(() => {
     const cont = containerRef.current
@@ -103,8 +103,7 @@ export default function SharedTerminalViewer({ onClose }: Props) {
       }
     })
 
-    // El host dicta el tamano (attachSizeListener existia y no lo llamaba nadie:
-    // todos los broadcasts de 'size' se tiraban a la basura).
+    // El host dicta el tamano.
     terminalJoinService.attachSizeListener((cols, rows) => {
       try {
         if (cols > 0 && rows > 0) term.resize(cols, rows)
@@ -171,7 +170,7 @@ export default function SharedTerminalViewer({ onClose }: Props) {
         background: 'var(--bg-surface)',
         borderBottom: '1px solid var(--border)',
         flexShrink: 0,
-        WebkitAppRegion: 'drag' as React.CSSProperties['WebkitAppRegion'],
+        WebkitAppRegion: 'drag',
       } as React.CSSProperties}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <span style={{ fontSize: 11, color: waitingApproval ? '#eab308' : '#22c55e', fontWeight: 600 }}>● {waitingApproval ? 'Pending' : 'Live'}</span>

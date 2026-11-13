@@ -1,0 +1,260 @@
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Geist+Mono&family=Geist:wght@400;500;600&display=swap');
+
+    :root {
+      --background: #0a0a0a;
+      --card: #141414;
+      --popover: #1f1f1f;
+      --foreground: #f2f2f2;
+      --muted-foreground: #9b9b9b;
+      --ok: #4ade80;
+      --warn: #e3b341;
+      --destructive: #ff6568;
+      --border: rgba(255, 255, 255, 0.08);
+      --sidebar-width: 200px;
+      --sidebar-rail: 44px;
+      --row-height: 32px;
+    }
+
+    body {
+      font-family: 'Geist', sans-serif;
+      background-color: var(--background);
+      color: var(--foreground);
+      margin: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .mono {
+      font-family: 'Geist Mono', monospace;
+      letter-spacing: -0.02em;
+    }
+
+    .sidebar-row {
+      height: var(--row-height);
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+      font-size: 13px;
+      gap: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .sidebar-row:hover {
+      background-color: rgba(255, 255, 255, 0.04);
+    }
+
+    .sidebar-row.active {
+      background-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .indent-1 { padding-left: 26px; }
+    .indent-2 { padding-left: 42px; }
+    
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .badge {
+      font-size: 10px;
+      padding: 0 4px;
+      border-radius: 3px;
+      line-height: 1.4;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+    }
+
+    .border-b-custom { border-bottom: 1px solid var(--border); }
+    .border-r-custom { border-right: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <div class="flex h-screen overflow-hidden" data-sd-id="1">
+    <!-- Sidebar Rail (Collapsed State / Global Actions) -->
+    <aside class="w-[44px] flex-shrink-0 flex flex-col items-center py-3 border-r-custom bg-[#080808] z-50" data-sd-id="2">
+      <div class="mb-6 text-[#f2f2f2]" data-sd-id="3">
+        <iconify-icon icon="lucide:layout-grid" class="text-xl"></iconify-icon>
+      </div>
+      <div class="flex flex-col gap-4 items-center flex-1" data-sd-id="4">
+        <iconify-icon icon="lucide:git-pull-request" class="text-xl text-[var(--muted-foreground)] hover:text-white"></iconify-icon>
+        <iconify-icon icon="lucide:terminal" class="text-xl text-white"></iconify-icon>
+        <iconify-icon icon="lucide:box" class="text-xl text-[var(--muted-foreground)] hover:text-white"></iconify-icon>
+        <iconify-icon icon="lucide:database" class="text-xl text-[var(--muted-foreground)] hover:text-white"></iconify-icon>
+      </div>
+      <div class="flex flex-col gap-4 items-center pb-2" data-sd-id="5">
+        <iconify-icon icon="lucide:settings-2" class="text-xl text-[var(--muted-foreground)] hover:text-white"></iconify-icon>
+      </div>
+    </aside>
+
+    <!-- Main Sidebar (Expanded) -->
+    <aside class="w-[200px] flex-shrink-0 flex flex-col border-r-custom bg-[#0a0a0a] overflow-hidden" data-sd-id="6">
+      <div class="sidebar-row border-b-custom font-semibold text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]" data-sd-id="7">
+        Workspace
+      </div>
+      
+      <div class="flex-1 overflow-y-auto scrollbar-hide py-2" data-sd-id="8">
+        
+        <!-- REPO LEVEL -->
+        <div data-sd-id="9">
+          <div class="sidebar-row active group" data-sd-id="10">
+            <iconify-icon icon="lucide:chevron-down" class="text-[var(--muted-foreground)] text-xs"></iconify-icon>
+            <iconify-icon icon="lucide:folder-git-2" class="text-white"></iconify-icon>
+            <span class="flex-1 truncate" data-sd-id="11">raven-nest</span>
+          </div>
+
+          <!-- WORKTREE LEVEL -->
+          <div data-sd-id="12">
+            <div class="sidebar-row indent-1" data-sd-id="13">
+              <iconify-icon icon="lucide:chevron-down" class="text-[var(--muted-foreground)] text-xs"></iconify-icon>
+              <iconify-icon icon="lucide:git-branch" class="text-[var(--muted-foreground)]"></iconify-icon>
+              <span class="mono text-[12px] flex-1 truncate text-[var(--muted-foreground)]" data-sd-id="14">main</span>
+              <span class="mono text-[10px] text-[var(--ok)]" data-sd-id="15">●</span>
+            </div>
+
+            <div class="sidebar-row indent-1" data-sd-id="16">
+              <iconify-icon icon="lucide:chevron-down" class="text-[var(--muted-foreground)] text-xs"></iconify-icon>
+              <iconify-icon icon="lucide:git-branch" class="text-[var(--warn)]"></iconify-icon>
+              <span class="mono text-[12px] flex-1 truncate" data-sd-id="17">feat/agent-t...</span>
+              <span class="mono text-[10px] text-[var(--warn)]" data-sd-id="18">*7</span>
+            </div>
+
+            <!-- PANES / AGENTS LEVEL -->
+            <div class="mt-1" data-sd-id="19">
+              <a id="pane-1" href="#" class="sidebar-row indent-2 group" data-sd-id="20">
+                <img src="https://api.iconify.design/logos:claude.svg" class="w-3.5 h-3.5 grayscale group-hover:grayscale-0 transition-all" data-sd-id="21">
+                <span class="flex-1 truncate text-[var(--muted-foreground)] group-hover:text-white" data-sd-id="22">01. context-sync</span>
+                <div class="status-dot bg-[var(--ok)]" data-sd-id="23"></div>
+              </a>
+              
+              <a id="pane-2" href="#" class="sidebar-row indent-2 group" data-sd-id="24">
+                <img src="https://api.iconify.design/logos:codex.svg" class="w-3.5 h-3.5 grayscale group-hover:grayscale-0 transition-all" data-sd-id="25">
+                <span class="flex-1 truncate text-[var(--muted-foreground)] group-hover:text-white" data-sd-id="26">02. test-runner</span>
+                <span class="badge bg-[var(--warn)]/20 text-[var(--warn)]" data-sd-id="27">waiting</span>
+              </a>
+
+              <a id="pane-3" href="#" class="sidebar-row indent-2 group" data-sd-id="28">
+                <img src="https://api.iconify.design/logos:google-gemini.svg" class="w-3.5 h-3.5 grayscale group-hover:grayscale-0 transition-all" data-sd-id="29">
+                <span class="flex-1 truncate text-[var(--muted-foreground)] group-hover:text-white" data-sd-id="30">03. docs-writer</span>
+                <span class="mono text-[10px] animate-pulse text-[var(--ok)]" data-sd-id="31">busy</span>
+              </a>
+            </div>
+          </div>
+
+          <div class="sidebar-row indent-1" data-sd-id="32">
+            <iconify-icon icon="lucide:chevron-right" class="text-[var(--muted-foreground)] text-xs"></iconify-icon>
+            <iconify-icon icon="lucide:git-branch" class="text-[var(--muted-foreground)]"></iconify-icon>
+            <span class="mono text-[12px] flex-1 truncate text-[var(--muted-foreground)]" data-sd-id="33">hotfix/v1.2</span>
+          </div>
+        </div>
+
+        <!-- SECOND REPO (COLLAPSED) -->
+        <div class="mt-4" data-sd-id="34">
+          <div class="sidebar-row group text-[var(--muted-foreground)] opacity-60 hover:opacity-100" data-sd-id="35">
+            <iconify-icon icon="lucide:chevron-right" class="text-xs"></iconify-icon>
+            <iconify-icon icon="lucide:folder-git-2"></iconify-icon>
+            <span class="flex-1 truncate" data-sd-id="36">nest-core-lib</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ATTENTION SUMMARY FOOTER -->
+      <div class="mt-auto p-3 border-t-custom bg-[#0d0d0d]" data-sd-id="37">
+        <div class="flex items-center justify-between text-[11px] mb-2" data-sd-id="38">
+          <span class="text-[var(--muted-foreground)]" data-sd-id="39">ATTENTION</span>
+          <span class="text-[var(--warn)] mono" data-sd-id="40">02</span>
+        </div>
+        <div class="flex gap-1.5" data-sd-id="41">
+          <div class="h-1 flex-1 bg-[var(--warn)] rounded-full" data-sd-id="42"></div>
+          <div class="h-1 flex-1 bg-[var(--ok)] rounded-full opacity-30" data-sd-id="43"></div>
+          <div class="h-1 flex-1 bg-[var(--border)] rounded-full" data-sd-id="44"></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Terminal Canvas Mockup -->
+    <main class="flex-1 bg-black p-4 flex flex-col" data-sd-id="45">
+      <header class="flex items-center gap-4 mb-4 text-[var(--muted-foreground)] text-sm" data-sd-id="46">
+        <div class="flex items-center gap-2 px-2 py-1 rounded bg-[var(--card)] border-custom" data-sd-id="47">
+          <iconify-icon icon="lucide:search" class="text-xs"></iconify-icon>
+          <span class="text-xs" data-sd-id="48">Search Panes...</span>
+        </div>
+      </header>
+
+      <div class="grid grid-cols-2 grid-rows-2 gap-px bg-[var(--border)] flex-1 border border-[var(--border)] rounded-sm overflow-hidden" data-sd-id="49">
+        <!-- PANE 1 -->
+        <div class="bg-[var(--background)] flex flex-col" data-sd-id="50">
+          <div class="h-8 flex items-center px-3 border-b-custom justify-between bg-[var(--card)]" data-sd-id="51">
+            <div class="flex items-center gap-2" data-sd-id="52">
+               <img src="https://api.iconify.design/logos:claude.svg" class="w-3 h-3" data-sd-id="53">
+               <span class="text-[11px] font-medium" data-sd-id="54">01. context-sync</span>
+            </div>
+            <div class="flex gap-2 text-[var(--muted-foreground)]" data-sd-id="55">
+              <iconify-icon icon="lucide:terminal" class="text-xs hover:text-white"></iconify-icon>
+              <iconify-icon icon="lucide:x" class="text-xs hover:text-[var(--destructive)]"></iconify-icon>
+            </div>
+          </div>
+          <div class="flex-1 p-3 mono text-[12px] text-[var(--ok)]" data-sd-id="56">
+            $ raven sync --context=full<br>
+            <span class="text-white opacity-60" data-sd-id="57">[info] analyzing dependency graph...</span><br>
+            <span class="text-white opacity-60" data-sd-id="58">[info] 142 files tracked.</span><br>
+            <span class="cursor-block w-1.5 h-3.5 bg-white/40 inline-block align-middle ml-1 animate-pulse" data-sd-id="59"></span>
+          </div>
+        </div>
+
+        <!-- PANE 2 -->
+        <div class="bg-[var(--background)] flex flex-col" data-sd-id="60">
+          <div class="h-8 flex items-center px-3 border-b-custom justify-between bg-[var(--card)]" data-sd-id="61">
+            <div class="flex items-center gap-2" data-sd-id="62">
+               <img src="https://api.iconify.design/logos:codex.svg" class="w-3 h-3" data-sd-id="63">
+               <span class="text-[11px] font-medium" data-sd-id="64">02. test-runner</span>
+               <span class="badge bg-[var(--warn)]/20 text-[var(--warn)] ml-1" data-sd-id="65">waiting</span>
+            </div>
+            <iconify-icon icon="lucide:x" class="text-xs text-[var(--muted-foreground)]"></iconify-icon>
+          </div>
+          <div class="flex-1 p-3 mono text-[12px] text-[var(--destructive)]" data-sd-id="66">
+            FAIL  src/lib/pane-state.test.ts<br>
+            ● PaneState › renders waiting badge<br><br>
+            <span class="text-[var(--warn)]" data-sd-id="67">Agent needs clarification on test mocks.</span>
+          </div>
+        </div>
+
+        <!-- PANE 3 -->
+        <div class="bg-[var(--background)] flex flex-col" data-sd-id="68">
+           <div class="h-8 flex items-center px-3 border-b-custom justify-between bg-[var(--card)]" data-sd-id="69">
+            <div class="flex items-center gap-2" data-sd-id="70">
+               <img src="https://api.iconify.design/logos:google-gemini.svg" class="w-3 h-3" data-sd-id="71">
+               <span class="text-[11px] font-medium" data-sd-id="72">03. docs-writer</span>
+            </div>
+            <iconify-icon icon="lucide:x" class="text-xs text-[var(--muted-foreground)]"></iconify-icon>
+          </div>
+          <div class="flex-1 p-3 mono text-[12px] opacity-40" data-sd-id="73">
+            $ raven-docs build<br>
+            Writing: architecture.md... [DONE]<br>
+            Writing: components.md... [BUSY]
+          </div>
+        </div>
+
+        <!-- EMPTY PANE -->
+        <div class="bg-[var(--background)] flex items-center justify-center opacity-10" data-sd-id="74">
+          <iconify-icon icon="lucide:plus" class="text-4xl"></iconify-icon>
+        </div>
+      </div>
+    </main>
+  </div>
+
+</body></html>

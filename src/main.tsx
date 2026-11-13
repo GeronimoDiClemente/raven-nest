@@ -1,10 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom/client'
+import { LucideProvider } from 'lucide-react'
 import App from './App'
 import AuthScreen from './components/AuthScreen'
 import { supabase } from './lib/supabase'
+import { leerDeepLinkDeAuth, esCanjeDeRecuperacion, LINK_NO_VALIDO } from './lib/auth-deeplink'
+import { decidirSesionAlArrancar, haySesionGuardada, eventoDecideSesion } from './lib/sesion-al-arrancar'
+// Geist empaquetada: la app se ve igual en Mac, Windows y Linux.
+// Van ANTES de global.css para que la @font-face exista cuando el CSS la nombra.
+// Sólo el subset latin (normal + italic) — la app es en
+// inglés, no hace falta cyrillic/cyrillic-ext/vietnamese/latin-ext. Ver
+// styles/geist-latin.css y styles/geist-mono-latin.css.
+import './styles/geist-latin.css'
+import './styles/geist-mono-latin.css'
 import './styles/global.css'
 import '@xterm/xterm/css/xterm.css'
+import { ICON_SIZE, ICON_STROKE } from './lib/icons'
 
 // Apply platform class once so CSS can adapt layout (traffic lights vs Win controls)
 const platform = (window as unknown as { platform?: { isWin?: boolean; isMac?: boolean } }).platform
@@ -58,36 +69,25 @@ function Root() {
   const recoveryModeRef = useRef(false)
   const setRecovery = (val: boolean) => { recoveryModeRef.current = val; setRecoveryMode(val) }
 
-  // Process a nest:// deep link URL — called from both pull (on mount) and push (runtime)
+  // Process a nest:// deep link URL — called from both pull (on mount) and push (runtime).
+  // PKCE: sólo se canjea un `?code=`; los tokens en el fragmento se rechazan (lib/auth-deeplink.ts).
   const handleDeepLinkUrl = async (url: string) => {
-    // Errors come back as query params (?error=...&error_description=...);
-    // success tokens come back in the hash fragment.
-    const queryRaw = url.includes('?') ? url.split('?')[1].split('#')[0] : ''
-    const query = new URLSearchParams(queryRaw)
-    const errorCode = query.get('error_code') || query.get('error')
-    const errorDescription = query.get('error_description')
-    if (errorCode || errorDescription) {
-      const desc = (errorDescription ?? '').toLowerCase()
-      const isLinkConflict =
-        errorCode === 'identity_already_exists' ||
-        errorCode === 'email_exists' ||
-        desc.includes('already') && (desc.includes('email') || desc.includes('identity') || desc.includes('user'))
-      setOauthError(isLinkConflict
-        ? 'This email is already linked to another sign-in method (Google or email/password). Sign in with that method first, then connect GitHub from Settings → Account.'
-        : (errorDescription ?? errorCode ?? 'Sign-in failed.'))
-      return
-    }
-
-    const hash = url.split('#')[1] ?? ''
-    const params = new URLSearchParams(hash)
-    const access_token = params.get('access_token')
-    const refresh_token = params.get('refresh_token')
-    const type = params.get('type')
-    if (access_token && refresh_token) {
-      setOauthError(null)
-      // Set recovery mode BEFORE setSession so the SIGNED_IN event doesn't route to App
-      if (type === 'recovery') setRecovery(true)
-      await supabase.auth.setSession({ access_token, refresh_token })
+    const accion = leerDeepLinkDeAuth(url)
+    if (accion.tipo === 'ignorar') return
+    if (accion.tipo === 'error') { setOauthError(accion.mensaje); return }
+    setOauthError(null)
+    // El canje emite SIGNED_IN aunque sea un reset: el modo recuperación va ANTES, para que ese
+    // SIGNED_IN no lleve a la App con la sesión de recuperación.
+    const storageKey = (supabase.auth as unknown as { storageKey: string }).storageKey
+    let guardado: string | null = null
+    try { guardado = localStorage.getItem(`${storageKey}-code-verifier`) } catch { /* sin storage no hay canje */ }
+    const recuperacion = esCanjeDeRecuperacion(guardado)
+    if (recuperacion) setRecovery(true)
+    const { error } = await supabase.auth.exchangeCodeForSession(accion.code)
+    if (error) {
+      // Sin el verificador de esta instalación (otro login en el medio, o un link ajeno) no hay sesión.
+      if (recuperacion) setRecovery(false)
+      setOauthError(LINK_NO_VALIDO)
     }
   }
 
@@ -96,16 +96,19 @@ function Root() {
       setSession(true)
       return () => {}
     }
-    const timeout = setTimeout(() => setSession(false), 5000)
-    supabase.auth.getSession().then(({ data }) => {
-      clearTimeout(timeout)
-      setSession(!!data.session)
-    }).catch(() => {
-      clearTimeout(timeout)
-      setSession(false)
+    // Sin red o con Supabase caído, una sesión guardada alcanza para entrar: ver
+    // lib/sesion-al-arrancar.ts.
+    const storageKey = (supabase.auth as unknown as { storageKey: string }).storageKey
+    decidirSesionAlArrancar({
+      cliente: supabase.auth,
+      guardada: () => { try { return haySesionGuardada(localStorage.getItem(storageKey)) } catch { return false } },
+      fijar: setSession,
+      setTimer: (cb, ms) => setTimeout(cb, ms),
+      clearTimer: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!eventoDecideSesion(event)) return
       if (event === 'USER_UPDATED') {
         setRecovery(false)
         setSession(!!session)
@@ -136,11 +139,12 @@ function Root() {
     }
 
     // Push: handle deep links arriving while app is running
-    if (window.electronShell?.onDeepLink) {
-      window.electronShell.onDeepLink(handleDeepLinkUrl)
-    }
+    const offDeepLink = window.electronShell?.onDeepLink?.(handleDeepLinkUrl)
 
-    return () => subscription.unsubscribe()
+    return () => {
+      subscription.unsubscribe()
+      offDeepLink?.()
+    }
   }, [])
 
   if (session === null) return (
@@ -158,6 +162,11 @@ function Root() {
   )
 }
 
+// El contrato de los iconos se declara UNA vez, aca, y lo hereda todo el arbol — ver
+// src/lib/icons.ts para por que. Ponerlo en el provider y no en cada call site es lo que hace
+// que un icono agregado manana sin leer nada salga con el peso correcto igual.
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <Root />
+  <LucideProvider size={ICON_SIZE.md} strokeWidth={ICON_STROKE} nonScalingStroke>
+    <Root />
+  </LucideProvider>
 )

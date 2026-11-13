@@ -1,0 +1,226 @@
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-sans.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist-mono.css">
+  <style>
+    :root {
+      --background: #0a0a0a;
+      --card: #141414;
+      --popover: #1f1f1f;
+      --foreground: #f2f2f2;
+      --muted-foreground: #9b9b9b;
+      --ok: #4ade80;
+      --warn: #e3b341;
+      --destructive: #ff6568;
+      --border: rgb(255 255 255 / 0.08);
+      --header-height: 40px;
+    }
+    body {
+      background-color: var(--background);
+      color: var(--foreground);
+      font-family: 'Geist Sans', sans-serif;
+      margin: 0;
+    }
+    .mono { font-family: 'Geist Mono', monospace; }
+    .attention-row:hover {
+      background-color: rgba(255, 255, 255, 0.04);
+    }
+    .badge-waiting {
+      color: var(--warn);
+      border: 1px solid rgba(227, 179, 65, 0.2);
+      background: rgba(227, 179, 65, 0.05);
+    }
+    .badge-unread {
+      color: var(--muted-foreground);
+      border: 1px solid var(--border);
+    }
+    .active-indicator {
+      width: 2px;
+      height: 100%;
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="flex h-screen w-full overflow-hidden" data-sd-id="1">
+    <!-- Sidebar Rail (Collapsed State) -->
+    <aside class="w-[44px] border-r border-[var(--border)] flex flex-col items-center py-4 bg-[var(--background)]" data-sd-id="2">
+      <div class="mb-8 opacity-80" data-sd-id="3">
+        <iconify-icon icon="lucide:layout-grid" class="text-xl"></iconify-icon>
+      </div>
+      <div class="flex flex-col gap-6" data-sd-id="4">
+        <iconify-icon icon="lucide:folder-closed" class="text-[var(--muted-foreground)] text-lg hover:text-white cursor-pointer"></iconify-icon>
+        <iconify-icon icon="lucide:git-pull-request" class="text-[var(--muted-foreground)] text-lg hover:text-white cursor-pointer"></iconify-icon>
+        <iconify-icon icon="lucide:terminal" class="text-[var(--foreground)] text-lg cursor-pointer"></iconify-icon>
+        <iconify-icon icon="lucide:box" class="text-[var(--muted-foreground)] text-lg hover:text-white cursor-pointer"></iconify-icon>
+      </div>
+      <div class="mt-auto flex flex-col gap-6" data-sd-id="5">
+        <iconify-icon icon="lucide:settings" class="text-[var(--muted-foreground)] text-lg hover:text-white cursor-pointer"></iconify-icon>
+      </div>
+    </aside>
+
+    <!-- Main Layout Container -->
+    <main class="flex-1 flex overflow-hidden" data-sd-id="6">
+      
+      <!-- Left: Triage Tray (Target Component) -->
+      <section class="w-[380px] border-r border-[var(--border)] flex flex-col bg-[var(--background)] z-10" data-sd-id="7">
+        <header class="h-[var(--header-height)] px-4 flex items-center justify-between border-b border-[var(--border)]" data-sd-id="8">
+          <span class="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]" data-sd-id="9">Triage Stack</span>
+          <div class="flex items-center gap-2" data-sd-id="10">
+             <span class="mono text-[10px] px-1.5 py-0.5 rounded bg-[var(--popover)] border border-[var(--border)] text-[var(--muted-foreground)]" data-sd-id="11">Cmd+J</span>
+             <button id="close-tray" class="hover:text-white" data-sd-id="12">
+               <iconify-icon icon="lucide:x" class="text-sm"></iconify-icon>
+             </button>
+          </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto overflow-x-hidden p-2" data-sd-id="13">
+          
+          <!-- Section: Needs You (Waiting State) -->
+          <div class="mb-6" data-sd-id="14">
+            <div class="flex items-center gap-2 px-2 mb-2" data-sd-id="15">
+              <iconify-icon icon="lucide:alert-circle" class="text-[var(--warn)] text-sm"></iconify-icon>
+              <h2 class="text-xs font-medium text-[var(--warn)]" data-sd-id="16">Needs You</h2>
+              <span class="ml-auto mono text-[10px] text-[var(--muted-foreground)]" data-sd-id="17">2</span>
+            </div>
+
+            <!-- Row 1 -->
+            <div class="attention-row relative group flex flex-col gap-1 p-3 rounded-md cursor-pointer" data-sd-id="18">
+              <div class="active-indicator bg-[var(--warn)]" data-sd-id="19"></div>
+              <div class="flex items-center justify-between" data-sd-id="20">
+                <div class="flex items-center gap-2" data-sd-id="21">
+                  <span class="mono text-[10px] text-[var(--muted-foreground)]" data-sd-id="22">P01</span>
+                  <span class="text-sm font-medium" data-sd-id="23">Refactor auth.ts logic</span>
+                </div>
+                <iconify-icon icon="simple-icons:anthropic" class="text-[#D97757] text-xs"></iconify-icon>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)]" data-sd-id="24">
+                <span class="truncate" data-sd-id="25">raven-core / fix-auth-loop</span>
+                <span class="text-[8px] opacity-30" data-sd-id="26">•</span>
+                <span class="whitespace-nowrap" data-sd-id="27">2m ago</span>
+              </div>
+            </div>
+
+            <!-- Row 2 -->
+            <div class="attention-row relative group flex flex-col gap-1 p-3 rounded-md cursor-pointer" data-sd-id="28">
+              <div class="active-indicator bg-[var(--warn)]" data-sd-id="29"></div>
+              <div class="flex items-center justify-between" data-sd-id="30">
+                <div class="flex items-center gap-2" data-sd-id="31">
+                  <span class="mono text-[10px] text-[var(--muted-foreground)]" data-sd-id="32">P04</span>
+                  <span class="text-sm font-medium" data-sd-id="33">Missing export found</span>
+                </div>
+                <iconify-icon icon="simple-icons:googlecloud" class="text-[#4285F4] text-xs"></iconify-icon>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)]" data-sd-id="34">
+                <span class="truncate" data-sd-id="35">web-ui / main</span>
+                <span class="text-[8px] opacity-30" data-sd-id="36">•</span>
+                <span class="whitespace-nowrap" data-sd-id="37">8m ago</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section: Unread -->
+          <div class="mb-6" data-sd-id="38">
+            <div class="flex items-center gap-2 px-2 mb-2" data-sd-id="39">
+              <iconify-icon icon="lucide:mail" class="text-[var(--muted-foreground)] text-sm"></iconify-icon>
+              <h2 class="text-xs font-medium text-[var(--muted-foreground)]" data-sd-id="40">Unread</h2>
+              <span class="ml-auto mono text-[10px] text-[var(--muted-foreground)] opacity-50" data-sd-id="41">1</span>
+            </div>
+
+            <!-- Row 3 -->
+            <div class="attention-row relative group flex flex-col gap-1 p-3 rounded-md cursor-pointer" data-sd-id="42">
+              <div class="active-indicator bg-[var(--border)]" data-sd-id="43"></div>
+              <div class="flex items-center justify-between" data-sd-id="44">
+                <div class="flex items-center gap-2" data-sd-id="45">
+                  <span class="mono text-[10px] text-[var(--muted-foreground)]" data-sd-id="46">P02</span>
+                  <span class="text-sm font-medium opacity-80" data-sd-id="47">Test coverage complete</span>
+                </div>
+                <iconify-icon icon="lucide:bot" class="text-[var(--muted-foreground)] text-xs"></iconify-icon>
+              </div>
+              <div class="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] opacity-60" data-sd-id="48">
+                <span class="truncate" data-sd-id="49">shared-pkg / ci-updates</span>
+                <span class="text-[8px] opacity-30" data-sd-id="50">•</span>
+                <span class="whitespace-nowrap" data-sd-id="51">14m ago</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Center/Right: Terminal Panes Mock -->
+      <section class="flex-1 bg-black grid grid-cols-2 grid-rows-2 gap-[1px] bg-[var(--border)]" data-sd-id="52">
+        <!-- Mock Pane 01 (Needs Attention) -->
+        <div class="bg-[var(--background)] flex flex-col" data-sd-id="53">
+          <div class="h-[var(--header-height)] px-3 flex items-center justify-between bg-[var(--card)]/40 border-b border-[var(--border)]" data-sd-id="54">
+             <div class="flex items-center gap-2" data-sd-id="55">
+               <div class="w-1.5 h-1.5 rounded-full" style="background: #ff7b72" data-sd-id="56"></div>
+               <span class="text-xs font-medium" data-sd-id="57">P01 — Claude</span>
+               <span class="text-[10px] text-[var(--warn)] bg-[var(--warn)]/10 px-1.5 py-0.5 rounded border border-[var(--warn)]/20" data-sd-id="58">Waiting</span>
+             </div>
+             <iconify-icon icon="lucide:maximize-2" class="text-xs text-[var(--muted-foreground)]"></iconify-icon>
+          </div>
+          <div class="flex-1 p-4 mono text-[13px] leading-relaxed text-[#d1d5db]" data-sd-id="59">
+            <div class="mb-2 text-[var(--muted-foreground)]" data-sd-id="60">$ raven-agent auth-triage</div>
+            <div class="text-[var(--warn)]" data-sd-id="61">[ATTENTION] Conflicting logic found in AuthMiddleware.ts:42</div>
+            <div data-sd-id="62">How should I handle the fallback cookie if JWT is expired?</div>
+            <div class="mt-4 flex items-center gap-2" data-sd-id="63">
+              <span class="animate-pulse" data-sd-id="64">_</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mock Pane 02 (Idle/Unread) -->
+        <div class="bg-[var(--background)] flex flex-col opacity-60" data-sd-id="65">
+           <div class="h-[var(--header-height)] px-3 flex items-center justify-between bg-[var(--card)]/20 border-b border-[var(--border)]" data-sd-id="66">
+             <div class="flex items-center gap-2" data-sd-id="67">
+               <div class="w-1.5 h-1.5 rounded-full" style="background: #79c0ff" data-sd-id="68"></div>
+               <span class="text-xs font-medium" data-sd-id="69">P02 — Codex</span>
+             </div>
+          </div>
+          <div class="flex-1 p-4 mono text-[13px] text-gray-500" data-sd-id="70">
+            <div data-sd-id="71">✓ 12/12 tests passed in tests/auth.test.ts</div>
+            <div data-sd-id="72">(Waiting for next command)</div>
+          </div>
+        </div>
+
+        <!-- Mock Pane 03 (Working) -->
+        <div class="bg-[var(--background)] flex flex-col" data-sd-id="73">
+           <div class="h-[var(--header-height)] px-3 flex items-center justify-between bg-[var(--card)]/20 border-b border-[var(--border)]" data-sd-id="74">
+             <div class="flex items-center gap-2" data-sd-id="75">
+               <div class="w-1.5 h-1.5 rounded-full" style="background: #d2a8ff" data-sd-id="76"></div>
+               <span class="text-xs font-medium" data-sd-id="77">P03 — Gemini</span>
+               <span class="text-[10px] text-[var(--ok)] opacity-80" data-sd-id="78">Working...</span>
+             </div>
+          </div>
+          <div class="flex-1 p-4 mono text-[13px] text-gray-400 overflow-hidden" data-sd-id="79">
+             <div data-sd-id="80">Indexing workspace...</div>
+             <div class="text-[var(--ok)]/70" data-sd-id="81">Analyzing dependency tree [■■■■■■■■□□□] 72%</div>
+          </div>
+        </div>
+
+        <!-- Mock Pane 04 (Needs Attention) -->
+        <div class="bg-[var(--background)] flex flex-col" data-sd-id="82">
+           <div class="h-[var(--header-height)] px-3 flex items-center justify-between bg-[var(--card)]/40 border-b border-[var(--border)]" data-sd-id="83">
+             <div class="flex items-center gap-2" data-sd-id="84">
+               <div class="w-1.5 h-1.5 rounded-full" style="background: #ffa657" data-sd-id="85"></div>
+               <span class="text-xs font-medium" data-sd-id="86">P04 — Gemini</span>
+               <span class="text-[10px] text-[var(--warn)] bg-[var(--warn)]/10 px-1.5 py-0.5 rounded border border-[var(--warn)]/20" data-sd-id="87">Waiting</span>
+             </div>
+          </div>
+          <div class="flex-1 p-4 mono text-[13px] text-gray-300" data-sd-id="88">
+             <div data-sd-id="89">Error: ReferenceError: export 'UserType' was not found in '../types'</div>
+             <div class="mt-2" data-sd-id="90">Fix this import? (y/n)</div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+</body></html>

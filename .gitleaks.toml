@@ -1,0 +1,20 @@
+title = "raven-nest gitleaks config"
+
+[extend]
+# Extend, not replace: every stock gitleaks rule stays active.
+useDefault = true
+
+[allowlist]
+description = '''
+Memory-feature test suites whose fixtures are intentionally secret-shaped
+(sequential digits, alphabet runs, fake hex ids) to prove the redaction
+logic actually detects and strips that shape of input. None of these are
+real credentials. Do not add a real secret to any of these files, and do
+not widen this list to a directory — add a new exact path if another test
+file needs it.
+'''
+paths = [
+  '''^electron/__tests__/memory-redaction\.test\.ts$''',
+  '''^electron/__tests__/memory-daemon\.test\.ts$''',
+  '''^electron/__tests__/memory-store\.test\.ts$''',
+]

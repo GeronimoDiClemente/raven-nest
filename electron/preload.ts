@@ -34,8 +34,229 @@ contextBridge.exposeInMainWorld('customCLIs', {
   delete: (id: string) => ipcRenderer.invoke('customcli:delete', id),
 })
 
+contextBridge.exposeInMainWorld('workerSpecs', {
+  list: () => ipcRenderer.invoke('workerspec:list'),
+  save: (input: unknown) => ipcRenderer.invoke('workerspec:save', input),
+  delete: (id: string) => ipcRenderer.invoke('workerspec:delete', id),
+})
+
+contextBridge.exposeInMainWorld('handoff', {
+  read: (worktreePath: string) => ipcRenderer.invoke('handoff:read', worktreePath),
+  write: (worktreePath: string, content: string) => ipcRenderer.invoke('handoff:write', worktreePath, content),
+})
+
+contextBridge.exposeInMainWorld('graphTemplates', {
+  list: () => ipcRenderer.invoke('graph:templates:list'),
+  save: (input: unknown) => ipcRenderer.invoke('graph:templates:save', input),
+  delete: (id: string) => ipcRenderer.invoke('graph:templates:delete', id),
+})
+
+contextBridge.exposeInMainWorld('graphRuns', {
+  list: () => ipcRenderer.invoke('graph:runs:list'),
+  start: (input: unknown) => ipcRenderer.invoke('graph:run:start', input),
+  attach: (runId: string, nodeId: string) => ipcRenderer.invoke('graph:node:attach', runId, nodeId),
+  // Decisiones humanas. Ninguna aplica nada por sí misma: main encola un
+  // `pendingDecision` y el tick del orquestador es el único que lo aplica.
+  setMode: (runId: string, mode: string) => ipcRenderer.invoke('graph:run:setMode', runId, mode),
+  approve: (runId: string, gateId: string) => ipcRenderer.invoke('graph:gate:approve', runId, gateId),
+  requestChanges: (runId: string, feedback: string) =>
+    ipcRenderer.invoke('graph:gate:requestChanges', runId, feedback),
+})
+
 contextBridge.exposeInMainWorld('dialog', {
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
+})
+
+// Nest Memory (docs/nest-memory-architecture.md §8.1). `connect` takes the plaintext
+// token the renderer already obtained from supabase.functions.invoke('memory-token',
+// {action:'issue', device}) — see §5.1 step 1-2. Main never calls that function itself;
+// it only ever receives the token here, once, and encrypts it immediately.
+contextBridge.exposeInMainWorld('memory', {
+  ensureDeviceId: () => ipcRenderer.invoke('memory:ensureDeviceId'),
+  connect: (token: string, deviceId: string) => ipcRenderer.invoke('memory:connect', token, deviceId),
+  // §9.2 — pide el token al servicio de sync con el JWT del login. El JWT sale del renderer
+  // (es donde vive la sesión de Supabase) y la request la hace main, que es quien conoce la
+  // URL del servicio.
+  registerDevice: (jwt: string) => ipcRenderer.invoke('memory:registerDevice', jwt),
+  // Aprobar la vinculación de OTRA máquina (la que no tiene navegador). El JWT sale de acá
+  // por lo mismo que arriba; el código corto lo tipea el usuario.
+  linkApprove: (jwt: string, userCode: string) => ipcRenderer.invoke('memory:linkApprove', jwt, userCode),
+  // A qué servicio de sync le habla esta instalación, y cambiarlo sin recompilar.
+  syncService: () => ipcRenderer.invoke('memory:syncService:get'),
+  setSyncService: (url: string | null) => ipcRenderer.invoke('memory:syncService:set', url),
+  setUser: (userId: string | null, opts?: { adopt?: boolean }) => ipcRenderer.invoke('memory:setUser', userId, opts),
+  // Puramente informativo, se llama ANTES de setUser para
+  // saber si hay que preguntar "son tuyas?" en vez de adoptar en silencio.
+  checkPendingAdoption: (userId: string | null) => ipcRenderer.invoke('memory:checkPendingAdoption', userId),
+  disconnect: (opts?: { deleteCloud?: boolean }) => ipcRenderer.invoke('memory:disconnect', opts),
+  status: () => ipcRenderer.invoke('memory:status'),
+  // Spec 2b-2 §4.8: elegir el proyecto que sigue sincronizando, y pedir un status nuevo cuando
+  // la app ve cambiar el plan.
+  keepProject: (projectKey: string) => ipcRenderer.invoke('memory:keepProject', projectKey),
+  refreshStatus: () => ipcRenderer.invoke('memory:refreshStatus'),
+  // Spec 2b-3: máquinas de la cuenta (listar y revocar otra por id).
+  devices: () => ipcRenderer.invoke('memory:devices'),
+  revokeDevice: (deviceId: string) => ipcRenderer.invoke('memory:revokeDevice', deviceId),
+  // Cifrado del lado del cliente (spec §5.3). Opcionales en `window.memory`: un preload
+  // viejo no los expone y la UI tiene que montar igual.
+  encryptionStatus: () => ipcRenderer.invoke('memory:encryption:status'),
+  encryptionActivate: () => ipcRenderer.invoke('memory:encryption:activate'),
+  encryptionAdopt: () => ipcRenderer.invoke('memory:encryption:adopt'),
+  encryptionAuthorize: (deviceId: string, fingerprint: string) => ipcRenderer.invoke('memory:encryption:authorize', deviceId, fingerprint),
+  encryptionRecover: (code: string) => ipcRenderer.invoke('memory:encryption:recover', code),
+  encryptionReencrypt: () => ipcRenderer.invoke('memory:encryption:reencrypt'),
+  encryptionSecure: () => ipcRenderer.invoke('memory:encryption:secure'),
+  encryptionPendingRecoveryCode: () => ipcRenderer.invoke('memory:encryption:pendingRecoveryCode'),
+  encryptionConfirmRecoveryCode: () => ipcRenderer.invoke('memory:encryption:confirmRecoveryCode'),
+  encryptionRegenerateRecoveryCode: () => ipcRenderer.invoke('memory:encryption:regenerateRecoveryCode'),
+  // Cifrado de equipo (spec 2026-10-14-cifrado-de-equipo) — mismo patrón que `encryption*`
+  // de arriba, pero por `teamId`: cada equipo tiene su propia maestra.
+  teamEncryptionStatus: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:status', teamId),
+  teamEncryptionActivate: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:activate', teamId),
+  teamEncryptionAdopt: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:adopt', teamId),
+  teamEncryptionAuthorize: (teamId: string, deviceId: string, fingerprint: string) => ipcRenderer.invoke('memory:teamEncryption:authorize', teamId, deviceId, fingerprint),
+  teamEncryptionRecover: (teamId: string, code: string) => ipcRenderer.invoke('memory:teamEncryption:recover', teamId, code),
+  teamEncryptionRecrypt: (teamId: string) => ipcRenderer.invoke('memory:teamEncryption:recrypt', teamId),
+  hubStats: () => ipcRenderer.invoke('memory:hub-stats'),
+  // Puente de datos del grafo navegable de memorias — ver electron/memory-graph.ts. El
+  // objeto es parcial porque `MemoryGraphQuery` no tiene campos opcionales y los defaults
+  // se resuelven del lado de main.ts.
+  graph: (
+    query?: Partial<{
+      projectKey: string | null
+      includeSuperseded: boolean
+      limit: number
+      includeSimilar: boolean
+      similarMaxPerNode: number
+      similarMinScore: number
+    }>
+  ) => ipcRenderer.invoke('memory:graph', query),
+  // Puente de datos del listado cross-project de memorias — ver electron/memory-store.ts's
+  // crossProjectMemories(). El objeto es parcial porque `CrossProjectMemoryQuery` exige
+  // `limit` y el default se resuelve del lado de main.ts, igual que `graph` arriba.
+  crossProject: (
+    query?: Partial<{
+      query: string
+      limit: number
+      cursor: string | null
+      includeSuperseded: boolean
+    }>
+  ) => ipcRenderer.invoke('memory:crossProject', query),
+  // Una memoria entera, con su `content` — lo que el grafo muestra al costado. Ni `graph`
+  // ni `crossProject` traen contenido a proposito (serian cientos de documentos por
+  // consulta); esta es la lectura puntual del nodo que estas mirando. Sale de SQLite, no
+  // del vault: el vault es opcional y es una proyeccion, no la fuente.
+  observation: (syncId: string) => ipcRenderer.invoke('memory:observation', syncId),
+  // Conectar dos memorias a mano — la unica relacion que una persona afirma.
+  link: (a: string, b: string, note?: string | null) => ipcRenderer.invoke('memory:link', a, b, note),
+  unlink: (a: string, b: string) => ipcRenderer.invoke('memory:unlink', a, b),
+  // Escribir una memoria desde la UI. `source` NO viaja: lo fija main.ts en 'ui', porque un
+  // renderer que pudiera declararse 'hook' o 'mcp' ensuciaria la unica señal que dice de
+  // donde salio cada memoria.
+  saveFromUi: (input: {
+    title: string
+    content?: string
+    type?: string
+    tags?: string[]
+    topicKey?: string | null
+    worktreePath?: string | null
+  }) => ipcRenderer.invoke('memory:save', input),
+  updateFromUi: (input: { syncId: string; title?: string; content?: string; tags?: string[] }) =>
+    ipcRenderer.invoke('memory:updateFromUi', input),
+  deleteFromUi: (syncId: string) => ipcRenderer.invoke('memory:deleteFromUi', syncId),
+  // Comparte un proyecto LOCAL con un equipo, vía POST /v1/projects/share
+  // (server/src/share.ts).
+  shareProjectWithTeam: (projectKey: string, teamId: string) =>
+    ipcRenderer.invoke('memory:shareProjectWithTeam', projectKey, teamId),
+  // El vault (proyección Markdown de la memoria a `.raven-nest/memory-vault/`).
+  vaultGetSettings: () => ipcRenderer.invoke('memory:vault:getSettings'),
+  vaultSetSettings: (patch: { enabled?: boolean; root?: string | null; includeSuperseded?: boolean; includeTeamScope?: boolean }) =>
+    ipcRenderer.invoke('memory:vault:setSettings', patch),
+  vaultRegenerate: () => ipcRenderer.invoke('memory:vault:regenerate'),
+  vaultReveal: () => ipcRenderer.invoke('memory:vault:reveal'),
+  // El hilo de equipo, por worktree.
+  teamThreadGetSettings: (projectKey: string) => ipcRenderer.invoke('memory:teamThread:getSettings', projectKey),
+  teamThreadSetSettings: (projectKey: string, worktreePath: string, patch: unknown) =>
+    ipcRenderer.invoke('memory:teamThread:setSettings', projectKey, worktreePath, patch),
+  teamThreadRegenerate: (worktreePath: string, projectKey: string) =>
+    ipcRenderer.invoke('memory:teamThread:regenerate', worktreePath, projectKey),
+  // projectKey resuelto del lado main, ver el comentario en main.ts.
+  teamThreadProjectKeyForWorktree: (worktreePath: string) =>
+    ipcRenderer.invoke('memory:teamThread:projectKeyForWorktree', worktreePath),
+  teamThreadRead: (worktreePath: string) => ipcRenderer.invoke('memory:teamThread:read', worktreePath),
+  // Spec §5.3 — los tres datos que la pantalla Memories necesita:
+  // el estado de sesion (§2.2), lo bloqueado con su razon (§7.1) y el desfasaje del vault.
+  sessions: () => ipcRenderer.invoke('memory:sessions'),
+  doctor: () => ipcRenderer.invoke('memory:doctor'),
+  vaultHealth: () => ipcRenderer.invoke('memory:vault:health'),
+  /**
+   * Igual que `onChanged`: NO hace `removeAllListeners` primero. Hay varios `useMemory`
+   * montados a la vez (Settings, la card de Memories, la fila de estado) y limpiar todo
+   * al suscribirse haría que el último en montar deje sordos a los demás. Devuelve su
+   * propia baja, que saca sólo este handler.
+   */
+  onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => {
+    const handler = (_e: IpcRendererEvent, status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => cb(status)
+    ipcRenderer.on('memory:status', handler)
+    return () => { ipcRenderer.removeListener('memory:status', handler) }
+  },
+  /**
+   * @deprecated Borra TODOS los oyentes de `memory:status`, también los de otras
+   * instancias. Queda por compatibilidad; usá la baja que devuelve `onStatus`.
+   */
+  removeStatusListener: () => {
+    ipcRenderer.removeAllListeners('memory:status')
+  },
+  /**
+   * "Un agente escribió una memoria". Sin payload: el renderer vuelve a pedir lo que
+   * muestra.
+   *
+   * A diferencia de `onStatus`, NO hace `removeAllListeners` primero: la pantalla de
+   * Memories y la fila de estado de la barra se suscriben las dos, y limpiar todo al
+   * suscribirse haría que la última en montar apague a la anterior. Devuelve su propia
+   * baja.
+   */
+  onChanged: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('memory:changed', handler)
+    return () => { ipcRenderer.removeListener('memory:changed', handler) }
+  },
+})
+
+// Orquestación de panes. Cada `on*` devuelve su propia baja (nunca `removeAllListeners`):
+// la app y la UI de workers se suscriben a la vez.
+contextBridge.exposeInMainWorld('orchestration', {
+  snapshot: () => ipcRenderer.invoke('orchestration:snapshot'),
+  replyLaunchPane: (res: { requestId: string; ok: boolean; error?: string; tabPaneCount?: number }) =>
+    ipcRenderer.invoke('orchestration:launch-pane-result', res),
+  onLaunchPane: (cb: (req: unknown) => void) => {
+    const handler = (_e: IpcRendererEvent, req: unknown) => cb(req)
+    ipcRenderer.on('orchestration:launch-pane', handler)
+    return () => { ipcRenderer.removeListener('orchestration:launch-pane', handler) }
+  },
+  onClosePane: (cb: (msg: { paneId: string }) => void) => {
+    const handler = (_e: IpcRendererEvent, msg: { paneId: string }) => cb(msg)
+    ipcRenderer.on('orchestration:close-pane', handler)
+    return () => { ipcRenderer.removeListener('orchestration:close-pane', handler) }
+  },
+  onChanged: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('orchestration:changed', handler)
+    return () => { ipcRenderer.removeListener('orchestration:changed', handler) }
+  },
+  // Revisión y cierre (Task 9). main valida cada workerId antes de actuar.
+  reviewList: () => ipcRenderer.invoke('orchestration:reviewList'),
+  keepOpen: (workerId: string) => ipcRenderer.invoke('orchestration:keepOpen', workerId),
+  autoClose: (workerId: string) => ipcRenderer.invoke('orchestration:autoClose', workerId),
+  merge: (workerId: string) => ipcRenderer.invoke('orchestration:merge', workerId),
+  openPr: (workerId: string) => ipcRenderer.invoke('orchestration:openPr', workerId),
+  discard: (workerId: string) => ipcRenderer.invoke('orchestration:discard', workerId),
+  // Duración del cierre automático. Sólo un e2e la puede acortar, con
+  // RAVEN_E2E_WORKER_AUTO_CLOSE_MS, y sólo si main lo permitió (NEST_E2E_HOOKS: RAVEN_E2E=1 y
+  // un build sin empaquetar). En un build normal es siempre null → 120 s.
+  autoCloseMs: process.env.NEST_E2E_HOOKS === '1' && /^\d+$/.test(process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS ?? '')
+    ? Number(process.env.RAVEN_E2E_WORKER_AUTO_CLOSE_MS)
+    : null,
 })
 
 contextBridge.exposeInMainWorld('pty', {
@@ -43,8 +264,8 @@ contextBridge.exposeInMainWorld('pty', {
     ipcRenderer.invoke('pty:create', paneId, cmd, accountDir, repoPath, shellId),
   write: (paneId: string, data: string) =>
     ipcRenderer.send('pty:write', paneId, data),
-  resize: (paneId: string, cols: number, rows: number, source?: string) =>
-    ipcRenderer.send('pty:resize', paneId, cols, rows, source),
+  resize: (paneId: string, cols: number, rows: number) =>
+    ipcRenderer.send('pty:resize', paneId, cols, rows),
   kill: (paneId: string) =>
     ipcRenderer.invoke('pty:kill', paneId),
   exists: (paneId: string) =>
@@ -53,6 +274,9 @@ contextBridge.exposeInMainWorld('pty', {
     ipcRenderer.invoke('pty:getBuffer', paneId),
   getPid: (paneId: string) =>
     ipcRenderer.invoke('pty:pid', paneId),
+  // `onData`/`onExit` tienen un solo dueño a propósito: `src/pty-events.ts` es el bus que
+  // reparte a cada pane, y limpiar antes de suscribir evita duplicar la salida si ese módulo
+  // se re-evalúa (HMR).
   onData: (callback: (paneId: string, data: string) => void) => {
     ipcRenderer.removeAllListeners('pty:data')
     ipcRenderer.on('pty:data', (_event, paneId, data) => callback(paneId, data))
@@ -61,6 +285,7 @@ contextBridge.exposeInMainWorld('pty', {
     ipcRenderer.removeAllListeners('pty:exit')
     ipcRenderer.on('pty:exit', (_event, paneId) => callback(paneId))
   },
+  // El reset global del bus (stopListening, en beforeunload): ahí sí se quiere todo afuera.
   removeAllListeners: () => {
     ipcRenderer.removeAllListeners('pty:data')
     ipcRenderer.removeAllListeners('pty:exit')
@@ -104,21 +329,41 @@ contextBridge.exposeInMainWorld('appFlags', {
   // Plan simulado para demos/E2E de features gateadas por plan. Solo se
   // expone bajo RAVEN_E2E=1 — useProfile además re-chequea e2eBypass.
   e2ePlan: process.env.RAVEN_E2E === '1' ? (process.env.RAVEN_E2E_PLAN ?? null) : null,
+  // Período de facturación simulado: JSON crudo, el renderer lo parsea (mismo doble gate).
+  e2eBilling: process.env.RAVEN_E2E === '1' ? (process.env.RAVEN_E2E_BILLING ?? null) : null,
+  // Repos simulados para E2E (RAVEN_E2E_REPOS, un JSON array de UserRepo).
+  // My Repos exige una cuenta GitHub conectada de verdad, asi que sin esto la
+  // fila de repo no se puede ver renderizada. Mismo doble gate que e2ePlan:
+  // useUserRepos re-chequea e2eBypass.
+  e2eRepos: process.env.RAVEN_E2E === '1' ? (process.env.RAVEN_E2E_REPOS ?? null) : null,
 })
 
 contextBridge.exposeInMainWorld('windowControls', {
   send: (action: 'minimize' | 'maximize' | 'close') =>
     ipcRenderer.send(`window:${action}`),
+  // Como todo `on*` del puente salvo los de `pty`, devuelve su propia baja, que saca sólo ese
+  // oyente: una baja global deja sordos a los demás suscriptores del mismo canal.
   onShown: (callback: () => void) => {
-    ipcRenderer.removeAllListeners('window:shown')
-    ipcRenderer.on('window:shown', () => callback())
+    const handler = () => callback()
+    ipcRenderer.on('window:shown', handler)
+    return () => { ipcRenderer.removeListener('window:shown', handler) }
+  },
+  /**
+   * Si la ventana está en pantalla completa. En macOS los semáforos se esconden ahí, y la
+   * barra de pestañas les reserva 72px que quedarían vacíos.
+   */
+  onFullScreen: (callback: (full: boolean) => void) => {
+    const handler = (_event: IpcRendererEvent, full: boolean) => callback(full)
+    ipcRenderer.on('window:fullscreen', handler)
+    return () => { ipcRenderer.removeListener('window:fullscreen', handler) }
   },
 })
 
 contextBridge.exposeInMainWorld('updater', {
   onStatus: (cb: (status: 'downloading' | 'ready' | 'error', msg?: string) => void) => {
-    ipcRenderer.removeAllListeners('updater:status')
-    ipcRenderer.on('updater:status', (_event, status, msg) => cb(status, msg))
+    const handler = (_event: IpcRendererEvent, status: 'downloading' | 'ready' | 'error', msg?: string) => cb(status, msg)
+    ipcRenderer.on('updater:status', handler)
+    return () => { ipcRenderer.removeListener('updater:status', handler) }
   },
   install: () => ipcRenderer.send('updater:install'),
   checkForUpdates: () => ipcRenderer.invoke('updater:checkForUpdates'),
@@ -182,9 +427,11 @@ contextBridge.exposeInMainWorld('speech', {
   check: () => ipcRenderer.invoke('speech:check'),
   transcribe: (audio: Uint8Array, language?: string) => ipcRenderer.invoke('speech:transcribe', audio, language),
   onStatus: (cb: (status: 'loading' | 'ready') => void) => {
-    ipcRenderer.removeAllListeners('speech:status')
-    ipcRenderer.on('speech:status', (_event, status) => cb(status))
+    const handler = (_event: IpcRendererEvent, status: 'loading' | 'ready') => cb(status)
+    ipcRenderer.on('speech:status', handler)
+    return () => { ipcRenderer.removeListener('speech:status', handler) }
   },
+  /** @deprecated Borra los oyentes de TODAS las instancias: usá la baja de `onStatus`. */
   removeStatusListener: () => {
     ipcRenderer.removeAllListeners('speech:status')
   },
@@ -204,8 +451,9 @@ contextBridge.exposeInMainWorld('tempImages', {
 contextBridge.exposeInMainWorld('electronShell', {
   openExternal: (url: string) => ipcRenderer.send('shell:openExternal', url),
   onDeepLink: (cb: (url: string) => void) => {
-    ipcRenderer.removeAllListeners('auth:deeplink')
-    ipcRenderer.on('auth:deeplink', (_event, url) => cb(url))
+    const handler = (_event: IpcRendererEvent, url: string) => cb(url)
+    ipcRenderer.on('auth:deeplink', handler)
+    return () => { ipcRenderer.removeListener('auth:deeplink', handler) }
   },
   consumePendingDeepLink: (): Promise<string | null> => ipcRenderer.invoke('deeplink:consume'),
 })
@@ -223,9 +471,11 @@ contextBridge.exposeInMainWorld('safeStorage', {
 
 contextBridge.exposeInMainWorld('keybinds', {
   onTabCycle: (cb: (shift: boolean) => void) => {
-    ipcRenderer.removeAllListeners('keybind:tab-cycle')
-    ipcRenderer.on('keybind:tab-cycle', (_event, payload: { shift: boolean }) => cb(payload.shift))
+    const handler = (_event: IpcRendererEvent, payload: { shift: boolean }) => cb(payload.shift)
+    ipcRenderer.on('keybind:tab-cycle', handler)
+    return () => { ipcRenderer.removeListener('keybind:tab-cycle', handler) }
   },
+  /** @deprecated Borra TODOS los oyentes del canal: usá la baja de `onTabCycle`. */
   removeTabCycleListener: () => {
     ipcRenderer.removeAllListeners('keybind:tab-cycle')
   },
@@ -238,6 +488,8 @@ contextBridge.exposeInMainWorld('github', {
     ipcRenderer.on('github-oauth-code', handler)
     return () => ipcRenderer.removeListener('github-oauth-code', handler)
   },
+  // Global a propósito: hay un único flujo OAuth pendiente, y un Connect nuevo descarta el
+  // handler de un intento abandonado.
   removeOAuthListener: () => ipcRenderer.removeAllListeners('github-oauth-code'),
 })
 
@@ -248,7 +500,112 @@ contextBridge.exposeInMainWorld('gitlab', {
     ipcRenderer.on('gitlab-oauth-code', handler)
     return () => ipcRenderer.removeListener('gitlab-oauth-code', handler)
   },
+  // Global a propósito: hay un único flujo OAuth pendiente, y un Connect nuevo descarta el
+  // handler de un intento abandonado.
   removeOAuthListener: () => ipcRenderer.removeAllListeners('gitlab-oauth-code'),
+})
+
+contextBridge.exposeInMainWorld('plugins', {
+  list: () => ipcRenderer.invoke('plugins:list'),
+  save: (p: unknown) => ipcRenderer.invoke('plugins:save', p),
+  delete: (id: string) => ipcRenderer.invoke('plugins:delete', id),
+})
+contextBridge.exposeInMainWorld('pluginCreds', {
+  set: (id: string, token: string) => ipcRenderer.invoke('pluginCreds:set', id, token),
+  has: (id: string) => ipcRenderer.invoke('pluginCreds:has', id),
+  delete: (id: string) => ipcRenderer.invoke('pluginCreds:delete', id),
+})
+contextBridge.exposeInMainWorld('pluginActions', {
+  run: (id: string, actionId: string, params: unknown) =>
+    ipcRenderer.invoke('pluginActions:run', id, actionId, params),
+})
+contextBridge.exposeInMainWorld('slack', {
+  openOAuth: () => ipcRenderer.invoke('slack:open-oauth'),
+  // Devuelve la función de unsubscribe: sin ella se apilan listeners entre
+  // reintentos de Connect.
+  onOAuthCode: (cb: (code: string) => void) => {
+    const handler = (_e: IpcRendererEvent, code: string) => cb(code)
+    ipcRenderer.on('slack-oauth-code', handler)
+    return () => ipcRenderer.removeListener('slack-oauth-code', handler)
+  },
+  // Global a propósito, igual que GitHub y GitLab: un único flujo OAuth pendiente.
+  removeOAuthListener: () => ipcRenderer.removeAllListeners('slack-oauth-code'),
+  exchangeCode: (code: string) => ipcRenderer.invoke('slack:exchange-code', code),
+})
+contextBridge.exposeInMainWorld('pluginPanels', {
+  call: (pluginId: string, method: string, args: unknown[]) =>
+    ipcRenderer.invoke('plugins:panel:call', pluginId, method, args),
+})
+contextBridge.exposeInMainWorld('tickets', {
+  list: (pluginId: string) => ipcRenderer.invoke('tickets:list', pluginId),
+  branchName: (user: string, key: string, title: string) =>
+    ipcRenderer.invoke('tickets:branchName', user, key, title),
+  startWork: (args: { pluginId: string; ticket: unknown; branch: string; worktreePath: string }) =>
+    ipcRenderer.invoke('tickets:startWork', args),
+  tracked: () => ipcRenderer.invoke('tickets:tracked'),
+})
+
+contextBridge.exposeInMainWorld('recipes', {
+  list: () => ipcRenderer.invoke('recipes:list'),
+})
+
+contextBridge.exposeInMainWorld('automations', {
+  list: () => ipcRenderer.invoke('automations:list'),
+  create: (input: unknown) => ipcRenderer.invoke('automations:create', input),
+  update: (id: string, patch: unknown) => ipcRenderer.invoke('automations:update', id, patch),
+  delete: (id: string) => ipcRenderer.invoke('automations:delete', id),
+})
+
+contextBridge.exposeInMainWorld('signals', {
+  list: () => ipcRenderer.invoke('signals:list'),
+  fixCiPrompt: (repoPath: string) => ipcRenderer.invoke('signals:fixCiPrompt', repoPath),
+  onUpdate: (cb: () => void) => {
+    const h = () => cb()
+    ipcRenderer.on('signals:update', h)
+    return () => ipcRenderer.removeListener('signals:update', h)
+  },
+})
+
+// Hub Activity rail: `list()` reads the ring buffer for the initial paint;
+// `onAppend` is the live push, one call per DomainEvent emitted on the bus
+// (same push pattern as `signals:update`/`slack:mention`).
+contextBridge.exposeInMainWorld('activity', {
+  list: () => ipcRenderer.invoke('activity:list'),
+  onAppend: (cb: (entry: { ev: unknown; ts: number }) => void) => {
+    const h = (_e: IpcRendererEvent, entry: { ev: unknown; ts: number }) => cb(entry)
+    ipcRenderer.on('activity:append', h)
+    return () => ipcRenderer.removeListener('activity:append', h)
+  },
+})
+
+// @Nest desde Slack (Socket Mode). El main empuja menciones/acciones por
+// IPC push (patrón `signals:update`); postThread invoca el bot token main-side.
+contextBridge.exposeInMainWorld('slackMentions', {
+  onMention: (cb: (m: { channel: string; threadTs: string; user: string; text: string }) => void) => {
+    const h = (_e: IpcRendererEvent, m: { channel: string; threadTs: string; user: string; text: string }) => cb(m)
+    ipcRenderer.on('slack:mention', h)
+    return () => ipcRenderer.removeListener('slack:mention', h)
+  },
+  onAction: (cb: (a: { actionId: string; value?: string; channel: string; threadTs?: string; user: string }) => void) => {
+    const h = (_e: IpcRendererEvent, a: { actionId: string; value?: string; channel: string; threadTs?: string; user: string }) => cb(a)
+    ipcRenderer.on('slack:action', h)
+    return () => ipcRenderer.removeListener('slack:action', h)
+  },
+  postThread: (args: { channel: string; threadTs: string; text: string }) =>
+    ipcRenderer.invoke('slack:postThread', args),
+})
+
+contextBridge.exposeInMainWorld('notion', {
+  specToWorktree: (pageId: string, worktreePath: string) =>
+    ipcRenderer.invoke('notion:specToWorktree', { pageId, worktreePath }),
+})
+
+contextBridge.exposeInMainWorld('gcal', {
+  openOAuth: () => ipcRenderer.invoke('gcal:openOAuth'),
+  listEvents: (timeMin: string, timeMax: string) =>
+    ipcRenderer.invoke('gcal:listEvents', timeMin, timeMax),
+  startSession: (args: { title: string; context: string; worktreePath: string }) =>
+    ipcRenderer.invoke('gcal:startSession', args),
 })
 
 contextBridge.exposeInMainWorld('worktree', {
@@ -260,6 +617,7 @@ contextBridge.exposeInMainWorld('worktree', {
     ipcRenderer.invoke('worktree:setPreset', worktreePath, presetId),
   copyFiles: (srcRepoPath: string, dstWorktreePath: string, files: string[]) =>
     ipcRenderer.invoke('worktree:copyFiles', srcRepoPath, dstWorktreePath, files),
+  listAll: () => ipcRenderer.invoke('worktree:listAll'),
 })
 
 contextBridge.exposeInMainWorld('port', {
@@ -302,6 +660,11 @@ contextBridge.exposeInMainWorld('themes', {
   searchOpenVSX: (query: string) => ipcRenderer.invoke('themes:searchOpenVSX', query),
   installOpenVSX: (namespace: string, name: string) => ipcRenderer.invoke('themes:installOpenVSX', namespace, name),
   loadFromFile: () => ipcRenderer.invoke('themes:loadFromFile'),
+  /**
+   * Abre un tema de terminal y devuelve su texto crudo. El parseo lo hace el renderer, que es
+   * donde vive probado contra archivos reales de Ghostty y de Warp.
+   */
+  readTerminalThemeFile: () => ipcRenderer.invoke('terminalThemes:readFile'),
 })
 
 contextBridge.exposeInMainWorld('ide', {
@@ -314,14 +677,19 @@ contextBridge.exposeInMainWorld('spotlight', {
   start: (worktreePath: string) => ipcRenderer.invoke('spotlight:start', worktreePath),
   stop: () => ipcRenderer.invoke('spotlight:stop'),
   status: () => ipcRenderer.invoke('spotlight:status'),
+  // Cada `on*` devuelve su baja: la de WorktreesSection al desmontarse no tiene que sacar a
+  // otro oyente del canal (un remontaje solapado, o un segundo consumidor).
   onStatus: (cb: (status: { active: boolean; worktreePath?: string; events?: number }) => void) => {
-    ipcRenderer.removeAllListeners('spotlight:status')
-    ipcRenderer.on('spotlight:status', (_e, s) => cb(s))
+    const handler = (_e: IpcRendererEvent, s: { active: boolean; worktreePath?: string; events?: number }) => cb(s)
+    ipcRenderer.on('spotlight:status', handler)
+    return () => { ipcRenderer.removeListener('spotlight:status', handler) }
   },
   onWarning: (cb: (msg: string) => void) => {
-    ipcRenderer.removeAllListeners('spotlight:warning')
-    ipcRenderer.on('spotlight:warning', (_e, msg) => cb(msg))
+    const handler = (_e: IpcRendererEvent, msg: string) => cb(msg)
+    ipcRenderer.on('spotlight:warning', handler)
+    return () => { ipcRenderer.removeListener('spotlight:warning', handler) }
   },
+  /** @deprecated Borra los oyentes de TODAS las secciones: usá la baja de `onStatus`/`onWarning`. */
   removeListeners: () => {
     ipcRenderer.removeAllListeners('spotlight:status')
     ipcRenderer.removeAllListeners('spotlight:warning')
@@ -353,6 +721,7 @@ contextBridge.exposeInMainWorld('browser', {
     ipcRenderer.on('browser:navigated', handler)
     return () => ipcRenderer.removeListener('browser:navigated', handler)
   },
+  /** @deprecated Borra los oyentes de TODAS las celdas browser: usá la baja de `onNavigated`. */
   removeListeners: () => ipcRenderer.removeAllListeners('browser:navigated'),
 })
 
@@ -363,6 +732,8 @@ contextBridge.exposeInMainWorld('metrics', {
     ipcRenderer.invoke('metrics:refreshDisk', worktreePaths),
   killPid: (pid: number) => ipcRenderer.invoke('metrics:killPid', pid),
   portsByPids: (pids: number[]) => ipcRenderer.invoke('metrics:portsByPids', pids),
+  orphans: (refresh?: boolean) => ipcRenderer.invoke('metrics:orphans', refresh === true),
+  killOrphan: (pid: number) => ipcRenderer.invoke('metrics:killOrphan', pid),
 })
 
 contextBridge.exposeInMainWorld('preset', {
@@ -372,15 +743,22 @@ contextBridge.exposeInMainWorld('preset', {
     ipcRenderer.invoke('preset:delete', repoPath, presetId),
   apply: (worktreePath: string, presetId: string) =>
     ipcRenderer.invoke('preset:apply', worktreePath, presetId),
+  review: (repoPath: string, presetId: string) => ipcRenderer.invoke('preset:review', repoPath, presetId),
+  trust: (repoPath: string, presetId: string, hash: string) =>
+    ipcRenderer.invoke('preset:trust', repoPath, presetId, hash),
   cancel: (worktreePath: string) => ipcRenderer.invoke('preset:cancel', worktreePath),
+  // Igual que spotlight: cada `on*` devuelve su propia baja.
   onSetupProgress: (cb: (worktreePath: string, line: string) => void) => {
-    ipcRenderer.removeAllListeners('preset:setupProgress')
-    ipcRenderer.on('preset:setupProgress', (_e, wt, line) => cb(wt, line))
+    const handler = (_e: IpcRendererEvent, wt: string, line: string) => cb(wt, line)
+    ipcRenderer.on('preset:setupProgress', handler)
+    return () => { ipcRenderer.removeListener('preset:setupProgress', handler) }
   },
   onSetupState: (cb: (worktreePath: string, state: string) => void) => {
-    ipcRenderer.removeAllListeners('preset:setupState')
-    ipcRenderer.on('preset:setupState', (_e, wt, state) => cb(wt, state))
+    const handler = (_e: IpcRendererEvent, wt: string, state: string) => cb(wt, state)
+    ipcRenderer.on('preset:setupState', handler)
+    return () => { ipcRenderer.removeListener('preset:setupState', handler) }
   },
+  /** @deprecated Borra los oyentes de TODAS las secciones: usá la baja de `onSetupProgress`/`onSetupState`. */
   removeListeners: () => {
     ipcRenderer.removeAllListeners('preset:setupProgress')
     ipcRenderer.removeAllListeners('preset:setupState')

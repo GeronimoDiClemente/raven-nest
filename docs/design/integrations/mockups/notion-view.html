@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Notion en Nest</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;background:#050506;color:#d9d9dd;-webkit-font-smoothing:antialiased;padding:24px}
+  .q{font-size:12.5px;color:#5a5a60;margin:0 auto 12px;max-width:1100px}.q b{color:#b8b8be;font-weight:600}
+  .win{max-width:1100px;height:660px;margin:0 auto;display:flex;background:#08080a;border:1px solid #141416;border-radius:14px;overflow:hidden;box-shadow:0 30px 90px -30px rgba(0,0,0,.85)}
+  .side{width:200px;flex-shrink:0;background:#0a0a0c;border-right:1px solid #141416;display:flex;flex-direction:column}
+  .team{display:flex;align-items:center;gap:10px;padding:15px 15px 13px;border-bottom:1px solid #111113}
+  .team .av{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#0066FF,#7a3dff)}
+  .team .nm{font-size:12.5px;font-weight:600;color:#e6e6ea}.team .nm small{display:block;font-size:10px;color:#55555b;font-weight:400}
+  .nav{padding:9px 7px;display:flex;flex-direction:column;gap:2px}
+  .nv{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;color:#7c7c83;font-size:12.5px;cursor:pointer}
+  .nv.on{background:#121319;color:#eaeaef}
+  .navsep{height:1px;background:#141416;margin:9px 12px}
+  .nlogo{width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.nlogo svg{width:15px;height:15px}
+  .sfoot{margin-top:auto}
+  .addbtn{margin:10px 15px 8px;width:30px;height:30px;border-radius:9px;border:1px dashed #2a2a30;display:flex;align-items:center;justify-content:center;color:#9aa6d6;background:#0c1018;cursor:pointer}
+  .me{display:flex;align-items:center;gap:8px;padding:11px 15px;border-top:1px solid #111113;font-size:11.5px;color:#7c7c83}.me .av{width:20px;height:20px;border-radius:50%;background:#333}
+  .panel{flex:1;display:flex;min-width:0}
+  .plist{width:290px;flex-shrink:0;border-right:1px solid #121214;display:flex;flex-direction:column}
+  .phead{display:flex;align-items:center;gap:8px;padding:14px 16px 12px;border-bottom:1px solid #121214}
+  .nico{width:16px;height:16px;border-radius:4px;background:#ececec;color:#08080a;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;font-family:Georgia,serif}
+  .phead .t{font-size:13px;font-weight:650;color:#eef0f4}
+  .phead .sub{font-size:10.5px;color:#55555b}
+  .search{margin:11px 12px 4px;background:#0c0c0f;border:1px solid #1a1a1e;border-radius:8px;font-size:12px;color:#6a6a72;padding:7px 11px}
+  .wt{margin:10px 12px;background:#0c1018;border:1px solid #16233b;border-radius:10px;padding:11px 12px}
+  .wt .l{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#5a7bb5}
+  .wt .b{font-size:12px;color:#c9d4e6;margin-top:5px}
+  .wt .b code{font-size:11px;background:#101a2e;border-radius:5px;padding:1px 6px;color:#9db8e8}
+  .sec{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#45454b;padding:12px 16px 6px}
+  .pg{display:flex;gap:9px;padding:8px 16px;cursor:pointer;border-left:2px solid transparent;align-items:center}
+  .pg.on{background:#0e0f14;border-left-color:#0066FF}
+  .pg .em{font-size:13px;flex-shrink:0}
+  .pg .s{font-size:12.5px;color:#c4c4ca}.pg .s small{display:block;font-size:10.5px;color:#55555b;margin-top:2px}
+  .pmain{flex:1;display:flex;flex-direction:column;min-width:0;overflow-y:auto}
+  .dhead{padding:20px 30px 0;max-width:700px}
+  .dem{font-size:28px}
+  .dtitle{font-size:21px;font-weight:700;color:#f0f0f3;margin-top:8px;letter-spacing:-0.02em}
+  .dmeta{display:flex;gap:16px;margin-top:10px;padding-bottom:14px;border-bottom:1px solid #121214;font-size:11.5px;color:#6a6a72}
+  .dmeta b{color:#a9a9b1;font-weight:500}
+  .doc{padding:16px 30px;font-size:13.5px;color:#b9b9c0;line-height:1.7;max-width:700px}
+  .doc h3{font-size:15px;color:#e2e2e7;margin:16px 0 6px;font-weight:650}
+  .doc ul{margin:6px 0 6px 20px}
+  .doc li{margin:3px 0}
+  .callout{margin:12px 0;background:#0c1018;border:1px solid #16233b;border-radius:9px;padding:11px 14px;font-size:12.5px;color:#9db4dd;display:flex;gap:9px}
+  .codeblk{margin:10px 0;background:#0b0b0e;border:1px solid #191920;border-radius:9px;padding:11px 14px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#8fa8d0;position:relative}
+  .codeblk .tag{position:absolute;top:8px;right:10px;font-size:9.5px;font-weight:600;letter-spacing:.06em;color:#5a7bb5;background:#101a2e;border-radius:4px;padding:2px 6px}
+  .compose{margin-top:auto;border-top:1px solid #141416;padding:12px 22px 14px}
+  .cbox{background:#0c0c0f;border:1px solid #1c1c22;border-radius:10px;padding:10px 13px;font-size:12.5px;color:#5f5f66}
+  .cact{display:flex;align-items:center;gap:10px;margin-top:9px}
+  .attach{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#9aa6d6;background:#0c1018;border:1px solid #16233b;border-radius:7px;padding:5px 11px;cursor:pointer}
+  .send{margin-left:auto;font-size:12px;font-weight:600;color:#fff;background:#0066FF;border-radius:7px;padding:6px 16px}
+</style></head><body>
+  <div class="q">Vista <b>Notion adentro de Nest</b> — la doc del equipo legible y comentable al lado del terminal. Diferenciadores: <b>página vinculada al worktree</b> (spec/RFC del feature en el que estás) y <b>guardar output del terminal como bloque de código</b> en la página.</div>
+  <div class="win">
+    <div class="side">
+      <div class="team"><div class="av"></div><div class="nm">RAVEN<small>Team</small></div></div>
+      <div class="nav">
+        <div class="nv">Activity</div><div class="nv">Chat</div><div class="nv">Repos</div><div class="nv">Members</div>
+        <div class="navsep"></div>
+        <div class="nv"><span class="nlogo"><svg viewBox="0 0 24 24" fill="#2684FF"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg></span>Jira</div>
+        <div class="nv on"><span class="nlogo"><span class="nico" style="width:15px;height:15px;font-size:10px">N</span></span>Notion</div>
+        <div class="nv"><span class="nlogo"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="#0e0e12" stroke="#2a2a30" stroke-width="1"/><path d="M8 16V8l8 8V8" stroke="#E01E5A" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Slack</div>
+      </div>
+      <div class="sfoot">
+        <div class="addbtn">+</div>
+        <div class="me"><div class="av"></div>Gerónimo · Pro</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="plist">
+        <div class="phead">
+          <span class="nico">N</span>
+          <div><div class="t">Notion · RAVEN</div><div class="sub">raven-team.notion.site</div></div>
+        </div>
+        <div class="search">🔍 Buscar páginas…</div>
+        <div class="wt">
+          <div class="l">Worktree actual</div>
+          <div class="b"><code>feat/integrations</code> → RFC Marketplace</div>
+        </div>
+        <div class="sec">Vinculadas al repo</div>
+        <div class="pg on"><span class="em">📐</span><div class="s">RFC · Marketplace de integraciones<small>editada ayer · Gerónimo</small></div></div>
+        <div class="pg"><span class="em">🧭</span><div class="s">Roadmap v1.4<small>editada hace 3 días · Matías</small></div></div>
+        <div class="pg"><span class="em">📊</span><div class="s">Pricing tiers — decisión final<small>hace 1 semana · Gerónimo</small></div></div>
+        <div class="sec">Recientes</div>
+        <div class="pg"><span class="em">🚀</span><div class="s">Post-mortem launch PH<small>hace 2 semanas · Eliseo</small></div></div>
+        <div class="pg"><span class="em">🔐</span><div class="s">Seguridad: tokens y RLS<small>hace 3 semanas · Bautista</small></div></div>
+      </div>
+      <div class="pmain">
+        <div class="dhead">
+          <div class="dem">📐</div>
+          <div class="dtitle">RFC · Marketplace de integraciones</div>
+          <div class="dmeta"><span>Editada <b>ayer 22:10</b> por <b>Gerónimo</b></span><span>En <b>Producto / RFCs</b></span><span>3 comentarios</span></div>
+        </div>
+        <div class="doc">
+          <h3>Objetivo</h3>
+          Que cada integración se sienta como <b style="color:#dcdce0">la app adentro de Nest</b>: paneles usables (leer, escribir, actuar), no feeds de notificaciones. Pro-gated contra la DB.
+          <div class="callout">💡 Del research: el dolor #1 medido es verificar output "casi correcto" (66%) y el peor impacto es colaboración (17%). Los paneles atacan exactamente eso.</div>
+          <h3>Estado del slice 1</h3>
+          <ul>
+            <li>OAuth Slack con state nonce — codeado, falta la Slack App real</li>
+            <li>Catálogo remoto con fallback local — funcionando</li>
+          </ul>
+          <div class="codeblk"><span class="tag">DESDE EL TERMINAL DE NEST</span>$ npm test -- plugins-oauth<br>✓ plugins-oauth.test.ts · 8 passed (1.2s)</div>
+        </div>
+        <div class="compose">
+          <div class="cbox">Comentar en la página…</div>
+          <div class="cact">
+            <div class="attach">⌨ Guardar output del terminal como bloque</div>
+            <div class="send">Comentar</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body></html>

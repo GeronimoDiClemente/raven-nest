@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Jira en Nest</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;background:#050506;color:#d9d9dd;-webkit-font-smoothing:antialiased;padding:24px}
+  .q{font-size:12.5px;color:#5a5a60;margin:0 auto 12px;max-width:1100px}.q b{color:#b8b8be;font-weight:600}
+  .win{max-width:1100px;height:660px;margin:0 auto;display:flex;background:#08080a;border:1px solid #141416;border-radius:14px;overflow:hidden;box-shadow:0 30px 90px -30px rgba(0,0,0,.85)}
+  .side{width:200px;flex-shrink:0;background:#0a0a0c;border-right:1px solid #141416;display:flex;flex-direction:column}
+  .team{display:flex;align-items:center;gap:10px;padding:15px 15px 13px;border-bottom:1px solid #111113}
+  .team .av{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#0066FF,#7a3dff)}
+  .team .nm{font-size:12.5px;font-weight:600;color:#e6e6ea}.team .nm small{display:block;font-size:10px;color:#55555b;font-weight:400}
+  .nav{padding:9px 7px;display:flex;flex-direction:column;gap:2px}
+  .nv{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;color:#7c7c83;font-size:12.5px;cursor:pointer}
+  .nv.on{background:#121319;color:#eaeaef}
+  .navsep{height:1px;background:#141416;margin:9px 12px}
+  .nlogo{width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.nlogo svg{width:15px;height:15px}
+  .sfoot{margin-top:auto}
+  .addbtn{margin:10px 15px 8px;width:30px;height:30px;border-radius:9px;border:1px dashed #2a2a30;display:flex;align-items:center;justify-content:center;color:#9aa6d6;background:#0c1018;cursor:pointer}
+  .me{display:flex;align-items:center;gap:8px;padding:11px 15px;border-top:1px solid #111113;font-size:11.5px;color:#7c7c83}.me .av{width:20px;height:20px;border-radius:50%;background:#333}
+  /* panel Jira */
+  .panel{flex:1;display:flex;min-width:0}
+  .plist{width:290px;flex-shrink:0;border-right:1px solid #121214;display:flex;flex-direction:column}
+  .phead{display:flex;align-items:center;gap:8px;padding:14px 16px 12px;border-bottom:1px solid #121214}
+  .phead svg{width:16px;height:16px}
+  .phead .t{font-size:13px;font-weight:650;color:#eef0f4}
+  .phead .sub{font-size:10.5px;color:#55555b}
+  .search{margin:11px 12px 4px;background:#0c0c0f;border:1px solid #1a1a1e;border-radius:8px;font-size:12px;color:#6a6a72;padding:7px 11px}
+  .wt{margin:10px 12px;background:#0c1018;border:1px solid #16233b;border-radius:10px;padding:11px 12px}
+  .wt .l{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#5a7bb5}
+  .wt .b{font-size:12px;color:#c9d4e6;margin-top:5px;display:flex;align-items:center;gap:6px}
+  .wt .b code{font-size:11px;background:#101a2e;border-radius:5px;padding:1px 6px;color:#9db8e8}
+  .sec{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#45454b;padding:12px 16px 6px}
+  .iss{display:flex;gap:9px;padding:9px 16px;cursor:pointer;border-left:2px solid transparent}
+  .iss.on{background:#0e0f14;border-left-color:#0066FF}
+  .iss .k{font-size:11px;color:#5a7bb5;font-weight:600;flex-shrink:0;margin-top:1px}
+  .iss .s{font-size:12.5px;color:#c4c4ca;line-height:1.35}
+  .iss .s small{display:block;font-size:10.5px;color:#55555b;margin-top:3px}
+  /* detalle */
+  .pmain{flex:1;display:flex;flex-direction:column;min-width:0;overflow-y:auto}
+  .dhead{padding:16px 22px 0}
+  .dkey{font-size:11.5px;color:#5a7bb5;font-weight:600}
+  .dtitle{font-size:17px;font-weight:650;color:#f0f0f3;margin-top:4px;letter-spacing:-0.01em}
+  .drow{display:flex;align-items:center;gap:8px;margin-top:12px}
+  .pill{font-size:11px;font-weight:600;border-radius:6px;padding:4px 10px}
+  .pill.prog{background:#101a2e;color:#7da6ff;border:1px solid #1c2c4a}
+  .tbtn{font-size:11.5px;color:#8a8a92;border:1px solid #1e1e24;border-radius:7px;padding:4px 11px;cursor:pointer}
+  .tbtn:hover{color:#fff}
+  .meta{display:flex;gap:18px;margin-top:14px;padding-bottom:14px;border-bottom:1px solid #121214;font-size:11.5px;color:#6a6a72}
+  .meta b{color:#a9a9b1;font-weight:500}
+  .dbody{padding:14px 22px;font-size:13px;color:#b4b4bb;line-height:1.6;max-width:640px}
+  .dbody .lbl{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#45454b;margin-bottom:8px}
+  .comment{display:flex;gap:10px;padding:12px 22px;border-top:1px solid #101012}
+  .comment .av{width:24px;height:24px;border-radius:50%;background:#26262c;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:#9a9aa2;font-weight:600}
+  .comment .who{font-size:12px;font-weight:600;color:#d4d4da}.comment .when{font-size:10.5px;color:#55555b;margin-left:6px;font-weight:400}
+  .comment .txt{font-size:12.5px;color:#a2a2aa;margin-top:3px;line-height:1.5}
+  .comment .txt code{background:#0e0e12;border:1px solid #1a1a1e;border-radius:5px;padding:1px 5px;font-size:11px;color:#9db8e8}
+  .compose{margin-top:auto;border-top:1px solid #141416;padding:12px 22px 14px}
+  .cbox{background:#0c0c0f;border:1px solid #1c1c22;border-radius:10px;padding:10px 13px;font-size:12.5px;color:#5f5f66}
+  .cact{display:flex;align-items:center;gap:10px;margin-top:9px}
+  .attach{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#9aa6d6;background:#0c1018;border:1px solid #16233b;border-radius:7px;padding:5px 11px;cursor:pointer}
+  .send{margin-left:auto;font-size:12px;font-weight:600;color:#fff;background:#0066FF;border-radius:7px;padding:6px 16px}
+</style></head><body>
+  <div class="q">Vista <b>Jira adentro de Nest</b> — no notis: backlog navegable, transiciones de estado, comentarios. Diferenciadores: <b>issue detectada del branch actual</b> y <b>adjuntar output del terminal como comentario</b>.</div>
+  <div class="win">
+    <div class="side">
+      <div class="team"><div class="av"></div><div class="nm">RAVEN<small>Team</small></div></div>
+      <div class="nav">
+        <div class="nv">Activity</div><div class="nv">Chat</div><div class="nv">Repos</div><div class="nv">Members</div>
+        <div class="navsep"></div>
+        <div class="nv on"><span class="nlogo"><svg viewBox="0 0 24 24" fill="#2684FF"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg></span>Jira</div>
+        <div class="nv"><span class="nlogo"><svg viewBox="0 0 24 24" fill="#E01E5A"><rect x="2" y="2" width="20" height="20" rx="5" fill="#0e0e12" stroke="#2a2a30" stroke-width="1"/><path d="M8 16V8l8 8V8" stroke="#E01E5A" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Slack</div>
+      </div>
+      <div class="sfoot">
+        <div class="addbtn">+</div>
+        <div class="me"><div class="av"></div>Gerónimo · Pro</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="plist">
+        <div class="phead">
+          <svg viewBox="0 0 24 24" fill="#2684FF"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg>
+          <div><div class="t">Jira · RAVEN</div><div class="sub">Sprint 14 · raven.atlassian.net</div></div>
+        </div>
+        <div class="search">🔍 Buscar issues…</div>
+        <div class="wt">
+          <div class="l">Worktree actual</div>
+          <div class="b"><code>feat/integrations</code> → RAV-231</div>
+        </div>
+        <div class="sec">Mi trabajo · 4</div>
+        <div class="iss on"><div class="k">RAV-231</div><div class="s">Marketplace de integraciones — OAuth Slack<small>In Progress · vos</small></div></div>
+        <div class="iss"><div class="k">RAV-228</div><div class="s">Gate Pro server-side vía Supabase<small>To Do · vos</small></div></div>
+        <div class="iss"><div class="k">RAV-215</div><div class="s">Panel Slack: canal por worktree<small>To Do · vos</small></div></div>
+        <div class="iss"><div class="k">RAV-209</div><div class="s">Catálogo remoto plugin_catalog<small>Code Review · vos</small></div></div>
+        <div class="sec">Sprint 14 · 12</div>
+        <div class="iss"><div class="k">RAV-233</div><div class="s">Funnel Enterprise: plugin_requests<small>To Do · Matías</small></div></div>
+      </div>
+      <div class="pmain">
+        <div class="dhead">
+          <div class="dkey">RAV-231</div>
+          <div class="dtitle">Marketplace de integraciones — OAuth Slack</div>
+          <div class="drow">
+            <span class="pill prog">In Progress</span>
+            <span class="tbtn">→ Code Review</span>
+            <span class="tbtn">→ Done</span>
+          </div>
+          <div class="meta"><span>Asignada a <b>Gerónimo</b></span><span>Sprint <b>14</b></span><span>Prioridad <b>Alta</b></span><span>Branch <b>feat/integrations</b></span></div>
+        </div>
+        <div class="dbody">
+          <div class="lbl">Descripción</div>
+          Implementar el flujo OAuth de Slack para el marketplace: open-oauth con state nonce, deep-link de vuelta, canje code→token en la Edge Function y guardado cifrado con safeStorage. El botón Conectar de la detail-page dispara este flujo.
+        </div>
+        <div class="comment"><div class="av">M</div><div><div class="who">Matías<span class="when">ayer 18:42</span></div><div class="txt">¿El state nonce se valida en el main process o en la Edge Function?</div></div></div>
+        <div class="comment"><div class="av">G</div><div><div class="who">Gerónimo<span class="when">hoy 10:15</span></div><div class="txt">En el main. Acabo de correr los tests: <code>plugins-oauth.test.ts · 8 passed</code> — output adjuntado desde el terminal de Nest.</div></div></div>
+        <div class="compose">
+          <div class="cbox">Comentar en RAV-231…</div>
+          <div class="cact">
+            <div class="attach">⌨ Adjuntar output del terminal</div>
+            <div class="send">Comentar</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body></html>

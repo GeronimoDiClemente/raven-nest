@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>GitHub en Nest</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;background:#050506;color:#d9d9dd;-webkit-font-smoothing:antialiased;padding:24px}
+  .q{font-size:12.5px;color:#5a5a60;margin:0 auto 12px;max-width:1100px}.q b{color:#b8b8be;font-weight:600}
+  .win{max-width:1100px;height:660px;margin:0 auto;display:flex;background:#08080a;border:1px solid #141416;border-radius:14px;overflow:hidden;box-shadow:0 30px 90px -30px rgba(0,0,0,.85)}
+  .side{width:200px;flex-shrink:0;background:#0a0a0c;border-right:1px solid #141416;display:flex;flex-direction:column}
+  .team{display:flex;align-items:center;gap:10px;padding:15px 15px 13px;border-bottom:1px solid #111113}
+  .team .av{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#0066FF,#7a3dff)}
+  .team .nm{font-size:12.5px;font-weight:600;color:#e6e6ea}.team .nm small{display:block;font-size:10px;color:#55555b;font-weight:400}
+  .nav{padding:9px 7px;display:flex;flex-direction:column;gap:2px}
+  .nv{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;color:#7c7c83;font-size:12.5px;cursor:pointer}
+  .nv.on{background:#121319;color:#eaeaef}
+  .navsep{height:1px;background:#141416;margin:9px 12px}
+  .nlogo{width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.nlogo svg{width:15px;height:15px}
+  .sfoot{margin-top:auto}
+  .addbtn{margin:10px 15px 8px;width:30px;height:30px;border-radius:9px;border:1px dashed #2a2a30;display:flex;align-items:center;justify-content:center;color:#9aa6d6;background:#0c1018;cursor:pointer}
+  .me{display:flex;align-items:center;gap:8px;padding:11px 15px;border-top:1px solid #111113;font-size:11.5px;color:#7c7c83}.me .av{width:20px;height:20px;border-radius:50%;background:#333}
+  .panel{flex:1;display:flex;min-width:0}
+  .plist{width:290px;flex-shrink:0;border-right:1px solid #121214;display:flex;flex-direction:column}
+  .phead{display:flex;align-items:center;gap:8px;padding:14px 16px 12px;border-bottom:1px solid #121214}
+  .phead svg{width:16px;height:16px;fill:#c9d1d9}
+  .phead .t{font-size:13px;font-weight:650;color:#eef0f4}
+  .phead .sub{font-size:10.5px;color:#55555b}
+  .wt{margin:10px 12px;background:#0c1018;border:1px solid #16233b;border-radius:10px;padding:11px 12px}
+  .wt .l{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#5a7bb5}
+  .wt .b{font-size:12px;color:#c9d4e6;margin-top:5px}
+  .wt .b code{font-size:11px;background:#101a2e;border-radius:5px;padding:1px 6px;color:#9db8e8}
+  .sec{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#45454b;padding:12px 16px 6px}
+  .pr{display:flex;gap:9px;padding:9px 16px;cursor:pointer;border-left:2px solid transparent}
+  .pr.on{background:#0e0f14;border-left-color:#0066FF}
+  .pr .ico{flex-shrink:0;margin-top:2px}
+  .pr .s{font-size:12.5px;color:#c4c4ca;line-height:1.35}
+  .pr .s small{display:block;font-size:10.5px;color:#55555b;margin-top:3px}
+  .pmain{flex:1;display:flex;flex-direction:column;min-width:0;overflow-y:auto}
+  .dhead{padding:16px 22px 0}
+  .dkey{font-size:11.5px;color:#5a7bb5;font-weight:600}
+  .dtitle{font-size:17px;font-weight:650;color:#f0f0f3;margin-top:4px;letter-spacing:-0.01em}
+  .drow{display:flex;align-items:center;gap:8px;margin-top:12px}
+  .pill{font-size:11px;font-weight:600;border-radius:6px;padding:4px 10px}
+  .pill.open{background:#0d1a12;color:#57c273;border:1px solid #1d3a26}
+  .diffstat{font-size:11.5px;color:#6a6a72}.diffstat b.add{color:#57c273}.diffstat b.del{color:#e05a5a}
+  .meta{display:flex;gap:18px;margin-top:14px;padding-bottom:14px;border-bottom:1px solid #121214;font-size:11.5px;color:#6a6a72}
+  .meta b{color:#a9a9b1;font-weight:500}
+  .checks{margin:14px 22px 0;border:1px solid #1a1a20;border-radius:10px;overflow:hidden;max-width:640px}
+  .check{display:flex;align-items:center;gap:9px;font-size:12px;color:#a9a9b1;padding:9px 14px;border-top:1px solid #16161a}
+  .check:first-child{border-top:none}
+  .ok{color:#57c273}.pend{color:#d4a24c}
+  .check .dur{margin-left:auto;font-size:10.5px;color:#55555b}
+  .files{padding:14px 22px 0;max-width:640px}
+  .lbl{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#45454b;margin-bottom:8px}
+  .file{display:flex;align-items:center;gap:8px;font-size:12px;color:#9db8e8;padding:6px 0;border-top:1px solid #101012}
+  .file:first-of-type{border-top:none}
+  .file .st{margin-left:auto;font-size:10.5px}.file .st b.add{color:#57c273}.file .st b.del{color:#e05a5a}
+  .actions{margin-top:auto;border-top:1px solid #141416;padding:12px 22px 14px;display:flex;align-items:center;gap:10px}
+  .attach{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#9aa6d6;background:#0c1018;border:1px solid #16233b;border-radius:7px;padding:6px 11px;cursor:pointer}
+  .btn{font-size:12px;font-weight:600;border-radius:7px;padding:7px 15px;cursor:pointer}
+  .btn.approve{color:#c8ecd2;background:#0d1a12;border:1px solid #1d3a26}
+  .btn.changes{color:#a9a9b1;background:transparent;border:1px solid #1e1e24}
+  .btn.merge{margin-left:auto;color:#fff;background:#0066FF;border:1px solid transparent;box-shadow:0 8px 24px -10px #0066FF}
+</style></head><body>
+  <div class="q">Vista <b>GitHub adentro de Nest</b> — la PR del worktree en el que estás parado, con checks en vivo, files, review y merge sin salir. Diferenciadores: <b>PR detectada del branch actual</b> y <b>adjuntar output del terminal al review</b>.</div>
+  <div class="win">
+    <div class="side">
+      <div class="team"><div class="av"></div><div class="nm">RAVEN<small>Team</small></div></div>
+      <div class="nav">
+        <div class="nv">Activity</div><div class="nv">Chat</div><div class="nv">Repos</div><div class="nv">Members</div>
+        <div class="navsep"></div>
+        <div class="nv"><span class="nlogo"><svg viewBox="0 0 24 24" fill="#2684FF"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg></span>Jira</div>
+        <div class="nv on"><span class="nlogo"><svg viewBox="0 0 16 16" fill="#c9d1d9"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></span>GitHub</div>
+        <div class="nv"><span class="nlogo"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" fill="#0e0e12" stroke="#2a2a30" stroke-width="1"/><path d="M8 16V8l8 8V8" stroke="#E01E5A" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Slack</div>
+      </div>
+      <div class="sfoot">
+        <div class="addbtn">+</div>
+        <div class="me"><div class="av"></div>Gerónimo · Pro</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="plist">
+        <div class="phead">
+          <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          <div><div class="t">GitHub · raven-nest</div><div class="sub">GeronimoDiClemente/raven-nest</div></div>
+        </div>
+        <div class="wt">
+          <div class="l">Worktree actual</div>
+          <div class="b"><code>feat/integrations</code> → PR #142</div>
+        </div>
+        <div class="sec">Tus PRs · 2</div>
+        <div class="pr on"><div class="ico"><svg width="13" height="13" viewBox="0 0 16 16" fill="#57c273"><path d="M7.177 3.073L9.573.677A.25.25 0 0 1 10 .854v4.792a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354zM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25zM11 2.5h-1V4h1a1 1 0 0 1 1 1v5.628a2.251 2.251 0 1 0 1.5 0V5A2.5 2.5 0 0 0 11 2.5zm1 10.24a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0zM3.75 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z"/></svg></div><div class="s">feat(integrations): marketplace + OAuth Slack<small>#142 · abierta · 2 checks corriendo</small></div></div>
+        <div class="pr"><div class="ico"><svg width="13" height="13" viewBox="0 0 16 16" fill="#57c273"><path d="M7.177 3.073L9.573.677A.25.25 0 0 1 10 .854v4.792a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354zM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25zM11 2.5h-1V4h1a1 1 0 0 1 1 1v5.628a2.251 2.251 0 1 0 1.5 0V5A2.5 2.5 0 0 0 11 2.5zm1 10.24a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0zM3.75 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z"/></svg></div><div class="s">feat(tutorial): activation tour<small>#139 · abierta · review pedida a Matías</small></div></div>
+        <div class="sec">Review pedida · 1</div>
+        <div class="pr"><div class="ico"><svg width="13" height="13" viewBox="0 0 16 16" fill="#57c273"><path d="M7.177 3.073L9.573.677A.25.25 0 0 1 10 .854v4.792a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354zM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25zM11 2.5h-1V4h1a1 1 0 0 1 1 1v5.628a2.251 2.251 0 1 0 1.5 0V5A2.5 2.5 0 0 0 11 2.5zm1 10.24a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0zM3.75 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z"/></svg></div><div class="s">fix(ports): filtrar lsof por PID tree en Mac<small>#141 · Bautista te pidió review</small></div></div>
+      </div>
+      <div class="pmain">
+        <div class="dhead">
+          <div class="dkey">#142 · feat/integrations → main</div>
+          <div class="dtitle">feat(integrations): marketplace + OAuth Slack</div>
+          <div class="drow">
+            <span class="pill open">Abierta</span>
+            <span class="diffstat">14 archivos · <b class="add">+1.240</b> <b class="del">−86</b></span>
+          </div>
+          <div class="meta"><span>Autor <b>Gerónimo</b></span><span>Reviewers <b>Matías</b></span><span>Base <b>main</b></span></div>
+        </div>
+        <div class="checks">
+          <div class="check"><span class="ok">●</span> Build (Windows) <span class="dur">2m 41s</span></div>
+          <div class="check"><span class="ok">●</span> Build (Mac) <span class="dur">3m 05s</span></div>
+          <div class="check"><span class="pend">◐</span> Build (Linux) — corriendo <span class="dur">1m 12s…</span></div>
+          <div class="check"><span class="ok">●</span> Tests (vitest) <span class="dur">58s</span></div>
+        </div>
+        <div class="files">
+          <div class="lbl">Archivos</div>
+          <div class="file">src/components/IntegrationsMarketplace.tsx <span class="st"><b class="add">+412</b></span></div>
+          <div class="file">electron/plugins-store.ts <span class="st"><b class="add">+188</b> <b class="del">−12</b></span></div>
+          <div class="file">electron/oauth-slack.ts <span class="st"><b class="add">+240</b></span></div>
+          <div class="file">src/hooks/useInstalledPlugins.ts <span class="st"><b class="add">+96</b></span></div>
+        </div>
+        <div class="actions">
+          <div class="attach">⌨ Adjuntar output del terminal</div>
+          <div class="btn approve">✓ Aprobar</div>
+          <div class="btn changes">Pedir cambios</div>
+          <div class="btn merge">Merge cuando pasen los checks</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body></html>

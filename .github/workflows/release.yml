@@ -2,6 +2,18 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      canal:
+        # `beta` NO publica nada en GitHub: el repo es público y una prerelease la ve
+        # cualquiera. Sube los instaladores al bucket PRIVADO de R2 de las betas, y el
+        # servicio de sync los entrega sólo a cuentas del allowlist (server/src/betas.ts):
+        # la primera vez por un link personal, después por el auto-updater de la app.
+        # Se dispara desde la rama que se quiera probar:
+        #   gh workflow run release.yml --ref <rama> -f canal=beta
+        description: 'estable = release pública (latest) · beta = prerelease para el equipo y los testers'
+        type: choice
+        options: [estable, beta]
+        default: estable
   push:
     branches:
       - main
@@ -16,27 +28,59 @@ permissions:
   contents: write
 
 jobs:
+  # El CI entero (typecheck, tests de la app y del server, build) antes de cualquier otra cosa.
+  # Antes la release no esperaba a nada: un bump de versión en main se firmaba y publicaba con
+  # los tests en rojo, y las functions de Supabase salían a prod igual.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  # Se llama `decrypt` por historia: desencriptaba con git-crypt, que el repo ya no usa. Hoy
+  # sólo empaqueta el source para los builds; el nombre se queda porque lo leen los `needs`.
   decrypt:
+    needs: ci
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      beta: ${{ steps.version.outputs.beta }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install git-crypt
-        run: sudo apt-get install -y git-crypt
-
-      - name: Decrypt repository
-        run: |
-          echo "$GIT_CRYPT_KEY" | base64 -d > /tmp/git-crypt-key
-          git-crypt unlock /tmp/git-crypt-key
-          rm /tmp/git-crypt-key
-        env:
-          GIT_CRYPT_KEY: ${{ secrets.GIT_CRYPT_KEY }}
-
       - name: Get version
         id: version
-        run: echo "version=$(node -p 'require("./package.json").version')" >> $GITHUB_OUTPUT
+        # El canal y la versión tienen que coincidir, y si no, se corta acá, antes de buildear:
+        # - una beta sin sufijo (`1.6.0`) se instalaría como estable y sus testers dejarían de
+        #   recibir las betas siguientes;
+        # - una estable con sufijo (`1.6.0-beta.3`) saldría como "latest" y le llegaría a todo
+        #   el mundo. Es lo que pasaría si se mergea la rama a main sin sacarle el sufijo.
+        # En un push a main `inputs.canal` viene vacío: es estable.
+        # - una estable sólo sale de main (auditoría 2026-11-05): un dispatch desde otra rama
+        #   publicaba "latest" y desplegaba las functions de prod con código que nadie revisó.
+        #   Esto frena el error, no al que puede editar este archivo en su rama: eso lo frena el
+        #   environment `release` con la rama main y revisores, configurado en GitHub.
+        env:
+          CANAL: ${{ inputs.canal || 'estable' }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$CANAL" = "estable" ] && [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::Una release estable sólo sale de main, y esto corre desde $REF. Para probar una rama, dispará con canal=beta."
+            exit 1
+          fi
+          VERSION=$(node -p 'require("./package.json").version')
+          case "$VERSION" in
+            *-beta.*) ES_BETA=true ;;
+            *-*) echo "::error::La versión $VERSION tiene un sufijo que no es -beta.N" ; exit 1 ;;
+            *) ES_BETA=false ;;
+          esac
+          if [ "$CANAL" = "beta" ] && [ "$ES_BETA" != "true" ]; then
+            echo "::error::canal=beta pero la versión $VERSION no termina en -beta.N (ej. 1.6.0-beta.1)"
+            exit 1
+          fi
+          if [ "$CANAL" = "estable" ] && [ "$ES_BETA" = "true" ]; then
+            echo "::error::La versión $VERSION es una beta: no puede salir como release estable. Sacale el sufijo, o dispará con canal=beta."
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "beta=$ES_BETA" >> $GITHUB_OUTPUT
 
       - name: Upload decrypted source
         uses: actions/upload-artifact@v6
@@ -50,6 +94,10 @@ jobs:
 
   build-mac:
     needs: decrypt
+    # Los secrets de firma viven en dos environments (docs/RUNBOOK-ENVIRONMENTS.md): `release`
+    # sólo se abre para main, y `beta` —que corre desde cualquier rama— pide un revisor. Sin
+    # esto, quien pushea una rama editando este archivo se lleva los certificados.
+    environment: ${{ needs.decrypt.outputs.beta == 'true' && 'beta' || 'release' }}
     runs-on: macos-latest
     steps:
       - name: Download decrypted source
@@ -188,12 +236,26 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           if [ -z "$MAC_CSC_LINK_SECRET" ]; then
             echo "No signing secret — skipping notarization"
             exit 0
           fi
           export PATH=/usr/bin:$PATH
+
+          # Auth de notarytool. Preferimos la API key de App Store Connect: no se
+          # invalida al cambiar la contraseña del Apple ID, que es lo que dejó a la
+          # v1.5.1 con un 401. Sin la key cargada cae al Apple ID + app password.
+          if [ -n "$APPLE_API_KEY" ]; then
+            NOTARY_KEY_FILE="$RUNNER_TEMP/notary-api-key.p8"
+            printf '%s\n' "$APPLE_API_KEY" > "$NOTARY_KEY_FILE"
+            NOTARY_AUTH=(--key "$NOTARY_KEY_FILE" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
+          else
+            NOTARY_AUTH=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID")
+          fi
 
           echo "==> Artifacts found in dist/:"
           ls -lh dist/*.dmg dist/*.zip 2>/dev/null || true
@@ -203,9 +265,7 @@ jobs:
             echo ""
             echo "==> Submitting $dmg to Apple notarization (async)"
             SUBMIT_JSON=$(xcrun notarytool submit "$dmg" \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" \
+              "${NOTARY_AUTH[@]}" \
               --output-format json)
             echo "$SUBMIT_JSON"
             SUBMISSION_ID=$(echo "$SUBMIT_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
@@ -219,9 +279,7 @@ jobs:
             STATUS=""
             while [ "$(date +%s)" -lt "$DEADLINE" ]; do
               INFO_JSON=$(xcrun notarytool info "$SUBMISSION_ID" \
-                --apple-id "$APPLE_ID" \
-                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-                --team-id "$APPLE_TEAM_ID" \
+                "${NOTARY_AUTH[@]}" \
                 --output-format json 2>/dev/null || echo '{}')
               STATUS=$(echo "$INFO_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
               echo "    $(date -u +%H:%M:%S) status=$STATUS"
@@ -240,9 +298,7 @@ jobs:
               Invalid|Rejected)
                 echo "::error::Apple rejected $dmg (status=$STATUS). Fetching notary log:"
                 xcrun notarytool log "$SUBMISSION_ID" \
-                  --apple-id "$APPLE_ID" \
-                  --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-                  --team-id "$APPLE_TEAM_ID" || true
+                  "${NOTARY_AUTH[@]}" || true
                 exit 1
                 ;;
               *)
@@ -267,6 +323,7 @@ jobs:
 
   build-win:
     needs: decrypt
+    environment: ${{ needs.decrypt.outputs.beta == 'true' && 'beta' || 'release' }}
     runs-on: windows-2022
     steps:
       - name: Download decrypted source
@@ -339,7 +396,15 @@ jobs:
           retention-days: 7
 
   deploy-functions:
-    needs: decrypt
+    # Después de `release`, no en paralelo a los builds: antes las functions llegaban a prod
+    # aunque un build fallara después, y quedaba una app vieja hablando con functions nuevas.
+    needs: [decrypt, release]
+    # Una beta NO toca Supabase de producción: las functions que deploya son las de la rama,
+    # y las usan todos los usuarios, no sólo los testers. La app de la beta no las necesita
+    # (la memoria habla con el servicio de sync, no con functions). Y sólo desde main.
+    if: needs.decrypt.outputs.beta != 'true' && github.ref == 'refs/heads/main'
+    # El token de Supabase y las claves de Stripe sólo están en `release`.
+    environment: release
     runs-on: ubuntu-latest
     steps:
       - name: Download decrypted source
@@ -352,16 +417,18 @@ jobs:
         with:
           version: latest
 
-      # Las 7 functions del repo, todas con `--no-verify-jwt`: cada una autentica
+      # Las 8 functions del repo, todas con `--no-verify-jwt`: cada una autentica
       # por su cuenta (firma de Stripe, `code` de OAuth, token del back-office) y
       # con el default `verify_jwt = true` el gateway las corta con 401 antes de
       # llegar al codigo. `supabase/config.toml` declara lo mismo; el flag esta
       # explicito para no depender de que la version del CLI lea el config.
       # Faltaban `stripe-webhook` (sin el flag -> 401 a todo webhook de Stripe,
       # ningun checkout activaba el plan), `admin-api` y `gitlab-oauth`.
+      # `stripe-portal` (spec 2b-2) tambien autentica en codigo: auth.getUser con el JWT del usuario.
       - name: Deploy edge functions
         run: |
           supabase functions deploy stripe-checkout --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
+          supabase functions deploy stripe-portal --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy stripe-webhook --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy on-signup --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
           supabase functions deploy github-oauth --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw
@@ -382,6 +449,9 @@ jobs:
 
   release:
     needs: [build-mac, build-win, build-linux, decrypt]
+    # Una beta sube a R2 con las claves de `beta`; una estable sólo usa el GITHUB_TOKEN, pero
+    # declara `release` igual para que quede como deploy de main.
+    environment: ${{ needs.decrypt.outputs.beta == 'true' && 'beta' || 'release' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download mac artifacts
@@ -403,11 +473,13 @@ jobs:
           path: artifacts/linux
 
       - name: Delete existing release and tag
+        if: needs.decrypt.outputs.beta != 'true'
         run: gh release delete v${{ needs.decrypt.outputs.version }} --yes --cleanup-tag --repo GeronimoDiClemente/raven-nest || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
+        if: needs.decrypt.outputs.beta != 'true'
         # Glob is `latest*.yml`, not `*.yml`. electron-builder emits a
         # `builder-debug.yml` on every platform; uploading three assets with
         # the same name races and the loser hits a 404 from GitHub's asset
@@ -428,3 +500,45 @@ jobs:
           make_latest: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish beta to the private R2 bucket
+        if: needs.decrypt.outputs.beta == 'true'
+        # El orden importa: primero los instaladores, después el manifiesto de la página de
+        # descarga y AL FINAL los `latest*.yml`. Un updater que lea el feed nuevo tiene que
+        # encontrar el archivo al que apunta; al revés, durante la subida le prometería uno
+        # que todavía no está.
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BETAS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BETAS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          BUCKET: ${{ secrets.R2_BETAS_BUCKET }}
+          VERSION: ${{ needs.decrypt.outputs.version }}
+        run: |
+          set -euo pipefail
+          for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY R2_ACCOUNT_ID BUCKET; do
+            if [ -z "${!v}" ]; then echo "::error::Falta el secreto de la beta: $v"; exit 1; fi
+          done
+          EP="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          subir() { aws s3 cp "$1" "s3://${BUCKET}/$(basename "$1")" --endpoint-url "$EP" --no-progress; }
+
+          shopt -s nullglob
+          for f in artifacts/win/*.exe artifacts/mac/*.dmg artifacts/mac/*.zip artifacts/linux/*.AppImage artifacts/linux/*.deb; do
+            subir "$f"
+          done
+
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const files = [];
+            const add = (dir, re, os, label) => { for (const n of fs.existsSync(dir) ? fs.readdirSync(dir) : []) if (re.test(n)) files.push({ name: n, os, label: label(n) }); };
+            add("artifacts/win", /\.exe$/, "windows", () => "Installer (.exe)");
+            add("artifacts/mac", /\.dmg$/, "mac", n => /arm64/.test(n) ? "Apple Silicon (.dmg)" : "Intel (.dmg)");
+            add("artifacts/linux", /\.AppImage$/, "linux", () => "AppImage");
+            add("artifacts/linux", /\.deb$/, "linux", () => "Debian / Ubuntu (.deb)");
+            fs.writeFileSync("manifest.json", JSON.stringify({ version: process.env.VERSION, files }, null, 2));
+            console.log(fs.readFileSync("manifest.json", "utf8"));
+          '
+          subir manifest.json
+
+          for f in artifacts/win/latest*.yml artifacts/mac/latest*.yml artifacts/linux/latest*.yml; do
+            subir "$f"
+          done

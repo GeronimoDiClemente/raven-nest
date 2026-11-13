@@ -38,7 +38,10 @@ class TerminalJoinService {
 
   subscribe(fn: Listener) {
     this.listeners.add(fn)
-    return () => this.listeners.delete(fn)
+    // Block body (not an implicit-return arrow) so the unsubscribe closure
+    // returns void, not Set.delete's boolean — React's EffectCallback
+    // cleanup type rejects a non-void return.
+    return () => { this.listeners.delete(fn) }
   }
 
   private notify() {
@@ -147,9 +150,9 @@ class TerminalJoinService {
   attachViewer(fn: (data: string) => void) {
     if (this.replayTimer) { clearTimeout(this.replayTimer); this.replayTimer = null }
     // El estado conocido se escribe ANTES de enganchar el stream vivo, y de
-    // forma sincrona. Antes era al reves: onData se enganchaba ya y el historial
-    // se replayeaba 50ms despues, asi que los primeros chunks nuevos se escribian
-    // ANTES que los viejos y la pantalla quedaba corrupta en cada join.
+    // forma sincrona: si onData se enganchara ya y el historial se replayeara
+    // despues, los primeros chunks nuevos se escribirian ANTES que los viejos y
+    // la pantalla quedaria corrupta en cada join.
     this.writeSnapshot(fn)
     for (const data of this.history) fn(data)
     this.onData = fn

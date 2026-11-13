@@ -32,7 +32,7 @@ export interface OpenFileFromHubOpts {
  * reusa un pane de editor del mismo worktree o crea uno con `newPane`, y ancla
  * ese pane al Hub `hubTabId` (auto-pin). Idempotente en tabs y en hubPanes.
  *
- * Respeta capacidades (finding del review): si hay que CREAR y el workspace ya
+ * Respeta capacidades: si hay que CREAR y el workspace ya
  * está en su tope → no crea (status 'workspace-full', tabs sin cambios). Si el
  * Hub está lleno → abre igual en el workspace pero no pinnea (status 'hub-full').
  */

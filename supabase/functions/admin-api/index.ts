@@ -1,6 +1,7 @@
 // Edge Function — contrato /api/internal/* que consume el back-office.
 // Deploy: supabase functions deploy admin-api
 // Secrets: supabase secrets set NEST_ADMIN_API_TOKEN=<32+ chars>
+//          supabase secrets set PLAN_SYNC_URL=<base del servicio de sync> PLAN_SYNC_SECRET=<secreto compartido>
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import Stripe from 'https://esm.sh/stripe@14?target=deno'
 import { verificarAuth, type Actor } from './auth.ts'
@@ -10,6 +11,8 @@ import { MANIFEST } from './manifest.ts'
 import { aAccountDetail, aAccountSummary, type UsuarioAuth } from './mapear.ts'
 import { PLANES_VALIDOS, aSubResumen, elegirSub, esSubViva, type SubResumen } from './pricing.ts'
 import { paginarTodo } from './paginar.ts'
+import { avisarCambioManual, configDeAviso } from '../_shared/aviso-de-plan.ts'
+import { pedirMetricasDelSync, resumirConversion, resumirUso, type PerfilDeTrial } from './metricas.ts'
 import {
   aEquipos, validarSacarMiembro, validarTransferencia,
   type Equipo, type FilaMiembro, type FilaRepo, type FilaTeam,
@@ -356,6 +359,29 @@ async function todosLosUsuarios(): Promise<
   }
 }
 
+/** PostgREST corta en 1000 filas por pedido sin avisar: las métricas paginan con `range`. */
+const FILAS_POR_PAGINA = 1000
+
+/** `orden` es una columna única: sin un orden estable, dos páginas pueden repetir o saltear filas. */
+async function filasPaginadas<T>(tabla: string, columnas: string, orden: string): Promise<
+  { filas: T[]; truncado: boolean; error: string | null }
+> {
+  try {
+    const { items, truncado } = await paginarTodo<T>(async (page) => {
+      const desde = (page - 1) * FILAS_POR_PAGINA
+      const { data, error } = await admin.from(tabla).select(columnas)
+        .order(orden).range(desde, desde + FILAS_POR_PAGINA - 1)
+      if (error) throw error
+      return (data ?? []) as unknown as T[]
+    }, FILAS_POR_PAGINA, MAX_PAGINAS_USUARIOS)
+    return { filas: items, truncado, error: null }
+  } catch (e) {
+    const mensaje = e instanceof Error ? e.message : String((e as { message?: unknown })?.message ?? e)
+    console.error('[admin-api] no se pudo leer', { tabla, error: mensaje })
+    return { filas: [], truncado: false, error: mensaje }
+  }
+}
+
 Deno.serve(async (req) => {
   const ruta = rutaDe(new URL(req.url).pathname)
   if (!ruta) return json({ error: 'No encontrado' }, 404)
@@ -379,6 +405,33 @@ Deno.serve(async (req) => {
       // parsea `cuerpo.manifest` (`client.ts`: `manifestSchema.parse(c.manifest)`).
       // En la raíz llegaba como `undefined` y la nav del producto no se armaba.
       return json({ manifest: MANIFEST })
+    }
+
+    if (ruta.nombre === 'metricas') {
+      if (req.method !== 'GET') return NO_PERMITIDO()
+      const ahora = new Date()
+      const [perfiles, actividad, sync] = await Promise.all([
+        filasPaginadas<PerfilDeTrial>('profiles', 'plan, trial_started_at', 'id'),
+        filasPaginadas<{ last_refresh_at: string | null }>('user_last_activity', 'last_refresh_at', 'user_id'),
+        pedirMetricasDelSync(
+          fetch,
+          configDeAviso({ PLAN_SYNC_URL: Deno.env.get('PLAN_SYNC_URL'), PLAN_SYNC_SECRET: Deno.env.get('PLAN_SYNC_SECRET') }),
+          Math.floor(ahora.getTime() / 1000),
+        ),
+      ])
+      // Sin perfiles no hay cuentas ni conversión que mostrar: una lista vacía se vería
+      // idéntica a "no hay usuarios".
+      if (perfiles.error) return json({ error: 'No se pudieron leer los perfiles' }, 500)
+      if (!sync.ok) console.error('[admin-api] metricas: el sync no contestó', { motivo: sync.motivo })
+      return json({
+        generado_at: ahora.toISOString(),
+        // La vista viene de raven-admin y puede no estar: el uso queda en `null`, no en cero.
+        app: actividad.error ? null : resumirUso(perfiles.filas.length, actividad.filas.map((f) => f.last_refresh_at), ahora),
+        conversion: resumirConversion(perfiles.filas, ahora),
+        sync: sync.ok ? sync.metricas : null,
+        ...(sync.ok ? {} : { sync_motivo: sync.motivo }),
+        ...(perfiles.truncado || actividad.truncado ? { truncado: true } : {}),
+      })
     }
 
     if (ruta.nombre === 'accounts') {
@@ -720,8 +773,24 @@ Deno.serve(async (req) => {
       const ok = !error && !sinFila
       const mensaje = error?.message ?? (sinFila ? 'La cuenta no tiene perfil' : null)
 
+      // Sólo si el update pegó: el servidor de sync converge a lo que quedó en `profiles`.
+      const aviso = ok
+        ? await avisarCambioManual(
+          fetch,
+          { PLAN_SYNC_URL: Deno.env.get('PLAN_SYNC_URL'), PLAN_SYNC_SECRET: Deno.env.get('PLAN_SYNC_SECRET') },
+          id, plan, Math.floor(Date.now() / 1000),
+        )
+        : null
+      if (aviso && !aviso.notificado) {
+        console.error('[admin-api] el plan cambió pero no llegó al servidor de sync', { id, plan, motivo: aviso.motivo })
+      }
+
       const auditado = await auditar(actor, 'change_plan', 'user', id, email,
-        { plan: antes?.plan ?? null }, { plan }, ok, mensaje)
+        { plan: antes?.plan ?? null },
+        aviso
+          ? { plan, sync_notificado: aviso.notificado, ...(aviso.notificado ? {} : { sync_motivo: aviso.motivo }) }
+          : { plan },
+        ok, mensaje)
 
       if (error) return json({ error: error.message }, 500)
       if (sinFila) return json({ error: 'La cuenta no tiene perfil' }, 404)
@@ -731,6 +800,7 @@ Deno.serve(async (req) => {
       return json({
         cambios: [{ key: 'plan', de: antes?.plan ?? null, a: plan }],
         ...(auditado ? {} : { auditado: false }),
+        ...(aviso && !aviso.notificado ? { sync_notificado: false } : {}),
       })
     }
 

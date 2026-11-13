@@ -1,0 +1,12 @@
+# El scratch de cada plan (ledger, briefs, reportes, diffs de review) no se
+# versiona: es material de trabajo, no deliverable.
+#
+# PERO las capturas si. Son la EVIDENCIA de que un cambio visual se miro antes
+# de aprobarlo, y este repo ya perdio evidencia dos veces por guardarla en
+# directorios ignorados.
+#
+# Hay que des-ignorar NIVEL POR NIVEL: git no desciende a un directorio que ya
+# excluyo, asi que un `!*/shots/` suelto no tendria ningun efecto — primero hay
+# que dejar entrar al directorio del plan.
+*/*
+!*/shots/

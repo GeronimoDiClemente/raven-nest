@@ -33,10 +33,9 @@ export interface EditorPreferences {
   colorDecorators?: boolean
 }
 
-// Antes era el union 'vs' | 'vs-dark' de Monaco pelado; con el sistema de
-// temas (theme-registry + shiki) el nombre puede ser cualquier tema bundled
-// o instalado. Un nombre desconocido al aplicar cae a 'vs-dark' (fallback en
-// shiki-monaco/EditorPane), así que el widening no rompe datos viejos.
+// Con el sistema de temas (theme-registry + shiki) el nombre puede ser
+// cualquier tema bundled o instalado, no sólo 'vs' | 'vs-dark'. Un nombre
+// desconocido al aplicar cae a 'vs-dark' (fallback en shiki-monaco/EditorPane).
 export type EditorTheme = string
 
 export type ParseResult =
@@ -144,7 +143,7 @@ export function parseVSCodeSettings(json: string): ParseResult {
     // El raw name viaja SIEMPRE: el consumidor intenta primero el match
     // EXACTO contra bundled/instalados ("One Dark Pro" → one-dark-pro) y
     // recién si nada matchea cae al heurístico de substrings en `theme` —
-    // antes el heurístico cortaba primero y degradaba temas que SÍ teníamos.
+    // si el heurístico cortara primero degradaría temas que SÍ tenemos.
     const theme = themeFromName(themeName)
     return { ok: true, options, ...(theme ? { theme } : {}), unmappedTheme: themeName }
   }

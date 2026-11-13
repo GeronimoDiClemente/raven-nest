@@ -13,7 +13,7 @@ interface Props {
 
 // Trigger del filtro de panes en la columna del sidebar: embudo + popover
 // con los chips. Vive en la columna de íconos (visible aun con el sidebar
-// colapsado) porque en la tabbar competía con las tabs de workspace. Con
+// colapsado) porque en la tabbar competiría con las tabs de workspace. Con
 // filtro activo el trigger queda resaltado y muestra el grupo — un filtro
 // activo invisible parece "perdí mis panes". Popover position:fixed por el
 // overflow del sidebar (mismo patrón que el layout selector).

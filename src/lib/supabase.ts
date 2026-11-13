@@ -4,7 +4,10 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-const realClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+// PKCE: el callback `nest://auth/callback` trae un `?code=` que sólo canjea esta instalación
+// (src/lib/auth-deeplink.ts). Con el flujo implícito los tokens venían en la URL y cualquier link
+// podía instalar la sesión de otra cuenta.
+const realClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { flowType: 'pkce' } })
 
 let activeClient: SupabaseClient = realClient
 

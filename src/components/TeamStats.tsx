@@ -115,7 +115,7 @@ function fmtDuration(hours: number | null): string {
 // is the counter-metric to raw throughput — "many PRs" read against "how big".
 const PR_SIZE_ROWS: { key: string; hint: string; field: keyof PrSizeBuckets; color: string }[] = [
   { key: 'S', hint: '≤50 lines', field: 's', color: '#22C55E' },
-  { key: 'M', hint: '51–200', field: 'm', color: '#0066FF' },
+  { key: 'M', hint: '51–200', field: 'm', color: 'var(--primary)' },
   { key: 'L', hint: '201–500', field: 'l', color: '#FFB800' },
   { key: 'XL', hint: '>500', field: 'xl', color: '#FF4500' },
 ]

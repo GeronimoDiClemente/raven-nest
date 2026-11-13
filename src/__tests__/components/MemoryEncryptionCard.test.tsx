@@ -1,0 +1,295 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
+import MemoryEncryptionCard from '../../components/MemoryEncryptionCard'
+
+// Tipado a mano: con el literal pelado, `pendingDevices: []` se infiere `never[]` y el
+// caso que le pasa una maquina esperando no compila.
+interface EstadoCifrado {
+  available: boolean
+  active: boolean
+  keyEpoch: number
+  pendingDevices: Array<{ deviceId: string; name: string }>
+  undecryptable: number
+  estadoRemotoLeido?: boolean
+  huellaPropia?: string | null
+  huellasPorDevice?: Record<string, string>
+  huellaDeLaClave?: string | null
+}
+
+const estadoBase: EstadoCifrado = {
+  available: true, active: false, keyEpoch: 0, pendingDevices: [], undecryptable: 0,
+}
+
+function montarCon(estado: Partial<EstadoCifrado>, extra: Record<string, unknown> = {}, plaintextPending?: number) {
+  const api = {
+    encryptionStatus: vi.fn(async () => ({ ...estadoBase, ...estado })),
+    // `memory.status()` es de donde la tarjeta lee `plaintextPending` (spec 2026-11-02 §4).
+    status: vi.fn(async () => ({ connected: true, state: 'connected', plaintextPending })),
+    encryptionActivate: vi.fn(async () => ({ ok: true, recoveryCode: 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF' })),
+    encryptionAuthorize: vi.fn(async () => ({ ok: true })),
+    encryptionRecover: vi.fn(async () => ({ ok: true })),
+    encryptionReencrypt: vi.fn(async () => ({ total: 866, queued: 0 })),
+    encryptionAdopt: vi.fn(async () => ({ ok: true, adoptada: false })),
+    ...extra,
+  }
+  ;(window as unknown as { memory: unknown }).memory = api
+  return api
+}
+
+beforeEach(() => { (window as unknown as { memory?: unknown }).memory = undefined })
+
+describe('MemoryEncryptionCard', () => {
+  it('con un preload viejo no monta nada, en vez de romper', () => {
+    ;(window as unknown as { memory: unknown }).memory = {}
+    const { container } = render(<MemoryEncryptionCard />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('sin nube: «Needs cloud sync» y «Set up sync» lleva a Sync', async () => {
+    montarCon({ available: false })
+    const onSetUpSync = vi.fn()
+    render(<MemoryEncryptionCard onSetUpSync={onSetUpSync} />)
+    expect(await screen.findByText('Needs cloud sync')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /turn on/i })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Set up sync' }))
+    expect(onSetUpSync).toHaveBeenCalled()
+  })
+
+  it('sin activar ofrece «Turn on» y dice qué hace, sin repetir lo que viaja en claro', async () => {
+    montarCon({})
+    render(<MemoryEncryptionCard />)
+    const boton = await screen.findByRole('button', { name: 'Turn on encryption' })
+    expect(boton).toHaveTextContent('Turn on')
+    expect(screen.getByText('Only your machines hold the key. On this machine it stays readable, so search and agents work as usual.')).toBeInTheDocument()
+    expect(screen.queryByText(/type, scope and branch/i)).toBeNull()
+  })
+
+  it('el aviso del código de recuperación va en el paso «Save this code»', async () => {
+    montarCon({})
+    render(<MemoryEncryptionCard />)
+    expect(screen.queryByText(/if you lose every machine and the code/i)).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn on encryption' }))
+    expect(await screen.findByText('Save this code')).toBeInTheDocument()
+    expect(screen.getByText(/if you lose every machine and the code, the cloud copy can never be opened again/i)).toBeInTheDocument()
+  })
+
+  // El momento de la verdad: el codigo se muestra UNA vez y hay que obligar a copiarlo.
+  it('al activar muestra el código de recuperación y no deja seguir sin confirmar', async () => {
+    const api = montarCon({})
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /turn on encryption/i }))
+    await waitFor(() => expect(api.encryptionActivate).toHaveBeenCalled())
+    expect(await screen.findByText('AAAA-BBBB-CCCC-DDDD-EEEE-FFFF')).toBeInTheDocument()
+    // F10: "You will not see it again" dejó de ser cierto con «New recovery code».
+    expect(screen.getByText(/save it now\. you can generate a new one later from this machine/i)).toBeInTheDocument()
+    expect(screen.queryByText(/will not see it again/i)).toBeNull()
+    const seguir = screen.getByRole('button', { name: /done/i })
+    expect(seguir).toBeDisabled()
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(seguir).toBeEnabled()
+  })
+
+  it('activo muestra «On · key #N», lo que viaja en claro UNA vez, y ofrece re-subir lo viejo', async () => {
+    const api = montarCon({ active: true, keyEpoch: 1 })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('On · key #1')).toBeInTheDocument()
+    expect(screen.getAllByText(/type, scope and branch/i)).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: /re-upload/i }))
+    await waitFor(() => expect(api.encryptionReencrypt).toHaveBeenCalled())
+    expect(await screen.findByText(/866/)).toBeInTheDocument()
+  })
+
+  // N1: el main no re-sube sin un pull completo antes; la tarjeta lo muestra en vez de contar.
+  it('Re-upload sin pull previo muestra el error y no cuenta nada encolado', async () => {
+    const reencriptar = vi.fn(async () => ({ total: 0, queued: 0, error: 'Could not get the latest memories from the cloud first.' }))
+    montarCon({ active: true, keyEpoch: 1 }, { encryptionReencrypt: reencriptar })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /re-upload/i }))
+    expect(await screen.findByText(/latest memories from the cloud first/i)).toBeInTheDocument()
+    expect(screen.queryByText(/memories queued/i)).toBeNull()
+  })
+
+  // F8: generar un código nuevo invalida el guardado. Un clic suelto no puede hacerlo.
+  it('New recovery code pide confirmación antes de invalidar el código guardado', async () => {
+    const regenerar = vi.fn(async () => ({ ok: true, recoveryCode: 'NEW1-NEW2' }))
+    montarCon({ active: true, keyEpoch: 1 }, { encryptionRegenerateRecoveryCode: regenerar })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: 'New recovery code' }))
+    const dialogo = within(await screen.findByRole('alertdialog'))
+    expect(dialogo.getByText('Generate a new recovery code?')).toBeInTheDocument()
+    expect(dialogo.getByText('Your current code will stop working.')).toBeInTheDocument()
+    expect(regenerar).not.toHaveBeenCalled()
+
+    fireEvent.click(dialogo.getByRole('button', { name: 'Generate new code' }))
+    await waitFor(() => expect(regenerar).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('NEW1-NEW2')).toBeInTheDocument()
+  })
+
+  it('cancelar la confirmación no genera nada', async () => {
+    const regenerar = vi.fn(async () => ({ ok: true, recoveryCode: 'NEW1-NEW2' }))
+    montarCon({ active: true, keyEpoch: 1 }, { encryptionRegenerateRecoveryCode: regenerar })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: 'New recovery code' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(regenerar).not.toHaveBeenCalled()
+  })
+
+  // F6 (spec §4): «On · key #N» se lee como "tu nube está cifrada". Con filas todavía en claro
+  // en el servidor eso es falso: la tarjeta dice cuánto falta, como la de Sync.
+  it('activo con memoria todavía en claro en la nube, dice cuánto falta en vez de «On · key #N»', async () => {
+    montarCon({ active: true, keyEpoch: 1 }, {}, 7)
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('Encrypting your cloud memory… 7 left')).toBeInTheDocument()
+    expect(screen.queryByText('On · key #1')).toBeNull()
+    expect(screen.getByRole('button', { name: /re-upload/i })).toBeInTheDocument()
+  })
+
+  it('activo con plaintextPending 0, «On · key #N»', async () => {
+    montarCon({ active: true, keyEpoch: 2 }, {}, 0)
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('On · key #2')).toBeInTheDocument()
+    expect(screen.queryByText(/encrypting your cloud memory/i)).toBeNull()
+  })
+
+  it('cada máquina que espera es una fila con su huella y su botón', async () => {
+    montarCon({
+      active: true, keyEpoch: 1,
+      pendingDevices: [{ deviceId: 'pc', name: 'la PC' }, { deviceId: 'mac', name: 'la Mac' }],
+      huellasPorDevice: { pc: 'A1B2-C3D4-E5F6', mac: 'F6E5-D4C3-B2A1' },
+    })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('la Mac')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'They match — authorise' })).toHaveLength(2)
+  })
+
+  it('con máquinas esperando, las lista por nombre y ofrece autorizarlas', async () => {
+    const api = montarCon({
+      active: true, keyEpoch: 1, pendingDevices: [{ deviceId: 'pc', name: 'la PC' }],
+      huellasPorDevice: { pc: 'A1B2-C3D4-E5F6' },
+    })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('la PC')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /they match/i }))
+    // I4: la huella que se MOSTRÓ viaja con el pedido; main.ts no envuelve si la pública que
+    // vuelve a pedir no da esa misma huella.
+    await waitFor(() => expect(api.encryptionAuthorize).toHaveBeenCalledWith('pc', 'A1B2-C3D4-E5F6'))
+  })
+
+  // El adversario que la spec §5.1 nombra —alguien con acceso a la base— sustituye la clave
+  // pública de la máquina pendiente por la suya. La que autoriza envuelve la maestra para esa
+  // clave y el atacante lee todo. Criptográficamente no se puede distinguir: el servidor es
+  // quien dice de quién es cada clave. Que una PERSONA compare la huella es la única defensa.
+  it('antes de autorizar muestra la huella de esa máquina, para comparar', async () => {
+    montarCon({
+      active: true, keyEpoch: 1,
+      pendingDevices: [{ deviceId: 'pc', name: 'la PC' }],
+      huellasPorDevice: { pc: 'A1B2-C3D4-E5F6' },
+    })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('A1B2-C3D4-E5F6')).toBeInTheDocument()
+    expect(screen.getByText(/only if that machine shows exactly this code/i)).toBeInTheDocument()
+  })
+
+  // Visto en la app real: con una sola ilegible decía «1 memories cannot be read».
+  it('con una sola memoria ilegible habla en singular', async () => {
+    montarCon({ active: false, keyEpoch: 1, undecryptable: 1 })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText(/memory cannot be read from here/)).toBeInTheDocument()
+  })
+
+  it('y la máquina que espera muestra la suya, para que la otra la compare', async () => {
+    montarCon({ active: false, keyEpoch: 1, huellaPropia: 'Z9Y8-X7W6-V5T4' })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('Z9Y8-X7W6-V5T4')).toBeInTheDocument()
+  })
+
+  // Esta maquina no puede leer: es el estado que la spec §5.5.4 obliga a mostrar fuerte.
+  it('con época pero sin clave local, pide autorización o el código', async () => {
+    montarCon({ active: false, keyEpoch: 1, undecryptable: 12 })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText(/not authorised yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/12/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /use the recovery code/i })).toBeInTheDocument()
+  })
+
+  it('recuperar con un código equivocado muestra el error y no cierra el formulario', async () => {
+    montarCon({ active: false, keyEpoch: 1 }, {
+      encryptionRecover: vi.fn(async () => ({ ok: false, error: 'recovery code is not correct' })),
+    })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /use the recovery code/i }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'XXXX' } })
+    fireEvent.click(screen.getByRole('button', { name: /recover/i }))
+    expect(await screen.findByText(/not correct/i)).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+  })
+
+  // El crítico que la revisión adversarial del 2026-09-12 destapó: `adoptExistingKey` tenía
+  // un único llamador —el botón de activar— y ese botón NO se muestra en este estado. O sea
+  // que después de que la otra máquina autorizaba a ésta, ésta no tenía forma de tomar la
+  // envoltura: seguía descartando todo como ilegible, para siempre, y la única salida era
+  // quemar el código de recuperación — justo lo que autorizar existe para evitar.
+  it('sin clave local intenta tomar sola la envoltura que la otra máquina dejó', async () => {
+    const api = montarCon({ active: false, keyEpoch: 1, undecryptable: 12 })
+    render(<MemoryEncryptionCard />)
+    await waitFor(() => expect(api.encryptionAdopt).toHaveBeenCalled())
+  })
+
+  it('si la adopción funciona, vuelve a leer el estado en vez de quedarse en "no autorizada"', async () => {
+    const api = montarCon({ active: false, keyEpoch: 1 }, {
+      encryptionAdopt: vi.fn(async () => ({ ok: true, adoptada: true })),
+    })
+    render(<MemoryEncryptionCard />)
+    await waitFor(() => expect(api.encryptionStatus).toHaveBeenCalledTimes(2))
+  })
+
+  // El intento automático corre al abrir la tarjeta. Si el usuario está mirando ESTA pantalla
+  // mientras autoriza en la otra, necesita poder decir "ya está" sin cerrar y volver a abrir.
+  it('ofrece reintentar a mano, y dice cuando todavía no hay autorización', async () => {
+    montarCon({ active: false, keyEpoch: 1 })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /authorised/i }))
+    expect(await screen.findByText(/no authorisation for this machine yet/i)).toBeInTheDocument()
+  })
+
+  // Alcanzable sin atacante: un corte de red dejaba `keyEpoch = 0` —indistinguible de "esta
+  // cuenta no tiene cifrado"— y la tarjeta ofrecía "Activar" en una máquina sin clave. El
+  // clic rotaba la época y BORRABA las envolturas de todas las demás, incluida la de
+  // recuperación.
+  it('si no se pudo leer el estado del servidor, no ofrece activar', async () => {
+    montarCon({ estadoRemotoLeido: false })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText(/could not read this account/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /turn on encryption/i })).toBeNull()
+  })
+
+  // Para cuando `activateEncryption` vuelve, el servidor YA tiene la época y las envolturas:
+  // la cuenta está cifrada pase lo que pase. Si persistir la clave falla y el error se
+  // propaga, el código se pierde con el stack y NO hay forma de regenerarlo — quedaría una
+  // cuenta cifrada, un mensaje de error, y ninguna copia de la maestra.
+  it('si la clave no se pudo guardar, el código se muestra IGUAL, con el aviso al lado', async () => {
+    montarCon({}, {
+      encryptionActivate: vi.fn(async () => ({
+        ok: true as const,
+        recoveryCode: 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF',
+        aviso: 'Encryption is on, but the key could not be saved on this machine: disk full.',
+      })),
+    })
+    render(<MemoryEncryptionCard />)
+    fireEvent.click(await screen.findByRole('button', { name: /turn on encryption/i }))
+    expect(await screen.findByText('AAAA-BBBB-CCCC-DDDD-EEEE-FFFF')).toBeInTheDocument()
+    expect(screen.getByText(/could not be saved on this machine/i)).toBeInTheDocument()
+  })
+
+  // Envolver no requiere ningún secreto: quien escriba en la base del servicio puede sellar
+  // SU maestra para la pública de la víctima y pisar la envoltura. La máquina desenvuelve 32
+  // bytes válidos, sin error, y cifra para el atacante. El sealed box no lo detecta, así que
+  // lo único que queda es poder comparar si dos máquinas tienen la MISMA clave.
+  it('activo, muestra la marca de la clave para comparar entre máquinas', async () => {
+    montarCon({ active: true, keyEpoch: 1, huellaDeLaClave: 'a1b2c3d4e5f60789' })
+    render(<MemoryEncryptionCard />)
+    expect(await screen.findByText('a1b2c3d4e5f60789')).toBeInTheDocument()
+    expect(screen.getByText(/same on all your machines/i)).toBeInTheDocument()
+  })
+})

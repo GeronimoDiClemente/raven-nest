@@ -3,13 +3,37 @@
 ## Typecheck — OJO
 
 `npx tsc --noEmit` en la raíz NO CHEQUEA NADA (tsconfig solution-style con
-`files: []`). El chequeo real es `npx tsc -b` — que además emite .js/.d.ts
-junto a los sources (composite): limpiar con `git clean -fd` después.
-**OJO: `git add` los archivos fuente NUEVOS ANTES del `git clean`** — clean
-borra todo lo untracked y no distingue un .tsx recién creado de un .js
-emitido (pasó el 2026-08-18: se llevó un componente nuevo y su test). Hay
-~15 errores de tipo preexistentes bajo `tsc -b` en código de main
-(pidusage, metrics-collector, etc.) anteriores al branch del editor.
+`files: []`).
+
+**El chequeo real son los DOS comandos que corre CI** (`.github/workflows/ci.yml:25-26`):
+
+```bash
+npx tsc -p tsconfig.node.json --noEmit --composite false
+npx tsc -p tsconfig.web.json --noEmit --composite false
+```
+
+Medido en un worktree limpio de `feat/nest-terminal-ui` el 2026-09-10: los dos
+dan **exit 0 y cero errores**. Ese es el baseline — **no hay errores
+preexistentes**. Si ves uno, lo agregaste vos.
+
+**`npx tsc -b` NO sirve como chequeo hoy: falla con exit 1** por tres errores
+`TS6307` de configuración de project references — `graph-template.ts`,
+`worker-spec-store.ts` y `raven-home.ts` no están listados en
+`tsconfig.web.json`. Son de configuración, no de tipos, y **abortan el build
+antes de chequear el código**, así que `tsc -b` en verde no prueba nada y en
+rojo no dice nada sobre tu cambio.
+
+> Esta sección decía antes que el chequeo real era `tsc -b` y que había "~15
+> errores preexistentes (pidusage, metrics-collector)". Las dos cosas eran
+> falsas al 2026-09-10 y el combo es peligroso: hacía que alguien corriera
+> `tsc -b`, viera los 3 TS6307, los diera por preexistentes y siguiera —
+> cuando el chequeo que importa estaba limpio y ese comando estaba roto.
+
+Si aun así corrés `tsc -b`, ojo: emite .js/.d.ts junto a los sources
+(composite) y hay que limpiar con `git clean -fd` después. **`git add` los
+archivos fuente NUEVOS ANTES del `git clean`** — clean borra todo lo untracked
+y no distingue un .tsx recién creado de un .js emitido (pasó el 2026-08-18: se
+llevó un componente nuevo y su test).
 
 ## v1.2 — per-device local paths
 
@@ -52,6 +76,33 @@ todos los artifacts. Se dispara automáticamente al pushear a `main` un cambio d
   - Si no está instalado, el botón de micrófono simplemente no transcribe (sin crash).
   - En releases: documentar en README y en el onboarding que voice input requiere whisper.
 
+## better-sqlite3: binarios nativos — OJO
+
+**El problema:** `better-sqlite3` compila un binding nativo que depende del **ABI de Node**.
+`npm install` corre el `postinstall`, que deja el binding de **Electron** (que tiene su propio
+ABI). Pero `npm test` corre bajo Node puro, que usa otro ABI. Con el binding de Electron puesto,
+los tests mueren con `NODE_MODULE_VERSION` mismatch.
+
+**La solución:** dos scripts que swapean el binding.
+- `npm run native:node` — deja el binding de Node puro (hace falta antes de correr los tests)
+- `npm run native:electron` — deja el binding de Electron (hace falta antes de levantar la app)
+
+**El flujo:**
+1. `npm test` dispara `pretest` solo, que corre `npm run native:node`.
+2. `native:node` intenta bajar un prebuild de `better-sqlite3` para el ABI de Node del runner.
+3. Si ese prebuild no existe, cae a compilar desde source con node-gyp.
+4. Vitest corre con el binding correcto.
+
+**Cuándo NO hay prebuild.** `better-sqlite3@12.11.1` publica prebuilds de Node sólo para las ABI
+**127, 137, 141 y 147**, y la lista es la misma en Windows, Mac y Linux. Node 20 es ABI 115 y no
+está: o sea que el CI (pineado a Node 20) **y también una máquina Windows corriendo el
+`engines.node >=20.19` del repo** caen a compilar. Node 22 es 127, 24 es 137 y 25 es 141, así que
+esos sí bajan prebuild. En Windows compilar puede fallar por falta del toolset ClangCL de Visual
+Studio; si te pasa, la salida es usar un Node cuyo ABI tenga prebuild.
+
+**Después de `npm test` en local:** la app no arranca hasta que corras `npm run native:electron`.
+`pretest` automatiza un solo lado del swap, el de los tests.
+
 ## Stack
 - Electron + Vite + React + TypeScript
 - Terminal: xterm.js con PTY (node-pty)
@@ -62,6 +113,114 @@ todos los artifacts. Se dispara automáticamente al pushear a `main` un cambio d
 - `src/hooks/useXterm.ts` — terminal xterm.js
 - `src/` — renderer (React)
 - `.github/workflows/build-windows.yml` — CI para Windows, Mac y Linux
+
+## UI — Tailwind y shadcn conviven con global.css
+
+La app está migrando a Tailwind v4 + shadcn/ui. Reglas que muerden:
+
+- **Tailwind está SIN preflight** (`src/styles/tailwind.css`). No importes
+  `"tailwindcss"` entero: trae el reset y rompe las 12k líneas de `global.css`.
+- **Los tokens viven en `global.css`**, y `@theme inline` los expone al motor.
+  No los redefinas en `tailwind.css`: habría dos fuentes de verdad.
+- **Un componente nuevo se escribe con shadcn + utilidades**, nunca con clases
+  nuevas en `global.css`.
+- **Un literal de color cromático no se prohíbe siempre, se decide.** El
+  acento es acromático (el color es estado: `--ok`/`--warn`/`--destructive`),
+  pero hay una allow-list justificada: leyenda categórica de un estado no
+  binario (`.pr-badge.closed`/`.feed-type-badge.pr` en `global.css` usan
+  violeta/azul para distinguir *tipo* de evento, no severidad), paleta de
+  íconos por extensión, o marca de un tercero (el `#0052CC` de Atlassian en
+  `builtinCatalog.ts`, el botón de GitHub en `global.css`) — o el color por
+  tipo de memoria en Memories, que sale del índice ANSI del tema de terminal
+  del usuario (`memory-type-legend.ts`), no de un literal. Un barrido
+  automático por regex ya se llevó puesto ese azul de Atlassian una vez y
+  hubo que revertirlo — cada literal se mira antes de tocarlo.
+- **Todo cambio de UI pasa `e2e/04-contraste.spec.ts`** antes de commitear.
+- La receta para migrar un componente (con las trampas que ya mordieron):
+  `docs/RECETA-MIGRACION-UI.md`.
+
+## Memoria cifrada — nota operativa
+
+Desde el 2026-09-11 la memoria que va a la nube se cifra **en el cliente** (spec
+`docs/superpowers/specs/2026-09-09-nest-memories-plugin-y-cifrado.md`). Lo que hay que tener
+presente al trabajar acá:
+
+- **La clave nunca sale del cliente.** El servidor guarda envolturas que no puede abrir. Si
+  el usuario pierde todas sus máquinas y el código de recuperación, la memoria de la nube es
+  irrecuperable — es la consecuencia inevitable del diseño, no un defecto.
+- **La base local sigue en claro y tiene que seguirlo**: la búsqueda es FTS5 local y el
+  agente necesita el texto. La máquina del usuario está fuera del modelo de amenaza.
+- **`SCHEMA_VERSION` 8**. La 8 suma el índice sobre `lamport`: el reloj de Lamport se lee de
+  la BASE y no de un contador en memoria, porque con dos procesos sobre la misma base (la app
+  instalada y un build de desarrollo, o el paquete portable del spec
+  `2026-09-13-nest-memory-portable-design.md`) el contador en memoria emite lamports
+  duplicados. Todas las transacciones de escritura son `IMMEDIATE` y hay `busy_timeout`: con
+  `BEGIN` diferido dos procesos se pisan al subir de lock y el segundo falla sin poder
+  reintentar. La 6 sumó `topic_key_hmac`: una fila que vino del pull tiene el HMAC
+  y `topic_key = null`; una local tiene el tema en claro y, si hay clave, también el HMAC. La 7
+  movió el conjunto de memorias ilegibles de un JSON en `meta` a la tabla `undecryptable`.
+- **El scope `team` SÍ se cifra desde el 2026-10-15**, con una clave por equipo que activa y
+  autoriza sólo el `leader` (spec `docs/superpowers/specs/2026-10-14-cifrado-de-equipo-design.md`).
+  Requiere el cifrado personal activo en el device (reusa su clave pública). Lo ya subido en
+  claro se migra al activar: la lista Y el contenido de lo pendiente salen del SERVIDOR
+  (`GET /v1/teams/key/recrypt-pending`), no de la base local — el pull no le trae al leader
+  filas de un repo que no clonó. La tarjeta sólo dice "todo cifrado" con lo pendiente en 0.
+  La migración sella también el tema: `topic_key` pasa al HMAC con la clave de equipo, el MISMO
+  que `sealMutationPayload` le pone a una fila nueva (si difieren, el supersede no las une).
+- **El daemon se entera de que la cuenta cifra por `key_epoch` de `/v1/sync/status`**, y es
+  lo que arma el gate fail-closed del push. No alcanza con que lo sepa la tarjeta de cifrado:
+  esa sólo corre si el usuario abre el overlay Memories, y hasta el 2026-09-13 el gate no se
+  armaba nunca en la máquina que importa —la que no tiene la clave— así que subía título y
+  contenido en claro a una cuenta cifrada. Si tocás ese camino, el test que lo cubre es
+  `el gate se arma por el status, sin depender de ver ciphertext`.
+- **El cifrado de EQUIPO tiene su propio gate fail-closed** (Task 14, spec §9.4): `status` trae
+  `encrypted_teams`, el store lo recuerda en `meta`, y `doPush` retiene con `team_key_missing`
+  las filas de un equipo que cifra si este device no tiene su clave; el servidor además rechaza
+  claro de equipo cifrado con `team_encryption_required`. La clave de una fila BAJADA la elige el
+  `team_id` que manda el servidor, no el `projects.team_id` local. Tests:
+  `electron/__tests__/memory-daemon-cifrado-equipo.test.ts` y `e2e/16-cifrado-de-equipo.spec.ts`.
+- **Autorizar o migrar de EQUIPO exige probar la maestra de equipo** (`proof` contra
+  `team_keys.verifier`, el SHA-256 de la prueba): ser `leader` no alcanza, porque el rol se
+  transfiere y la clave no. El verificador se le muestra a los miembros y el cliente rechaza
+  (`TeamKeyMismatchError`) toda maestra desenvuelta que no coincida — al adoptar, al readoptar
+  en el arranque y al recuperar con el código. Tests adversariales:
+  `server/__tests__/team-keys.test.ts`, `team-keys-recrypt.test.ts` y
+  `electron/__tests__/memory-team-keys-client.test.ts`.
+- **Autorizar (personal o de equipo) manda la huella que la tarjeta MOSTRÓ**, y main.ts no
+  envuelve si la pública que vuelve a pedir no da esa huella (`memory-authorize-target.ts`).
+- **Publicar una envoltura para otra máquina exige probar que tenés la maestra**
+  (`rotate_proof` contra `users.rotate_verifier`). Sin eso, cualquier device de la cuenta
+  sella SU maestra para la pública de la víctima y la víctima la adopta sin aviso.
+- **Desde el 2026-11-02 el cifrado es obligatorio al conectar** (spec
+  `docs/superpowers/specs/2026-11-02-cifrado-obligatorio-design.md`). `memory:connect` y el
+  `login` del paquete corren `asegurarCifrado` (adoptar, y sólo con la época 0 LEÍDA, activar);
+  `requireEncryption` arma el gate del push SIEMPRE: sin maestra no sale nada
+  (`needs_encryption_setup` en época 0, `needs_key` después). El servidor rechaza todo claro
+  personal con `encryption_required`, cifre la cuenta o no; la única salida es
+  `ALLOW_PLAINTEXT_PERSONAL=1`, que setea SÓLO `server/vitest.config.ts` — nunca en un deploy.
+- **`status` trae `plaintext_pending`** (filas propias, personales y vivas con algo legible en
+  el servidor) y la tarjeta no dice "On · key #N" hasta que es 0. Con la maestra y
+  `plaintext_pending > 0` el main corre el re-upload solo, **una vez por sesión** y por cuenta
+  (`reuploadAutomaticoUnaVez`): re-encola TODO, y una fila que sólo existe en el servidor nunca
+  bajaría a 0. El mismo re-upload corre al activar o adoptar (`asegurar-en-el-main.ts`), y ahí
+  también vuelven a la cola los borrados que un build viejo dio por terminales. Re-sube las
+  superseded (el servidor les conserva la marca) sólo si el status ya trajo `plaintext_pending`:
+  un servidor viejo las resucita. Un tombstone no guarda texto en el servidor (migración `013`).
+  **El re-upload baja todo antes de su snapshot** (`pullCompleto` en `runReencrypt`): la máquina
+  que adopta tiene versiones viejas de lo que otra editó o borró, y sin pull las subía. Si el
+  pull falla no re-sube nada. Red de abajo: el push ignora una mutación que pierde por LWW
+  (`updated_at` y después lamport, como el cliente) contra la fila guardada (`outcome: "stale"`;
+  el empate total pasa). Sólo lamport rompía la convergencia: no lo "simplifiques".
+  Antes de desplegar: "Orden de despliegue" en `server/README.md`.
+- **Regenerar el código de recuperación es el modo `recovery` de `/v1/keys/publish`**: un solo
+  wrap en el slot `recovery`, la época vigente y `rotate_proof`; el código viejo deja de abrir.
+  La tarjeta lo pide con confirmación. El código pendiente vive sólo en memoria del main.
+- Para probarlo hace falta el servicio arriba: ver `server/README.md` y
+  `scripts/smoke-cifrado-e2e.mjs` (verde de punta a punta el 2026-10-09; tokens con
+  `server/scripts/mint-device-token.mjs`, dos devices de la misma cuenta, y
+  `--pg-docker nest-memory-pg`). El Postgres de desarrollo se levanta con el
+  `docker run` del README; si el suite del servidor empieza a dar timeouts raros, mirá cuánto
+  creció la base — las sondas de las revisiones dejaron 160k filas y todo se vuelve lento.
 
 ## Seguridad — pendiente crítico
 

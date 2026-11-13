@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { overlaySelectorFor } from '../lib/browser-overlay-selectors'
+import { startRepositionScheduler, type RepositionScheduler } from '../lib/reposition-scheduler'
 import type { PaneNode } from '../types'
 import { useSortable } from '@dnd-kit/sortable'
 
@@ -46,10 +47,9 @@ function isHttpUrl(u: string): boolean {
 }
 
 // Dark placeholder loaded into the WebContentsView when the user hasn't
-// navigated anywhere yet. Replaces the default Chromium error page (white)
-// that used to show because we'd load `http://localhost:3000` blindly and
-// it'd fail with ERR_CONNECTION_REFUSED on machines without a dev server
-// there. Pure HTML data URL — no network, no preload needed.
+// navigated anywhere yet, instead of guessing a dev-server URL that would show
+// Chromium's white ERR_CONNECTION_REFUSED page on machines without one.
+// Pure HTML data URL — no network, no preload needed.
 const BLANK_PAGE = 'data:text/html;charset=utf-8,' + encodeURIComponent(
   `<!doctype html><html><head><meta charset="utf-8"><style>` +
   `html,body{margin:0;height:100%;background:#0a0a0a;color:#666;` +
@@ -88,7 +88,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     // origen se atenúa (el WebContentsView ya se colapsa aparte). Resaltamos el
     // pane objetivo para ver con cuál se intercambia.
     opacity: isDragging ? 0.3 : 1,
-    outline: isOver && !isDragging ? '2px solid #0066FF66' : undefined,
+    outline: isOver && !isDragging ? '2px solid color-mix(in srgb, var(--primary) 40%, transparent)' : undefined,
     outlineOffset: isOver && !isDragging ? '-2px' : undefined,
   }
   const setNodeRef = (el: HTMLDivElement | null) => {
@@ -100,6 +100,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
   // cuando ESTE browser es el que está zoomeado — hay que agrandarlo.
   const zoomedRef = useRef(zoomed)
   zoomedRef.current = zoomed
+  const schedRef = useRef<RepositionScheduler | null>(null)
   // Mientras se arrastra ESTE browser, el pane real queda quieto (dnd-kit lo
   // "levanta" a un overlay). Colapsamos el WebContentsView para que no quede
   // el contenido nativo clavado atrás; la foto del contenido la muestra el
@@ -168,8 +169,10 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
       setDraftUrl(navUrl)
       onNavigateRef.current?.(navUrl)
     }
-    window.browser.onNavigated(cb)
-    return () => window.browser.removeListeners()
+    // Cada celda saca SÓLO su oyente: `removeListeners()` borra los de todas, y con
+    // dos browsers abiertos cerrar uno dejaría al otro sin enterarse de sus navegaciones.
+    const off = window.browser.onNavigated(cb)
+    return () => off()
   }, [pane.id])
 
   // Auto-navigate to localhost URLs detected in any terminal pane's output —
@@ -224,11 +227,8 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     const el = placeholderRef.current
     if (!el) return
 
-    // Selectors of every overlay/full-screen view that should hide the browser
-    // pane while open. WebContentsView always paints above DOM (no z-index),
-    // so any sidebar popover or modal must collapse this pane to avoid being
-    // covered. Includes: dialogs, full-screen workspaces, sidebar popovers,
-    // pane-level overlays.
+    // The overlay selectors (dialogs, full-screen workspaces, sidebar popovers,
+    // pane-level overlays) live in browser-overlay-selectors.ts.
 
     const computeBounds = (): { x: number; y: number; width: number; height: number } => {
       // Si el drag oculta este browser, colapsar (la foto la muestra el overlay).
@@ -243,42 +243,46 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
       return { x: r.left, y: r.top, width: r.width, height: r.height }
     }
 
-    // Reposición en TIEMPO REAL: un loop de requestAnimationFrame recalcula el
-    // rect cada frame y sólo emite IPC cuando cambió (dedupe por string). Un
-    // ResizeObserver no alcanza: no detecta cambios de POSICIÓN — reordenar
-    // panes, abrir un pane hermano o la animación de zoom mueven el browser sin
-    // redimensionarlo, y el WebContentsView (capa nativa) quedaba clavado en la
-    // posición vieja hasta el siguiente tick. getBoundingClientRect por frame es
-    // barato y el IPC sólo sale en cambios, así que en reposo no hay tráfico.
-    let raf = 0
-    let last = ''
-    let lastCheck = 0
-    // El trabajo del tick no es gratis: getBoundingClientRect fuerza layout
-    // sincrono y computeBounds ademas matchea una lista de ~30 selectores
-    // contra el documento, por browser abierto. A 60 fps constantes eso es CPU
-    // quemada de fondo con la app quieta (y con 4 browsers, x4).
+    // Reposición: se mide el rect y sólo se emite IPC cuando cambió (dedupe por
+    // string). Un ResizeObserver no alcanza: no detecta cambios de POSICIÓN —
+    // reordenar panes, abrir un pane hermano o la animación de zoom mueven el
+    // browser sin redimensionarlo, y el WebContentsView (capa nativa) quedaría
+    // clavado en la posición vieja.
     //
-    // Full rate solo mientras algo esta MOVIENDO el pane sin redimensionarlo
-    // (drag en curso, zoom): ahi el view nativo tiene que seguir al DOM frame a
-    // frame o se ve corrido. En reposo alcanza con ~10 Hz para levantar los
-    // casos que el ResizeObserver no ve (abrir un pane hermano, mover un split).
-    const CHECK_MS_IDLE = 100
-    const tick = (now: number) => {
-      const moving = hiddenForDragRef.current || zoomedRef.current
-      if (moving || now - lastCheck >= CHECK_MS_IDLE) {
-        lastCheck = now
+    // CUÁNDO medir vive en reposition-scheduler.ts, que tiene tests: en reposo
+    // agenda un timer a ~10 Hz y NO pide ni un frame. No re-armar un
+    // requestAnimationFrame por frame: aunque el trabajo esté throttleado, un rAF
+    // vivo obliga al compositor de Chromium a producir frames para siempre — que
+    // es lo que despierta a la GPU y al WindowServer con la app quieta.
+    let last = ''
+    const sched = startRepositionScheduler({
+      check: () => {
         const b = computeBounds()
         const key = `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.width)},${Math.round(b.height)}`
         if (key !== last) {
           last = key
           void window.browser.reposition(pane.id, b)
         }
-      }
-      raf = requestAnimationFrame(tick)
+      },
+      raf: (cb) => requestAnimationFrame(cb),
+      cancelRaf: (id) => cancelAnimationFrame(id),
+      setTimer: (cb, ms) => window.setTimeout(cb, ms),
+      clearTimer: (id) => window.clearTimeout(id),
+    })
+    sched.setMoving(hiddenForDragRef.current || !!zoomedRef.current)
+    schedRef.current = sched
+    return () => {
+      sched.stop()
+      if (schedRef.current === sched) schedRef.current = null
     }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
   }, [pane.id])
+
+  // El scheduler no POLLEA `moving`: leerlo de un ref en cada tick lo obligaría a
+  // seguir despertándose, que es justo lo que se quiere evitar. React ya sabe cuándo
+  // cambia, así que se lo avisa.
+  useEffect(() => {
+    schedRef.current?.setMoving(isDragging || !!dragging || !!zoomed)
+  }, [isDragging, dragging, zoomed])
 
   const submitUrl = () => {
     const next = draftUrl.trim()
@@ -364,7 +368,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
     return () => document.removeEventListener('mousedown', onClick)
   }, [portsOpen])
 
-  const accent = borderColor ?? '#0066FF'
+  const accent = borderColor ?? 'var(--primary)'
 
   return (
     <div
@@ -449,7 +453,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                 >
                   <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: 400 }}>localhost</span>
-                  <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: '#0066FF', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary)', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
                 </button>
               ))
             )}
@@ -486,7 +490,7 @@ export default function BrowserCell({ pane, onClose, onNavigate, borderColor, si
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                   >
                     <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, fontWeight: 400 }}>localhost</span>
-                    <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: '#0066FF', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary)', fontWeight: 600, fontSize: 13, letterSpacing: '0.02em' }}>:{port}</span>
                   </button>
                 ))}
               </>

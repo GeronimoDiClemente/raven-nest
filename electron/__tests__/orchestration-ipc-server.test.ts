@@ -1,0 +1,175 @@
+import { describe, it, expect, afterEach } from 'vitest'
+import { connect } from 'net'
+import { existsSync, mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { PaneTokenRegistry } from '../orchestration/pane-tokens'
+import { OrchestrationIpcServer } from '../orchestration/orchestration-ipc-server'
+import type { OrchMethod } from '../orchestration/protocol'
+
+type Handle = (caller: string, method: OrchMethod, params: unknown) => Promise<unknown>
+
+let server: OrchestrationIpcServer | null = null
+let dir: string | null = null
+
+afterEach(() => {
+  server?.stop()
+  server = null
+  if (dir) rmSync(dir, { recursive: true, force: true })
+  dir = null
+})
+
+async function levantar(handle: Handle, idleTimeoutMs?: number) {
+  dir = mkdtempSync(join(tmpdir(), 'orq-'))
+  const socketPath = join(dir, 's.sock')
+  const tokens = new PaneTokenRegistry()
+  server = new OrchestrationIpcServer({ socketPath, tokens, handle, idleTimeoutMs })
+  server.start()
+  for (let i = 0; i < 100 && !existsSync(socketPath); i++) await new Promise((r) => setTimeout(r, 10))
+  return { socketPath, tokens }
+}
+
+function pedir(socketPath: string, req: unknown): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const s = connect(socketPath)
+    let buf = ''
+    s.setEncoding('utf8')
+    s.on('connect', () => s.write(`${JSON.stringify(req)}\n`))
+    s.on('data', (c: string) => {
+      buf += c
+      if (buf.includes('\n')) { s.destroy(); resolve(JSON.parse(buf.split('\n')[0])) }
+    })
+    s.on('error', reject)
+  })
+}
+
+describe('OrchestrationIpcServer', () => {
+  it('rechaza sin token', async () => {
+    const { socketPath } = await levantar(async () => 'x')
+    const r = await pedir(socketPath, { id: '1', method: 'worker.list', params: {} })
+    expect(r).toEqual({ id: '1', ok: false, error: 'unauthorized' })
+  })
+
+  it('rechaza token revocado', async () => {
+    const { socketPath, tokens } = await levantar(async () => 'x')
+    const token = tokens.issue('pane-1')
+    tokens.revoke('pane-1')
+    const r = await pedir(socketPath, { id: '2', method: 'worker.list', params: {}, token })
+    expect(r).toEqual({ id: '2', ok: false, error: 'unauthorized' })
+  })
+
+  it('pasa el paneId resuelto a handle', async () => {
+    const llamadas: Array<[string, OrchMethod, unknown]> = []
+    const { socketPath, tokens } = await levantar(async (c, m, p) => { llamadas.push([c, m, p]); return { n: 1 } })
+    const token = tokens.issue('pane-real')
+    const r = await pedir(socketPath, { id: '3', method: 'worker.list', params: { paneId: 'otro' }, token })
+    expect(r).toEqual({ id: '3', ok: true, result: { n: 1 } })
+    expect(llamadas).toEqual([['pane-real', 'worker.list', { paneId: 'otro' }]])
+  })
+
+  it('error de handle vuelve como ok:false con el mensaje', async () => {
+    const { socketPath, tokens } = await levantar(async () => { throw new Error('worker_limit') })
+    const token = tokens.issue('p')
+    const r = await pedir(socketPath, { id: '4', method: 'worker.launch', params: {}, token })
+    expect(r).toEqual({ id: '4', ok: false, error: 'worker_limit' })
+  })
+
+  it('método desconocido vuelve unknown_method sin llamar a handle', async () => {
+    let llamado = false
+    const { socketPath, tokens } = await levantar(async () => { llamado = true; return 1 })
+    const token = tokens.issue('p')
+    const r = await pedir(socketPath, { id: '5', method: 'worker.nope', params: {}, token })
+    expect(r).toEqual({ id: '5', ok: false, error: 'unknown_method' })
+    expect(llamado).toBe(false)
+  })
+
+  it('línea de más de 1 MiB cierra la conexión', async () => {
+    const { socketPath } = await levantar(async () => 'x')
+    const cerrado = await new Promise<boolean>((resolve) => {
+      const s = connect(socketPath)
+      s.on('connect', () => s.write('a'.repeat(1024 * 1024 + 10)))
+      s.on('close', () => resolve(true))
+      s.on('error', () => { /* ECONNRESET/EPIPE esperado */ })
+    })
+    expect(cerrado).toBe(true)
+  })
+
+  it('un request en vuelo más largo que el idle timeout igual recibe su respuesta', async () => {
+    const { socketPath, tokens } = await levantar(
+      () => new Promise((r) => setTimeout(() => r('tarde'), 300)), 100)
+    const token = tokens.issue('p')
+    const r = await pedir(socketPath, { id: '7', method: 'inbox.wait', params: {}, token })
+    expect(r).toEqual({ id: '7', ok: true, result: 'tarde' })
+  })
+
+  it('un throw síncrono de handle vuelve como ok:false', async () => {
+    const { socketPath, tokens } = await levantar((() => { throw new Error('boom') }) as Handle)
+    const token = tokens.issue('p')
+    const r = await pedir(socketPath, { id: '8', method: 'worker.list', params: {}, token })
+    expect(r).toEqual({ id: '8', ok: false, error: 'boom' })
+  })
+
+  it('stop destruye las conexiones abiertas', async () => {
+    const { socketPath } = await levantar(async () => 'x')
+    const cerrado = new Promise<boolean>((resolve) => {
+      const s = connect(socketPath)
+      s.on('connect', () => setTimeout(() => server!.stop(), 20))
+      s.on('close', () => resolve(true))
+      s.on('error', () => {})
+    })
+    expect(await cerrado).toBe(true)
+  })
+
+  it('muchos requests secuenciales en una conexión no acumulan listeners de timeout', async () => {
+    const avisos: string[] = []
+    const onWarn = (w: Error) => avisos.push(w.name)
+    process.on('warning', onWarn)
+    try {
+      const { socketPath, tokens } = await levantar(async () => 'ok')
+      const token = tokens.issue('p')
+      await new Promise<void>((resolve, reject) => {
+        const s = connect(socketPath)
+        let n = 0
+        let buf = ''
+        s.setEncoding('utf8')
+        const enviar = () => s.write(`${JSON.stringify({ id: String(n), method: 'worker.list', params: {}, token })}\n`)
+        s.on('connect', enviar)
+        s.on('data', (c: string) => {
+          buf += c
+          while (buf.includes('\n')) {
+            buf = buf.slice(buf.indexOf('\n') + 1)
+            if (++n >= 25) { s.destroy(); resolve(); return }
+            enviar()
+          }
+        })
+        s.on('error', reject)
+      })
+      await new Promise((r) => setTimeout(r, 20))
+      expect(avisos).not.toContain('MaxListenersExceededWarning')
+    } finally {
+      process.off('warning', onWarn)
+    }
+  })
+
+  it('result no serializable no deja el request colgado ni sin rearmar el idle', async () => {
+    const { socketPath, tokens } = await levantar(async () => BigInt(1), 100)
+    const token = tokens.issue('p')
+    const r = await pedir(socketPath, { id: '9', method: 'worker.list', params: {}, token })
+    expect(r).toEqual({ id: '9', ok: false, error: 'internal_error' })
+  })
+
+  it('el idle se rearma tras responder: la conexión se cierra a los idleMs', async () => {
+    const { socketPath, tokens } = await levantar(async () => 'ok', 100)
+    const token = tokens.issue('p')
+    const t0 = Date.now()
+    const ms = await new Promise<number>((resolve, reject) => {
+      const s = connect(socketPath)
+      s.resume() // sin consumir, el cliente no ve el FIN del server
+      s.on('connect', () => s.write(`${JSON.stringify({ id: '10', method: 'worker.list', params: {}, token })}\n`))
+      s.on('close', () => resolve(Date.now() - t0))
+      s.on('error', reject)
+    })
+    expect(ms).toBeGreaterThanOrEqual(90)
+    expect(ms).toBeLessThan(1500)
+  })
+})

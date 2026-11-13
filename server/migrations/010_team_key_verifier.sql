@@ -1,0 +1,17 @@
+-- Prueba de posesión de la maestra de EQUIPO (Task 15, C2 de la review final, 2026-10-15).
+--
+-- `authorize` y `recrypt` sólo miraban el rol. Un leader SIN la clave —existe por diseño: el
+-- rol se transfiere y la clave no (spec §6)— podía pisar la envoltura de un device con SU
+-- maestra (el device la readopta sola al arrancar, sin aviso) o re-cifrar el histórico del
+-- equipo con basura. Mismo agujero que `007_rotate_verifier.sql` cerró para la clave personal.
+--
+-- `verifier` es el SHA-256 de la prueba que el cliente deriva de la maestra (HMAC con etiqueta
+-- de dominio y el team_id). Se guarda el HASH y no la prueba porque, a diferencia del
+-- personal, este valor se le muestra a todo miembro activo (`GET /v1/teams/key`) para que
+-- verifique la maestra que adopta: si fuera la prueba misma, un leader sin clave la leería y
+-- la reenviaría.
+--
+-- Nullable porque la columna se agrega sobre una tabla existente; `activateTeamKey` la exige
+-- desde ahora, y una fila sin verificador no puede autorizar ni migrar (falla cerrado). El
+-- cifrado de equipo nunca salió, así que no hay equipos reales en ese estado.
+alter table team_keys add column if not exists verifier text;

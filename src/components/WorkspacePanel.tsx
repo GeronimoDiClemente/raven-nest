@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Workspace, SessionPane, AI_CONFIG, equalSizes } from '../types'
 import { useSharedWorkspaces } from '../hooks/useSharedWorkspaces'
 import { useProfile } from '../hooks/useProfile'
+import { PLAN_LIMITS } from '../lib/stripe'
 import { useTeam } from '../hooks/useTeam'
 import { useFixedPopover } from '../hooks/useFixedPopover'
 import ConfirmDialog from './ConfirmDialog'
@@ -162,7 +163,15 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
   }
 
   const handleShare = async (ws: Workspace) => {
-    if (plan === 'free') { onRequireUpgrade?.(); return }
+    // El gate es `memoryTeamShare`, NO `plan === 'free'`. Dos motivos:
+    //
+    // 1. Mirar el nombre del plan dejaria pasar a un usuario **Cloud**, y
+    //    PLAN_LIMITS.cloud tiene `memoryTeamShare: false`: compartir al equipo es
+    //    Teams/Enterprise. Se mira la capacidad, no el plan.
+    // 2. Solo aplica cuando HAY equipo: sin `team`, esto comparte a Community, que no es
+    //    la feature paga. Todo lo local es gratis; lo que se paga es la memoria en la
+    //    nube y Teams.
+    if (team && !PLAN_LIMITS[plan].memoryTeamShare) { onRequireUpgrade?.(); return }
     await share(ws, team?.id)
   }
 
@@ -247,7 +256,7 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
               )}
               <div className="snippet-list">
                 {workspaces.map((ws) => (
-                  <div key={ws.id} className="snippet-item">
+                  <div key={ws.id} className="snippet-item snippet-item--compact">
                     <span className="snippet-name" title={`${ws.layout.rows}×${ws.layout.cols}`}>{ws.name}</span>
                     <div className="snippet-item-actions">
                       <button className="snippet-send-btn" onClick={() => handleLoad(ws)} title="Load">Load</button>
@@ -269,7 +278,7 @@ export default function WorkspacePanel({ onSave, onLoad, onRequireUpgrade }: Pro
               )}
               <div className="snippet-list">
                 {shared.map((item) => (
-                  <div key={item.id} className="snippet-item">
+                  <div key={item.id} className="snippet-item snippet-item--compact">
                     <span className="snippet-name" title={`${item.data.layout?.rows}×${item.data.layout?.cols}`}>{item.name}</span>
                     <div className="snippet-item-actions">
                       <button className="snippet-send-btn" onClick={() => handleClone(item.data)} title="Clone to Mine">Clone</button>

@@ -3,12 +3,14 @@ import type { TourDef, TourId } from './types'
 import { worktreesTour } from './tours/worktrees'
 import { myReposTour } from './tours/my-repos'
 import { teamsTour } from './tours/teams'
+import { memoriesTour } from './tours/memories'
 
 /** All registered tours. */
 const tours: Record<string, TourDef> = {
   [worktreesTour.id]: worktreesTour,
   [myReposTour.id]: myReposTour,
   [teamsTour.id]: teamsTour,
+  [memoriesTour.id]: memoriesTour,
 }
 
 export function getTour(id: TourId): TourDef | undefined {

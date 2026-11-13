@@ -23,8 +23,11 @@ test('importa fontSize/tabSize desde un settings.json fake de VS Code', async ()
     // superpuesto (inset:0) sobre toda la fila .sidebar-item-settings (global.css:594-598),
     // así que clickear el contenedor de la fila alcanza sin necesitar expandir el sidebar.
     await h.page.locator('.sidebar-item-settings').click()
-    await h.page.locator('.sp-tab', { hasText: 'Editor' }).click()
-    await h.page.locator('.sp-action-btn', { hasText: 'Import from VS Code' }).click()
+    // Ya no hay pestañas: Settings es una sola pagina con secciones y un buscador (modelo
+    // de Orca). La seccion Editor esta montada desde que se abre el panel, asi que no hay
+    // nada que clickear para llegar — se busca, que es como se llega ahora.
+    await h.page.getByPlaceholder('Search settings…').fill('Editor')
+    await h.page.getByRole('button', { name: 'Import from VS Code' }).click()
 
     const preview = h.page.locator('[data-testid="ide-config-preview"]')
     await expect(preview).toBeVisible({ timeout: 10_000 })
@@ -37,7 +40,7 @@ test('importa fontSize/tabSize desde un settings.json fake de VS Code', async ()
     // ver main.tsx:96), por lo que el upsert no tiene efecto observable acá.
     // Lo que sí es verificable end-to-end sin mockear Supabase es que "Apply"
     // confirma el preview y lo cierra sin error.
-    await h.page.locator('.sp-action-btn', { hasText: 'Apply' }).click()
+    await h.page.getByRole('button', { name: 'Apply' }).click()
     await expect(preview).not.toBeVisible({ timeout: 10_000 })
   } finally {
     await teardown(h)

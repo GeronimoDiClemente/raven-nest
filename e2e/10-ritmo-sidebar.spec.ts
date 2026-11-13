@@ -1,0 +1,193 @@
+// El ritmo de la barra lateral: que las filas sean todas la misma fila.
+//
+// Que "se vea parejo" no es una opinión: son tres números —alto, radio del resaltado y
+// espacio entre filas— y los tres se pueden medir. Este spec existe porque los tres
+// estaban desalineados a la vez y ninguno se notaba leyendo el código:
+//
+//   - `.user-menu-trigger` medía 40px donde las otras ocho medían 32, y era la única con
+//     margen vertical.
+//   - Convivían TRES radios: 6px en `.sidebar-item` y en los <Button size="sm">, 8px en
+//     los <Button size="default">, 10px en el menú de usuario. Como el hover dibuja ese
+//     radio, la misma columna mostraba esquinas distintas de una fila a la siguiente.
+//   - El botón de colapsar llevaba un `mb-1` que ninguna otra fila tenía.
+import { test, expect } from '@playwright/test'
+import { launchHarness, teardown } from './helpers/harness'
+
+interface Fila { txt: string; h: number; y: number; radio: string; mt: string; mb: string }
+
+async function filasDeLaBarra(page: import('@playwright/test').Page): Promise<Fila[]> {
+  return page.evaluate(() => {
+    const sb = document.querySelector('.sidebar')
+    if (!sb) return []
+    const out: Fila[] = []
+    sb.querySelectorAll('.sidebar-item, button').forEach((el) => {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) return
+      // Las pestañas del repo (Worktrees/Explorer/Tools) son una barra de pestañas, no
+      // filas de la lista: tienen su propia altura y su propio ritmo.
+      if (el.closest('.sidebar-tabbar')) return
+      // Un control DENTRO de una fila (el botón de unlink, el de GitHub, el "Link repo" de
+      // la fila del repo) no es una fila: mide lo que mide su contenido.
+      const padre = el.parentElement?.closest('.sidebar-item, button')
+      if (padre) return
+      const cs = getComputedStyle(el as HTMLElement)
+      out.push({
+        txt: (el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 24),
+        h: +r.height.toFixed(1), y: +r.y.toFixed(1),
+        radio: cs.borderRadius, mt: cs.marginTop, mb: cs.marginBottom,
+      })
+    })
+    return out.sort((a, b) => a.y - b.y)
+  })
+}
+
+test('todas las filas de la barra tienen el mismo alto, el mismo radio y ningún margen propio', async () => {
+  const h = await launchHarness({ withRepo: true })
+  const { page } = h
+  try {
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    // La cáscara entra con un zoom: medir durante la animación da tamaños escalados.
+    await page.waitForTimeout(2500)
+
+    for (const modo of ['expandida', 'colapsada'] as const) {
+      if (modo === 'colapsada') {
+        await toggle.click()
+        await page.waitForTimeout(1500)
+      }
+      const filas = await filasDeLaBarra(page)
+      expect(filas.length, `${modo}: no se encontró ninguna fila`).toBeGreaterThan(3)
+
+      const alturas = [...new Set(filas.map((f) => f.h))]
+      expect(alturas, `${modo}: alturas distintas — ${JSON.stringify(filas.map((f) => [f.txt, f.h]))}`)
+        .toEqual([32])
+
+      const radios = [...new Set(filas.map((f) => f.radio))]
+      expect(radios, `${modo}: radios distintos — ${JSON.stringify(filas.map((f) => [f.txt, f.radio]))}`)
+        .toHaveLength(1)
+
+      // Ningún margen vertical propio: el espacio entre filas lo decide el contenedor, o un
+      // separador visible. Una fila que se aparta sola rompe el ritmo de todas.
+      //
+      // UNA excepción, explícita: la fila del repo dentro del menú del repo lleva margen
+      // arriba porque separa DOS GRUPOS —las pestañas de arriba y las herramientas de
+      // abajo—, que es justo lo que un margen tiene que hacer. Va con margin y no con
+      // padding por una razón medida: `.sidebar-item` tiene `height` fija y `border-box`, así
+      // que el padding no empuja nada, sólo comprime el contenido adentro de la misma altura.
+      // Durante dos iteraciones el CSS decía haber agregado 7px y después 12px de aire que
+      // en la app medían CERO.
+      const conMargen = filas.filter((f) => f.mt !== '0px' || f.mb !== '0px')
+      expect(
+        conMargen.map((f) => f.txt).filter((t) => !/link repo|STI|repo/i.test(t)),
+        `${modo}: filas con margen propio`
+      ).toEqual([])
+    }
+  } finally {
+    await teardown(h)
+  }
+})
+
+// Un separador que no dibuja su línea pero sí deja su margen se lee como un hueco
+// arbitrario en el ritmo. Pasó de verdad: el primitivo usaba el shorthand
+// `data-horizontal:` de Tailwind v4, que genera `[data-horizontal]` —un atributo llamado
+// así— mientras Radix emite `data-orientation="horizontal"`. Ninguna de las cuatro clases
+// aplicaba y el separador quedaba en 0×0.
+test('un separador de la barra dibuja su línea, no sólo su margen', async () => {
+  const h = await launchHarness({ withRepo: true })
+  const { page } = h
+  try {
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    if ((await toggle.getAttribute('aria-expanded')) === 'true') await toggle.click()
+    await page.waitForTimeout(2000)
+
+    const seps = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('.sidebar [data-slot="separator"]')).map((el) => {
+        const r = el.getBoundingClientRect()
+        return { alto: +r.height.toFixed(1), ancho: +r.width.toFixed(1) }
+      })
+    )
+    expect(seps.length, 'no hay separadores en la barra').toBeGreaterThan(0)
+    for (const s of seps) {
+      expect(s.alto, `un separador con alto ${s.alto}`).toBeGreaterThan(0)
+      expect(s.ancho, `un separador con ancho ${s.ancho}`).toBeGreaterThan(0)
+    }
+  } finally {
+    await teardown(h)
+  }
+})
+
+// Con la ventana baja, a la columna le falta alto y el navegador achica lo que PUEDE
+// achicarse. Todas las filas tenían `flex-shrink: 0` menos la del usuario, así que era la
+// única que se aplastaba: medido en la app el 2026-10-01, quedaba en ~16px entre Memories
+// y Settings de 32, pegada a las dos. Con la ventana alta este archivo no lo veía.
+test('con la ventana baja, la fila del usuario no se aplasta', async () => {
+  const h = await launchHarness({ withRepo: true })
+  const { app, page } = h
+  try {
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      w.setMinimumSize(400, 300)
+      w.setSize(1100, 420)
+    })
+    await page.waitForTimeout(2500)
+
+    const alto = await page.locator('.user-menu-trigger').evaluate((el) => el.getBoundingClientRect().height)
+    expect(alto).toBe(32)
+  } finally {
+    await teardown(h)
+  }
+})
+
+// La fila del usuario es la única que no es un <Button>, y las tres cosas en que se notaba
+// (2026-10-16, captura de Gero): el avatar centrado en la barra colapsada caía en x=13,5
+// contra 11 de los íconos de arriba; su punto de plan medía 10px con borde contra los 7px
+// con anillo del punto de Memories; y su hover pintaba `--bg-app` en vez del relleno de los
+// <Button> ghost.
+test('la fila del usuario se alinea, marca y resalta como sus vecinas', async () => {
+  const h = await launchHarness({ withRepo: true })
+  const { page } = h
+  try {
+    const toggle = page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    await page.waitForTimeout(2500)
+
+    const memorias = page.getByTestId('memories-dot')
+    const fila = page.locator('.user-menu-trigger')
+    await expect(memorias).toBeVisible()
+    await expect(fila).toBeVisible()
+
+    for (const modo of ['expandida', 'colapsada'] as const) {
+      if (modo === 'colapsada') {
+        await toggle.click()
+        await page.waitForTimeout(1500)
+      }
+      const xIcono = await memorias.evaluate((el) => el.parentElement!.getBoundingClientRect().x)
+      const xAvatar = await page.locator('.user-menu-avatar').evaluate((el) => el.getBoundingClientRect().x)
+      expect(xAvatar, `${modo}: x del avatar contra x del ícono de Memories`).toBe(xIcono)
+
+      const punto = (sel: string) => page.locator(sel).evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        const p = el.parentElement!.getBoundingClientRect()
+        return { w: r.width, h: r.height, dx: r.right - p.right, dy: r.bottom - p.bottom }
+      })
+      expect(await punto('.user-menu-dot'), `${modo}: punto del plan contra punto de Memories`)
+        .toEqual(await punto('[data-testid="memories-dot"]'))
+    }
+
+    const fondoEnHover = async (loc: import('@playwright/test').Locator) => {
+      await loc.hover()
+      await page.waitForTimeout(300)
+      return loc.evaluate((el) => getComputedStyle(el).backgroundColor)
+    }
+    const filaMemorias = memorias.locator('xpath=ancestor::button[1]')
+    expect(await fondoEnHover(fila)).toBe(await fondoEnHover(filaMemorias))
+  } finally {
+    await teardown(h)
+  }
+})
