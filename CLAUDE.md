@@ -41,20 +41,21 @@ A partir de v1.2 los paths locales de los repos se guardan **por máquina** en `
 
 ## Hacer una release
 
-**El workflow `release.yml` hace TODO solo**: buildea las 3 plataformas **firmadas**,
+**El workflow `release.yml` hace TODO solo una vez disparado**: buildea las 3 plataformas **firmadas**,
 notariza y grapa el DMG de Mac, borra la release/tag anterior y crea la release nueva con
-todos los artifacts. Se dispara automáticamente al pushear a `main` un cambio de
-`package.json`. El proceso es solo bumpear la versión:
+todos los artifacts. **No se dispara solo**: un merge a `main` (aunque cambie `package.json`) no
+publica nada. La release es una acción explícita:
 
 1. Subir el campo `"version"` en `package.json` a la nueva versión.
-2. Commitear y pushear a `main`:
+2. Commitear en una rama y mergear a `main` por PR:
    ```bash
    VERSION=$(node -p "require('./package.json').version")
    git commit -am "chore(release): v$VERSION — <resumen>"
-   git push origin main
    ```
-   Eso dispara `release.yml` solo (por el cambio en `package.json`).
-3. (Opcional) Re-disparar a mano si hace falta: `gh workflow run release.yml --repo GeronimoDiClemente/raven-nest`
+3. Disparar la release desde `main` (lo corre Gero):
+   ```bash
+   gh workflow run release.yml --repo GeronimoDiClemente/raven-nest -f canal=estable
+   ```
 4. Verificar que la release tiene los artifacts y que el DMG de Mac quedó notarizado:
    ```bash
    gh release view "v$VERSION" --repo GeronimoDiClemente/raven-nest

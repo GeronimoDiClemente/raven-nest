@@ -18,8 +18,7 @@ protección empieza cuando se hacen los pasos de abajo.
 | `beta` | cualquiera | **sí** | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`, `R2_BETAS_ACCESS_KEY_ID`, `R2_BETAS_SECRET_ACCESS_KEY`, `R2_BETAS_BUCKET` |
 | (repo) | — | — | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `MAIN_VITE_GITHUB_CLIENT_ID`, `MAIN_VITE_GITLAB_CLIENT_ID`, `R2_ACCOUNT_ID` — son públicos de hecho: viajan dentro de la app |
 
-**`release` sin revisor, a propósito.** `staple-pending-releases.yml` corre cada 10 minutos,
-`check-mac-staple.yml` cada 2 horas y `backup-supabase.yml` cada noche, todos con secrets de `release`: con un revisor
+**`release` sin revisor, a propósito.** `check-mac-staple.yml` corre cada 2 horas y `backup-supabase.yml` cada noche, todos con secrets de `release`: con un revisor
 quedarían esperando una aprobación para siempre. Lo que protege a `release` es la regla de
 ramas: un job de otra rama no recibe sus secrets. Quien puede pushear a `main` ya puede
 publicar, así que un revisor no agrega mucho ahí.
@@ -73,8 +72,7 @@ gh secret set MAC_CSC_LINK --env release --repo $R      # pide el valor por stdi
 - **`APPLE_API_KEY`, `APPLE_API_KEY_ID` y `APPLE_API_ISSUER` NO se borran.** Ningún workflow
   de esta rama ni de `main` los usa, pero son los que notarizaron la v1.5.1 (`release/1.5.1`,
   PR #31 `ci/notary-api-key`, sin mergear). La contraseña de app (`APPLE_APP_SPECIFIC_PASSWORD`)
-  da 401 desde el 2026-09-07: `staple-pending-releases.yml` falla en cada corrida desde
-  entonces. Mergear el PR #31 antes de la próxima release y cargar los tres en `release` y
+  da 401 desde el 2026-09-07 (por eso falló en cada corrida el cron de staple, ya borrado). Mergear el PR #31 antes de la próxima release y cargar los tres en `release` y
   `beta`. (Este punto decía antes que había que borrarlos: era falso.)
 - `build.yml` (el build de diagnóstico) declara `release` en el job de Windows: firma sólo si
   se dispara desde `main`. Desde otra rama ese job no arranca.
