@@ -18,8 +18,8 @@ protección empieza cuando se hacen los pasos de abajo.
 | `beta` | cualquiera | **sí** | `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`, `R2_BETAS_ACCESS_KEY_ID`, `R2_BETAS_SECRET_ACCESS_KEY`, `R2_BETAS_BUCKET` |
 | (repo) | — | — | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `MAIN_VITE_GITHUB_CLIENT_ID`, `MAIN_VITE_GITLAB_CLIENT_ID`, `R2_ACCOUNT_ID` — son públicos de hecho: viajan dentro de la app |
 
-**`release` sin revisor, a propósito.** `check-mac-staple.yml` corre cada 2 horas y `backup-supabase.yml` cada noche, todos con secrets de `release`: con un revisor
-quedarían esperando una aprobación para siempre. Lo que protege a `release` es la regla de
+**`release` sin revisor, a propósito.** `backup-supabase.yml` corre cada noche con secrets de `release`: con un revisor
+quedaría esperando una aprobación para siempre. Lo que protege a `release` es la regla de
 ramas: un job de otra rama no recibe sus secrets. Quien puede pushear a `main` ya puede
 publicar, así que un revisor no agrega mucho ahí.
 
