@@ -204,6 +204,8 @@ export class PtyManager extends EventEmitter {
     if (isMac) {
       const home = env.HOME || ''
       const extra = [
+        // El instalador nativo de claude deja su launcher en el HOME redirigido del pane.
+        ...(accountDir && cmd && !esTui ? [`${accountDir}/.local/bin`] : []),
         `${home}/.local/bin`,
         '/opt/homebrew/bin',
         '/opt/homebrew/sbin',
