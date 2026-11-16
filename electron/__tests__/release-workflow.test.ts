@@ -1,5 +1,5 @@
 // La release estable sólo sale a mano: un push a main que toque package.json ya no
-// dispara `release.yml`, y el cron de staple (que re-grapaba DMGs) no existe más.
+// dispara `release.yml`, y el workflow `staple-pending-releases.yml` no existe más.
 import { describe, it, expect } from 'vitest'
 import { createRequire } from 'node:module'
 import { existsSync, readFileSync } from 'node:fs'

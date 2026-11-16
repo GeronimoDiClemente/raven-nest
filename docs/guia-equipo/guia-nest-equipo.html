@@ -363,7 +363,7 @@ flowchart LR
 
     <h3>Cómo se publica una versión</h3>
     <ul>
-      <li>Se sube el campo <code>version</code> de <code>package.json</code> y se pushea a <code>main</code>. Eso dispara <code>release.yml</code>, que hace todo: firma, notariza el DMG, publica el release y deploya las functions.</li>
+      <li>Se sube el campo <code>version</code> de <code>package.json</code>, se mergea a <code>main</code> por PR y después se dispara <code>release.yml</code> a mano con <code>canal=estable</code>. El merge solo no publica nada. <code>release.yml</code> hace todo: firma, notariza el DMG, publica el release y deploya las functions.</li>
       <li><strong>Nunca correr <code>build.yml</code> en un release:</strong> genera un DMG sin firmar que pisa al firmado y rompe la notarización. Ya pasó con v1.3.1 y v1.3.2.</li>
       <li>El canal beta sube al R2 privado y no toca prod.</li>
       <li>Releases y deploys a prod los hace Gero. Si algo tuyo necesita salir, avisale.</li>

@@ -7,10 +7,9 @@ nombres.
 
 > **BLOQUEANTE — leer antes de mergear a `main`.** `release.yml` deploya TODAS las edge
 > functions de Stripe a **producción** (incluida `stripe-portal`, todas con `--no-verify-jwt`:
-> cada función autentica en código) cada vez que corre en canal estable: un push a `main` **que
-> cambie `package.json`** (el bump de versión) o un `workflow_dispatch` con `canal=estable`. Un
-> merge que no toca `package.json` no dispara nada; el bump siguiente publica el webhook nuevo en
-> prod automáticamente. **Antes de ese merge tienen que estar cargados en prod**
+> cada función autentica en código) cada vez que corre en canal estable, y eso pasa sólo con un
+> `workflow_dispatch` con `canal=estable` desde `main`. Ningún merge dispara nada, aunque cambie
+> `package.json`. **Antes de disparar esa release tienen que estar cargados en prod**
 > (Supabase prod) `STRIPE_PRICE_CLOUD_MONTHLY`, `STRIPE_PRICE_CLOUD_ANNUAL`, `PLAN_SYNC_URL` y
 > `PLAN_SYNC_SECRET`, **y en Railway prod** `PLAN_SYNC_SECRET` (el mismo valor). **Si falta
 > alguno, cada activación de suscripción devuelve 500** y Stripe la reintenta sin que el plan
@@ -125,8 +124,8 @@ Un smoke de compra real con una tarjeta propia y reembolso.
 
 Spec: `docs/superpowers/specs/2026-10-29-cuenta-en-settings-design.md`. Rama
 `feat/memories-settings` (commits `839954e..1a374a0`). **Mismo régimen: cada paso es una acción
-externa con OK explícito de Gero, y el BLOQUEANTE de arriba sigue vigente**: no mergear a `main`
-(el bump de versión que lo acompaña dispara `release.yml`) sin los secrets de prod cargados y el servidor nuevo corriendo en Railway
+externa con OK explícito de Gero, y el BLOQUEANTE de arriba sigue vigente**: no disparar la
+release estable (`release.yml`) sin los secrets de prod cargados y el servidor nuevo corriendo en Railway
 prod. 2b-3 agrega un servidor más nuevo todavía (ver paso 4).
 
 **Orden de salida** (la migración antes que las functions; el servidor antes que el merge). Cada
@@ -158,7 +157,7 @@ local, para el smoke de abajo) y recién con el smoke en verde contra **prod** (
    `stripe-webhook`, `stripe-checkout`, `stripe-portal`, `admin-api`.
    - Local: `supabase functions serve --no-verify-jwt --env-file supabase/functions/.env`.
    - Prod: `release.yml` las deploya cuando corre en canal estable (ver el BLOQUEANTE de arriba:
-     sólo con el bump de `package.json` o a mano); si hace falta antes,
+     sólo cuando se la dispara a mano); si hace falta antes,
      `supabase functions deploy <nombre> --no-verify-jwt --project-ref qkqlsytxtshgjxwmafpw`.
 4. **Servidor de sync**: `GET /v1/devices` (lista de máquinas de la cuenta) y revocar
    por `deviceId` en `POST /v1/devices/revoke`. Sin migración nueva de la base del servidor. Con
@@ -167,8 +166,8 @@ local, para el smoke de abajo) y recién con el smoke en verde contra **prod** (
    - Local: `server/` contra el Postgres de desarrollo (ver `server/README.md`).
    - Prod: deploy en Railway prod (`nest-memory-sync`).
 5. Recién ahí, mergear a `main`. El merge solo no deploya nada: las functions llegan a prod con el
-   próximo bump de versión (`release.yml`), así que los pasos 1–4 de prod tienen que estar hechos
-   antes de ese bump, no sólo antes del merge.
+   próxima release estable que se dispare a mano (`release.yml`), así que los pasos 1–4 de prod
+   tienen que estar hechos antes de esa release, no sólo antes del merge.
 
 **Smoke contra Supabase local**: **corrido en verde el 2026-10-30 en la Mac**, los cinco puntos
 de abajo, sobre `bff4d01`. El entorno se rearmó siguiendo el addendum del 22-10 del handoff

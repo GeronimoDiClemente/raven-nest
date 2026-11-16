@@ -26,8 +26,9 @@ sólo cuando seguir usando la versión rota es peor que no poder usar Nest hasta
 
 ## 3. Sacar el arreglo
 
-- Si el arreglo es chico: commit en `main` y bump de versión (X.Y.Z+1). `release.yml` corre
-  el CI entero antes de buildear.
+- Si el arreglo es chico: PR a `main` con el bump de versión (X.Y.Z+1) y después
+  `gh workflow run release.yml --repo GeronimoDiClemente/raven-nest -f canal=estable` desde
+  `main`. El merge solo no publica nada. `release.yml` corre el CI entero antes de buildear.
 - Si no hay arreglo rápido: revertir los commits que rompieron, y publicar el código viejo
   como X.Y.Z+1. La versión siempre sube.
 
