@@ -363,7 +363,6 @@ Be specific and actionable. Keep it short.`
 
   return (
     <div className="pr-review-container">
-      {/* Header */}
       <div className="pr-review-header">
         <button className="pr-back-btn" onClick={onBack}>← Back</button>
         <div className="pr-review-title-block">
@@ -405,7 +404,7 @@ Be specific and actionable. Keep it short.`
         <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             className="snippet-save-btn"
-            style={{ background: '#7c3aed', minWidth: 110 }}
+            style={{ background: 'var(--primary)', minWidth: 110 }}
             onClick={mergePR}
             disabled={merging}
           >
@@ -432,7 +431,7 @@ Be specific and actionable. Keep it short.`
               />
               <button
                 className="snippet-save-btn"
-                style={{ background: '#7c3aed' }}
+                style={{ background: 'var(--primary)' }}
                 onClick={createRelease}
                 disabled={releasing || !releaseVersion.trim()}
               >
@@ -450,7 +449,6 @@ Be specific and actionable. Keep it short.`
         </div>
       )}
 
-      {/* Tabs */}
       <div className="pr-tabs">
         <button className={`pr-tab${tab === 'files' ? ' active' : ''}`} onClick={() => setTab('files')}>
           Files {!loading && `(${files.length})`}
@@ -494,7 +492,6 @@ Be specific and actionable. Keep it short.`
         </div>
       )}
 
-      {/* Body */}
       <div className="pr-review-body">
         {loading && (
           <div className="pr-skeleton">

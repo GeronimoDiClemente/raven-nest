@@ -1,0 +1,184 @@
+// Applies a VaultPlan to disk — the only vault module that touches `fs`, together with
+// vault-config.ts and memory-readonly-reader.ts. See vault spec §7 (batching), §10 (edit
+// detection needs live on-disk hashes) and §12.
+import { randomBytes } from 'crypto'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, appendFileSync, writeFileSync } from 'fs'
+import { dirname, join, resolve, sep } from 'path'
+import { sha256 } from './vault-hash'
+import type { VaultManifest, VaultManifestEntry, VaultPlan, VaultWarning } from './vault-plan'
+
+const BATCH_SIZE = 200
+
+export interface VaultApplyPaths {
+  manifest: string
+  tombstones: string
+  readme: string
+}
+
+/** Lo que usaba el vault antes de que esto fuera parametrizable. No cambiar. */
+export const DEFAULT_APPLY_PATHS: VaultApplyPaths = {
+  manifest: '.nest-vault/manifest.json',
+  tombstones: '.nest-vault/tombstones.jsonl',
+  readme: 'README.md',
+}
+
+/** Every path the plan touches has to stay under `rootDir`: a `..` in a name never leaves it. */
+function abs(rootDir: string, relPath: string): string {
+  const base = resolve(rootDir)
+  const p = resolve(join(base, ...relPath.split('/')))
+  if (p !== base && !p.startsWith(base + sep)) throw new Error(`vault_path_escape: ${relPath}`)
+  return p
+}
+
+/** Atomic write: `.tmp` + `rename`, so a crash mid-write never leaves a truncated `.md` (§13). */
+function writeFileAtomic(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true })
+  const tmp = `${path}.${randomBytes(6).toString('hex')}.tmp`
+  writeFileSync(tmp, content, 'utf8')
+  renameSync(tmp, path)
+}
+
+export function readManifest(rootDir: string, paths: VaultApplyPaths = DEFAULT_APPLY_PATHS): VaultManifest {
+  try {
+    const raw = readFileSync(abs(rootDir, paths.manifest), 'utf8')
+    const data = JSON.parse(raw) as { entries?: Record<string, VaultManifestEntry> }
+    return { entries: data.entries && typeof data.entries === 'object' ? data.entries : {} }
+  } catch {
+    return { entries: {} }
+  }
+}
+
+function writeManifest(rootDir: string, manifest: VaultManifest, paths: VaultApplyPaths): void {
+  writeFileAtomic(abs(rootDir, paths.manifest), JSON.stringify(manifest, null, 2))
+}
+
+function appendTombstones(rootDir: string, entries: Array<{ syncId: string; deletedAt: number; file: string }>, paths: VaultApplyPaths): void {
+  if (entries.length === 0) return
+  const path = abs(rootDir, paths.tombstones)
+  mkdirSync(dirname(path), { recursive: true })
+  const lines = entries.map((e) => JSON.stringify(e)).join('\n') + '\n'
+  appendFileSync(path, lines, 'utf8')
+}
+
+/**
+ * Reads every file the manifest currently tracks and hashes it, for `planVault`'s edit
+ * detection — a path the manifest tracks but that no longer exists on disk (moved away by
+ * a previous pass, or genuinely deleted by hand) is simply absent from the result, never
+ * an error: `planVault` treats "no entry" as "nothing to compare", not as a conflict.
+ */
+export function computeOnDiskHashes(rootDir: string, manifest: VaultManifest): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const entry of Object.values(manifest.entries)) {
+    try {
+      out[entry.filePath] = sha256(readFileSync(abs(rootDir, entry.filePath), 'utf8'))
+    } catch {
+      // Missing/unreadable — omitted on purpose, see doc comment above.
+    }
+  }
+  return out
+}
+
+async function yieldToEventLoop(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve))
+}
+
+export interface VaultApplyResult {
+  written: number
+  moved: number
+  deleted: number
+  conflicts: number
+  warnings: VaultWarning[]
+}
+
+/**
+ * Applies `plan` to `rootDir` and returns the manifest that should be persisted for the
+ * NEXT pass. Batches every fs-touching step by `BATCH_SIZE` with a `setImmediate` yield
+ * between batches (§7) so a 10k-row full pass never blocks Electron main's event loop.
+ */
+export async function applyVaultPlan(rootDir: string, plan: VaultPlan, paths: VaultApplyPaths = DEFAULT_APPLY_PATHS): Promise<{ manifest: VaultManifest; result: VaultApplyResult }> {
+  const manifest = readManifest(rootDir, paths)
+  const tombstoneEntries: Array<{ syncId: string; deletedAt: number; file: string }> = []
+  let batchCount = 0
+  const maybeYield = async (): Promise<void> => {
+    batchCount += 1
+    if (batchCount % BATCH_SIZE === 0) await yieldToEventLoop()
+  }
+
+  // Conflicts first: preserve the user's edited bytes before anything else touches that
+  // path, and re-point the manifest at the fresh mirror we write alongside it.
+  for (const c of plan.conflicts) {
+    const original = readFileSync(abs(rootDir, c.filePath), 'utf8')
+    writeFileAtomic(abs(rootDir, c.conflictPath), original)
+    writeFileAtomic(abs(rootDir, c.freshPath), c.freshContent)
+    if (c.filePath !== c.freshPath) {
+      try { unlinkSync(abs(rootDir, c.filePath)) } catch { /* already gone */ }
+    }
+    manifest.entries[c.syncId] = { filePath: c.freshPath, sourceHash: c.freshSourceHash, fileHash: c.freshFileHash }
+    await maybeYield()
+  }
+
+  for (const w of plan.writes) {
+    writeFileAtomic(abs(rootDir, w.filePath), w.content)
+    manifest.entries[w.syncId] = { filePath: w.filePath, sourceHash: w.sourceHash, fileHash: w.fileHash }
+    await maybeYield()
+  }
+
+  for (const m of plan.moves) {
+    const from = abs(rootDir, m.fromPath)
+    const to = abs(rootDir, m.toPath)
+    mkdirSync(dirname(to), { recursive: true })
+    if (existsSync(from)) renameSync(from, to)
+    const existing = manifest.entries[m.syncId]
+    if (existing) manifest.entries[m.syncId] = { ...existing, filePath: m.toPath }
+    await maybeYield()
+  }
+
+  for (const d of plan.deletes) {
+    const path = abs(rootDir, d.filePath)
+    try { unlinkSync(path) } catch { /* already gone */ }
+    if (d.reason === 'tombstone') {
+      tombstoneEntries.push({ syncId: d.syncId, deletedAt: Date.now(), file: d.filePath })
+    }
+    // A 'stale-path' delete fires alongside a fresh write at the row's new path (same
+    // syncId) — do not drop that fresh manifest entry. Every other reason means the row
+    // has nothing tracked going forward.
+    if (d.reason !== 'stale-path') delete manifest.entries[d.syncId]
+    await maybeYield()
+  }
+
+  for (const idx of plan.indexWrites) {
+    writeFileAtomic(abs(rootDir, idx.filePath), idx.content)
+    await maybeYield()
+  }
+
+  /**
+   * Las carpetas que quedaron de un nombre de proyecto anterior: se borra su `_index.md` y se
+   * intenta sacar la carpeta.
+   *
+   * `rmdirSync` sin `recursive` es la parte importante: falla si adentro quedo algo y no lo
+   * pisa. Si el usuario dejo una nota suya ahi, o si un `_conflicts/` guardo algo que edito,
+   * la carpeta se queda — es exactamente la misma promesa que el resto del vault (nunca se
+   * borra trabajo del usuario por sorpresa), aplicada al unico caso donde borramos un
+   * directorio entero.
+   */
+  for (const idx of plan.indexDeletes) {
+    try { unlinkSync(abs(rootDir, idx.filePath)) } catch { /* ya no estaba */ }
+    try { rmdirSync(abs(rootDir, idx.folder)) } catch { /* quedo algo adentro: se deja */ }
+    await maybeYield()
+  }
+
+  writeFileAtomic(abs(rootDir, paths.readme), plan.readme)
+  appendTombstones(rootDir, tombstoneEntries, paths)
+  writeManifest(rootDir, manifest, paths)
+
+  return {
+    manifest,
+    result: {
+      written: plan.writes.length,
+      moved: plan.moves.length,
+      deleted: plan.deletes.length,
+      conflicts: plan.conflicts.length,
+      warnings: plan.warnings,
+    },
+  }
+}

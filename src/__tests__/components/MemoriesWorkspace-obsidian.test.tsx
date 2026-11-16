@@ -1,0 +1,797 @@
+// Task 10 (Memories estilo Obsidian): el workspace nuevo — explorer a la izquierda, pestañas
+// en el centro (Graph fija, una por nota, New memory, Team thread) y el panel derecho.
+import { forwardRef, useImperativeHandle } from 'react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import type { MemoryGraphNode, MemoryObservationDetail } from '../../types'
+
+// El canvas de react-force-graph-2d no corre en jsdom: un boton por nodo alcanza para ver que
+// llega al grafo y para hacer click. `aria-label` con prefijo, para no chocar con los botones
+// del explorer que tienen el titulo pelado.
+vi.mock('react-force-graph-2d', () => ({
+  default: forwardRef(function FG(
+    { graphData, onNodeClick }: { graphData: { nodes: Array<{ id: string; label: string }> }; onNodeClick: (n: { id: string }, e: MouseEvent) => void },
+    ref,
+  ) {
+    useImperativeHandle(ref, () => ({ d3Force: () => ({ distance: () => {} }), d3ReheatSimulation: () => {} }))
+    return (
+      <div data-testid="fg2d">
+        {graphData.nodes.map((n) => (
+          <button key={n.id} type="button" aria-label={`node ${n.label}`} onClick={(e) => onNodeClick(n, e.nativeEvent)} />
+        ))}
+      </div>
+    )
+  }),
+}))
+
+import MemoriesWorkspace from '../../components/MemoriesWorkspace'
+import { __reiniciarPestanas } from '../../hooks/useMemoryTabs'
+import { __reiniciarMemoryPrefs } from '../../hooks/useMemoryPrefs'
+import { FILTROS_POR_DEFECTO } from '../../lib/memory-prefs'
+
+const setMemoryApi = (api: unknown): void => {
+  ;(window as unknown as { memory?: unknown }).memory = api
+}
+
+const api = (over: Record<string, unknown> = {}) => ({
+  status: vi.fn().mockResolvedValue({
+    connected: true, deviceId: 'd1', itemCount: 142, pendingCount: 0, daemonStatus: 'idle',
+  }),
+  sessions: vi.fn().mockResolvedValue({ ok: true, sessions: [], silentCount: 0 }),
+  doctor: vi.fn().mockResolvedValue({ ok: true, blockedTotal: 0, groups: [] }),
+  vaultHealth: vi.fn().mockResolvedValue({
+    ok: true, enabled: true, rootDir: '/vault', noteCount: 866, conflictCount: 0,
+    lastGeneratedAt: Date.now() - 90 * 60_000,
+  }),
+  vaultGetSettings: vi.fn().mockResolvedValue({ ok: false, error: 'memory_unavailable' }),
+  teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: false }),
+  hubStats: vi.fn().mockResolvedValue({ itemCount: 0, projectCount: 0 }),
+  onStatus: () => {},
+  removeStatusListener: () => {},
+  encryptionStatus: vi.fn().mockResolvedValue({ available: false, active: false, keyEpoch: 0, pendingDevices: [], undecryptable: 0 }),
+  ...over,
+})
+
+const nodo = (syncId: string, title: string, type = 'decision'): MemoryGraphNode => ({
+  syncId, projectKey: 'p1', projectDisplayName: 'raven-nest', tags: [], title, type,
+  scope: 'project', topicKey: null, gitBranch: 'main', originAi: null, authorDisplay: null,
+  updatedAt: 1, superseded: false,
+})
+
+const TITULOS: Record<string, string> = { a: 'Auth pasa a cookies', b: 'Otra', n1: 'Nueva a mano' }
+
+const detalle = (syncId: string, o: Partial<MemoryObservationDetail> = {}): MemoryObservationDetail => ({
+  syncId, projectKey: 'p1', scope: 'project', type: 'decision', title: TITULOS[syncId] ?? syncId,
+  content: 'Cuerpo', tags: [], topicKey: null, gitBranch: 'main', originAi: null, authorDisplay: null,
+  createdAt: 1, updatedAt: 1, supersededBy: null, revisionCount: 1, links: [], mentionedIn: [], ...o,
+})
+
+const grafoAB = () => ({
+  truncated: 0,
+  nodes: [nodo('a', 'Auth pasa a cookies'), nodo('b', 'Otra')],
+  edges: [{ from: 'a', to: 'b', kind: 'wikilink', directed: true }],
+})
+
+const props = (over: Partial<{ activeRepoPath: string | null }> = {}) => ({
+  onClose: () => {},
+  activeRepoPath: over.activeRepoPath ?? null,
+  onOpenFile: () => {},
+  onHowItWorks: () => {},
+})
+
+const explorer = () => within(document.querySelector('[data-tour-id="memories-explorer"]') as HTMLElement)
+const panelDerecho = () => within(screen.getByRole('complementary', { name: 'Side panel' }))
+const raiz = () => document.querySelector('.memories-workspace') as HTMLElement
+
+async function abrirA() {
+  fireEvent.click(await explorer().findByRole('button', { name: 'Auth pasa a cookies' }))
+  expect(await screen.findByRole('tab', { name: /Auth pasa a cookies/, selected: true })).toBeInTheDocument()
+  await screen.findByRole('textbox', { name: 'Memory title' })
+}
+
+async function empezarAConectar() {
+  fireEvent.keyDown(screen.getByRole('button', { name: 'More actions' }), { key: 'Enter' })
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Connect to another memory…' }))
+  expect(await screen.findByText(/Pick the memory this one goes with/)).toBeInTheDocument()
+}
+
+beforeEach(() => {
+  __reiniciarPestanas()
+  __reiniciarMemoryPrefs()
+  localStorage.clear()
+})
+afterEach(() => {
+  setMemoryApi(undefined)
+  delete (window as unknown as { git?: unknown }).git
+  delete (window as unknown as { settings?: unknown }).settings
+  vi.restoreAllMocks()
+})
+
+describe('MemoriesWorkspace estilo Obsidian', () => {
+  it('arranca en Graph; abrir desde el explorer crea una pestana con la nota y su panel', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    expect(await screen.findByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
+    // El grafo global recibe los nodos.
+    expect(await screen.findByRole('button', { name: 'node Auth pasa a cookies' })).toBeInTheDocument()
+
+    fireEvent.click(await explorer().findByRole('button', { name: 'Auth pasa a cookies' }))
+    expect(await screen.findByRole('tab', { name: /Auth pasa a cookies/, selected: true })).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'Memory title' })).toHaveValue('Auth pasa a cookies')
+    expect(panelDerecho().getByText('Mentioned in')).toBeInTheDocument()
+  })
+
+  it('click en un nodo del grafo abre la memoria', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'node Otra' }))
+    expect(await screen.findByRole('tab', { name: /Otra/, selected: true })).toBeInTheDocument()
+  })
+
+  it('conectar a mano: el menu pone el modo y el proximo click enlaza en vez de abrir; Esc cancela', async () => {
+    const link = vi.fn().mockResolvedValue({ ok: true })
+    const graph = vi.fn().mockResolvedValue(grafoAB())
+    setMemoryApi(api({
+      graph,
+      link,
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    await abrirA()
+
+    await empezarAConectar()
+    const pedidosDelGrafo = graph.mock.calls.length
+    fireEvent.click(explorer().getByRole('button', { name: 'Otra' }))
+    await waitFor(() => expect(link).toHaveBeenCalledWith('a', 'b'))
+    await waitFor(() => expect(screen.queryByText(/Pick the memory this one goes with/)).toBeNull())
+    expect(screen.queryByRole('tab', { name: /Otra/ })).toBeNull()
+    // El enlace nuevo se tiene que ver: el grafo se vuelve a pedir.
+    await waitFor(() => expect(graph.mock.calls.length).toBeGreaterThan(pedidosDelGrafo))
+
+    await empezarAConectar()
+    fireEvent.keyDown(raiz(), { key: 'Escape' })
+    expect(screen.queryByText(/Pick the memory this one goes with/)).toBeNull()
+    fireEvent.click(explorer().getByRole('button', { name: 'Otra' }))
+    expect(link).toHaveBeenCalledTimes(1)
+    // Sin el modo, el click abre.
+    expect(await screen.findByRole('tab', { name: /Otra/, selected: true })).toBeInTheDocument()
+  })
+
+  it('conectar a mano: un fallo de link lo dice con el mensaje de siempre', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      link: vi.fn().mockResolvedValue({ ok: false, error: 'memory_not_found' }),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    await abrirA()
+    await empezarAConectar()
+    fireEvent.click(explorer().getByRole('button', { name: 'Otra' }))
+    expect(await screen.findByText('One of those memories is no longer there.')).toBeInTheDocument()
+  })
+
+  it('Ctrl+W cierra la pestana activa y no burbujea (Review Focus 1)', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    await abrirA()
+
+    const enWindow = vi.fn()
+    window.addEventListener('keydown', enWindow)
+    try {
+      const ev = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })
+      fireEvent(screen.getByRole('textbox', { name: 'Memory title' }), ev)
+      await waitFor(() => expect(screen.queryByRole('tab', { name: /Auth pasa a cookies/ })).toBeNull())
+      expect(ev.defaultPrevented).toBe(true)
+      expect(enWindow).not.toHaveBeenCalled()
+      // La activa pasa a la de la izquierda: Graph.
+      expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
+
+      // En Graph (fija) no cierra nada, pero tampoco deja pasar el atajo a la ventana.
+      const ev2 = new KeyboardEvent('keydown', { key: 'w', metaKey: true, bubbles: true, cancelable: true })
+      fireEvent(raiz(), ev2)
+      expect(ev2.defaultPrevented).toBe(true)
+      expect(enWindow).not.toHaveBeenCalled()
+      expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
+    } finally {
+      window.removeEventListener('keydown', enWindow)
+    }
+  })
+
+  it('New memory abre una pestana con el formulario y al guardar pasa a la memoria nueva', async () => {
+    const saveFromUi = vi.fn().mockResolvedValue({ ok: true, syncId: 'n1' })
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      saveFromUi,
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    fireEvent.click(await explorer().findByRole('button', { name: 'New memory' }))
+    expect(await screen.findByRole('tab', { name: /New memory/, selected: true })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'Nueva a mano' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save memory' }))
+
+    await waitFor(() => expect(saveFromUi).toHaveBeenCalledWith(expect.objectContaining({ title: 'Nueva a mano', worktreePath: null })))
+    expect(await screen.findByRole('tab', { name: /Nueva a mano/, selected: true })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /New memory/ })).toBeNull()
+    expect(await screen.findByRole('textbox', { name: 'Memory title' })).toHaveValue('Nueva a mano')
+  })
+
+  it('Create this memory desde un [[hueco]] abre New memory con ese titulo', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) =>
+        detalle(id, { content: 'ver [[Falta]]', links: [{ name: 'Falta', syncId: null }] })),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    await abrirA()
+    await waitFor(() => expect(document.querySelector('[data-wikilink="Falta"]')).not.toBeNull())
+    fireEvent.mouseDown(document.querySelector('[data-wikilink="Falta"]')!)
+    fireEvent.click(await screen.findByRole('button', { name: 'Create this memory' }))
+    expect(await screen.findByRole('tab', { name: /New memory/, selected: true })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveValue('Falta')
+  })
+
+  it('Team thread aparece como pestana fija si el repo tiene el hilo', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: true, projectKey: 'proj1111aaaaaaaa' }),
+      teamThreadGetSettings: vi.fn().mockResolvedValue({ ok: true, settings: { enabled: true, includedTypes: ['handoff', 'decision'], writeAgentsPointer: true } }),
+      teamThreadRead: vi.fn().mockResolvedValue({ ok: true, branches: [] }),
+    }))
+    ;(window as unknown as { git: unknown }).git = { info: vi.fn().mockResolvedValue({ branch: 'main', remoteUrl: null, githubUrl: null, isDirty: false }) }
+    render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+    const hilo = await screen.findByRole('tab', { name: /Team thread/ })
+    expect(hilo).toHaveAttribute('aria-selected', 'false')
+    // Fija: sin boton de cerrar.
+    expect(within(hilo).queryByRole('button', { name: 'Close tab' })).toBeNull()
+  })
+
+  it('sin el hilo prendido no hay pestana Team thread', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: true, projectKey: 'proj1111aaaaaaaa' }),
+      teamThreadGetSettings: vi.fn().mockResolvedValue({ ok: true, settings: { enabled: false, includedTypes: [], writeAgentsPointer: false } }),
+    }))
+    render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+    await screen.findByRole('button', { name: 'node Otra' })
+    expect(screen.queryByRole('tab', { name: /Team thread/ })).toBeNull()
+  })
+
+  it('buscar filtra el explorer y resalta en el grafo', async () => {
+    const crossProject = vi.fn().mockImplementation(async (q?: { query?: string }) => (
+      q?.query
+        ? { items: [{ syncId: 'a', projectKey: 'p1', projectDisplayName: 'raven-nest', title: 'Auth pasa a cookies', type: 'decision', scope: 'project', originAi: null, authorDisplay: null, updatedAt: 1, tags: [] }], nextCursor: null }
+        : { items: [], nextCursor: null }
+    ))
+    setMemoryApi(api({ graph: vi.fn().mockResolvedValue(grafoAB()), crossProject }))
+    render(<MemoriesWorkspace {...props()} />)
+    expect(await explorer().findByRole('button', { name: 'Otra' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search memories' }), { target: { value: 'auth' } })
+    expect(await explorer().findByRole('button', { name: 'Auth pasa a cookies' })).toBeInTheDocument()
+    expect(explorer().queryByRole('button', { name: 'Otra' })).toBeNull()
+    expect(crossProject).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'auth' }))
+    // El grafo no cambia de forma: resalta, no filtra.
+    expect(screen.getByRole('button', { name: 'node Otra' })).toBeInTheDocument()
+  })
+
+  // Portado de MemoryGraphPanel-chips-tipo.test.tsx. Decision del 20-10: los filtros son
+  // DEL GRAFO. Apagar un tipo lo saca del grafo; el explorer sigue mostrando todo.
+  it('apagar un tipo en los filtros lo saca del grafo pero no del explorer', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue({
+        truncated: 0,
+        nodes: [nodo('d1', 'Una decision', 'decision'), nodo('b1', 'Un bugfix', 'bugfix')],
+        edges: [{ from: 'd1', to: 'b1', kind: 'similar', directed: false }],
+      }),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    expect(await screen.findByRole('button', { name: 'node Un bugfix' })).toBeInTheDocument()
+
+    const chip = await panelDerecho().findByRole('button', { name: /Bugfix/ })
+    expect(chip).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(chip)
+    expect(chip).toHaveAttribute('aria-pressed', 'false')
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'node Un bugfix' })).toBeNull())
+    expect(explorer().getByRole('button', { name: 'Un bugfix' })).toBeInTheDocument()
+  })
+
+  // Portado de MemoryGraphPanel-sin-vinculos.test.tsx: antes el cuadro devolvia null; ahora
+  // la pestana Graph lo explica y ofrece mostrar las sueltas.
+  it('grafo sin aristas con hideOrphans: lo explica y deja mostrar las sueltas', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue({ truncated: 0, nodes: [nodo('a', 'Auth pasa a cookies'), nodo('b', 'Otra')], edges: [] }),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    expect(await screen.findByText('Nothing is connected yet — show unconnected to see every memory.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'node Otra' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show unconnected' }))
+    expect(await screen.findByRole('button', { name: 'node Otra' })).toBeInTheDocument()
+    expect(screen.queryByText(/Nothing is connected yet/)).toBeNull()
+  })
+
+  it('sin memorias: el centro y el explorer dicen No memories yet', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue({ truncated: 0, nodes: [], edges: [] }),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    await waitFor(() => expect(screen.getAllByText('No memories yet')).toHaveLength(2))
+  })
+
+  it('cambio de afuera con cambios locales: Open the newer version la recarga en el lugar', async () => {
+    let avisar: (() => void) | null = null
+    let version = 1
+    const observation = vi.fn().mockImplementation(async (id: string) =>
+      version === 1 ? detalle(id) : detalle(id, { title: 'La cambio un agente', updatedAt: 2 }))
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation,
+      updateFromUi: vi.fn().mockResolvedValue({ ok: true }),
+      onChanged: (cb: () => void) => { avisar = cb; return () => {} },
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    await abrirA()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'Lo que yo escribo' } })
+
+    version = 2
+    avisar!()
+    fireEvent.click(await screen.findByRole('button', { name: 'Open the newer version' }))
+
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveValue('La cambio un agente'))
+    expect(screen.getByRole('textbox', { name: 'Memory title' })).not.toHaveAttribute('readonly')
+    expect(screen.queryByText('A newer version replaced this one.')).toBeNull()
+  })
+
+  it('una memoria reemplazada: Open the newer version abre la que la reemplazo', async () => {
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id, id === 'a' ? { supersededBy: 'b' } : {})),
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    await abrirA()
+    fireEvent.click(await screen.findByRole('button', { name: 'Open the newer version' }))
+    expect(await screen.findByRole('tab', { name: /Otra/, selected: true })).toBeInTheDocument()
+  })
+
+  it('guardar pasa el resultado entero de updateFromUi al editor', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const updateFromUi = vi.fn().mockResolvedValue({ ok: true, saved: { title: 'Auth editada', content: 'Cuerpo' } })
+      setMemoryApi(api({
+        graph: vi.fn().mockResolvedValue(grafoAB()),
+        crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+        observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+        updateFromUi,
+      }))
+      render(<MemoriesWorkspace {...props()} />)
+      await abrirA()
+      fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'Auth editada' } })
+      await vi.advanceTimersByTimeAsync(1600)
+      await waitFor(() => expect(updateFromUi).toHaveBeenCalledWith({ syncId: 'a', title: 'Auth editada', content: 'Cuerpo' }))
+      expect(await screen.findByText('Saved')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cerrar la pestana con cambios sin guardar los guarda igual', async () => {
+    const updateFromUi = vi.fn().mockResolvedValue({ ok: true })
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+      updateFromUi,
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    await abrirA()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'Antes de cerrar' } })
+    fireEvent.click(within(screen.getByRole('tab', { name: /Auth pasa a cookies/ })).getByRole('button', { name: 'Close tab' }))
+    await waitFor(() => expect(updateFromUi).toHaveBeenCalledWith(expect.objectContaining({ syncId: 'a', title: 'Antes de cerrar' })))
+  })
+
+  // El toggle de Branch notes vive en una pestaña del MISMO workspace: comparte el estado del
+  // hilo, así que la pestaña Team thread se entera en el acto (arreglo de Task 10 del 20-10).
+  describe('Team thread y la pestaña Settings', () => {
+    let prendido = false
+    const apiDelHilo = (over: Record<string, unknown> = {}) => api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      teamThreadProjectKeyForWorktree: vi.fn().mockResolvedValue({ ok: true, projectKey: 'proj1111aaaaaaaa' }),
+      teamThreadGetSettings: vi.fn().mockImplementation(async () => ({ ok: true, settings: { enabled: prendido, includedTypes: [], writeAgentsPointer: false } })),
+      teamThreadSetSettings: vi.fn().mockResolvedValue({ ok: true }),
+      teamThreadRead: vi.fn().mockResolvedValue({ ok: true, branches: [] }),
+      ...over,
+    })
+    beforeEach(() => {
+      ;(window as unknown as { git: unknown }).git = { info: vi.fn().mockResolvedValue({ branch: 'main', remoteUrl: null, githubUrl: null, isDirty: false }) }
+    })
+    const abrirBranchNotes = async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+      fireEvent.click(within(screen.getByRole('navigation', { name: 'Settings sections' })).getByRole('button', { name: 'This project' }))
+      const sw = await screen.findByRole('switch', { name: /Branch notes/ })
+      await waitFor(() => expect(sw).not.toBeDisabled())
+      return sw
+    }
+
+    it('prenderlo en Settings hace aparecer la pestaña Team thread, sin volver a ningún lado', async () => {
+      prendido = false
+      const teamThreadSetSettings = vi.fn().mockResolvedValue({ ok: true })
+      setMemoryApi(apiDelHilo({ teamThreadSetSettings }))
+      render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+      await screen.findByRole('button', { name: 'node Otra' })
+      expect(screen.queryByRole('tab', { name: /Team thread/ })).toBeNull()
+      fireEvent.click(await abrirBranchNotes())
+      expect(await screen.findByRole('tab', { name: /Team thread/ })).toBeInTheDocument()
+      expect(teamThreadSetSettings).toHaveBeenCalledWith('proj1111aaaaaaaa', '/r', { enabled: true })
+      expect(screen.getByRole('tab', { name: /Settings/, selected: true })).toBeInTheDocument()
+    })
+
+    it('apagarlo saca la pestaña; cerrar Settings vuelve a Graph', async () => {
+      prendido = true
+      setMemoryApi(apiDelHilo())
+      render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+      fireEvent.click(await screen.findByRole('tab', { name: /Team thread/ }))
+      fireEvent.click(await abrirBranchNotes())
+      await waitFor(() => expect(screen.queryByRole('tab', { name: /Team thread/ })).toBeNull())
+      fireEvent.click(within(screen.getByRole('tab', { name: /Settings/ })).getByRole('button', { name: 'Close tab' }))
+      expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
+    })
+
+    it('un rechazo al cambiarlo muestra el motivo y no saca la pestaña (Review Focus 3)', async () => {
+      prendido = true
+      setMemoryApi(apiDelHilo({ teamThreadSetSettings: vi.fn().mockResolvedValue({ ok: false, message: 'Your plan does not include team sharing.' }) }))
+      render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+      expect(await screen.findByRole('tab', { name: /Team thread/ })).toBeInTheDocument()
+      fireEvent.click(await abrirBranchNotes())
+      expect(await screen.findByText('Your plan does not include team sharing.')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /Team thread/ })).toBeInTheDocument()
+    })
+
+    it('al reabrir el overlay, la pestaña del hilo no se cae mientras se vuelve a leer', async () => {
+      prendido = true
+      setMemoryApi(apiDelHilo())
+      const { unmount } = render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+      fireEvent.click(await screen.findByRole('tab', { name: /Team thread/ }))
+      unmount()
+
+      let responder: ((v: unknown) => void) | null = null
+      setMemoryApi(apiDelHilo({ teamThreadGetSettings: vi.fn().mockImplementation(() => new Promise((r) => { responder = r })) }))
+      render(<MemoriesWorkspace {...props({ activeRepoPath: '/r' })} />)
+      await waitFor(() => expect(responder).not.toBeNull())
+      expect(screen.getByRole('tab', { name: /Team thread/, selected: true })).toBeInTheDocument()
+      responder!({ ok: true, settings: { enabled: true, includedTypes: [], writeAgentsPointer: false } })
+      await waitFor(() => expect(screen.getByRole('tab', { name: /Team thread/, selected: true })).toBeInTheDocument())
+    })
+  })
+
+  describe('la pestaña Settings', () => {
+    const conGrafo = (over: Record<string, unknown> = {}) => api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+      ...over,
+    })
+
+    it('el explorer muestra las secciones; al volver, las carpetas y la búsqueda siguen', async () => {
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      fireEvent.change(await screen.findByRole('textbox', { name: 'Search memories' }), { target: { value: 'auth' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+      const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+      expect(within(nav).getAllByRole('button').map((b) => b.textContent))
+        .toEqual(['Sync', 'Encryption', 'Editor & graph', 'This project', 'Notes on disk', 'Advanced'])
+      expect(screen.queryByRole('textbox', { name: 'Search memories' })).toBeNull()
+      fireEvent.click(within(nav).getByRole('button', { name: 'Advanced' }))
+      expect(within(nav).getByRole('button', { name: 'Advanced' })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('heading', { name: 'Advanced' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('tab', { name: /Graph/ }))
+      expect(screen.queryByRole('navigation', { name: 'Settings sections' })).toBeNull()
+      expect(screen.getByRole('textbox', { name: 'Search memories' })).toHaveValue('auth')
+    })
+
+    it('Ctrl+W con Settings activa cierra la pestaña y no llega a la ventana (Review Focus 4)', async () => {
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+      const enWindow = vi.fn()
+      window.addEventListener('keydown', enWindow)
+      try {
+        const ev = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })
+        fireEvent(raiz(), ev)
+        await waitFor(() => expect(screen.queryByRole('tab', { name: /Settings/ })).toBeNull())
+        expect(ev.defaultPrevented).toBe(true)
+        expect(enWindow).not.toHaveBeenCalled()
+        expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
+      } finally {
+        window.removeEventListener('keydown', enWindow)
+      }
+    })
+
+    it('una nota sin guardar sigue montada detrás de Settings y se guarda (Review Focus 5)', async () => {
+      const updateFromUi = vi.fn().mockResolvedValue({ ok: true, saved: { title: 'Escrito antes', content: 'Cuerpo' } })
+      setMemoryApi(conGrafo({ updateFromUi }))
+      render(<MemoriesWorkspace {...props()} />)
+      await abrirA()
+      fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'Escrito antes' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+      await waitFor(() => expect(updateFromUi).toHaveBeenCalledWith(expect.objectContaining({ syncId: 'a', title: 'Escrito antes' })), { timeout: 3000 })
+      fireEvent.click(screen.getByRole('tab', { name: /Escrito antes|Auth pasa a cookies/ }))
+      expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveValue('Escrito antes')
+    })
+  })
+
+  it('un agente borra la nota abierta: queda de solo lectura con la banda de borrada', async () => {
+    let avisar: (() => void) | null = null
+    let existe = true
+    setMemoryApi(api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => (existe ? detalle(id) : null)),
+      onChanged: (cb: () => void) => { avisar = cb; return () => {} },
+    }))
+    render(<MemoriesWorkspace {...props()} />)
+    await abrirA()
+    expect(screen.getByRole('textbox', { name: 'Memory title' })).not.toHaveAttribute('readonly')
+
+    existe = false
+    avisar!()
+
+    expect(await screen.findByText('This memory was deleted.')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveAttribute('readonly')
+  })
+  describe('final review', () => {
+    const apiBasica = (over: Record<string, unknown> = {}) => api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+      observation: vi.fn().mockImplementation(async (id: string) => detalle(id)),
+      ...over,
+    })
+    const ctrlW = (el: Element) => {
+      const ev = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })
+      fireEvent(el, ev)
+      return ev
+    }
+
+    it('F4: cerrar una New memory con algo escrito pregunta; Keep editing la deja, Discard la cierra', async () => {
+      setMemoryApi(apiBasica())
+      render(<MemoriesWorkspace {...props()} />)
+      fireEvent.click(await explorer().findByRole('button', { name: 'New memory' }))
+      const pestana = () => screen.queryByRole('tab', { name: /New memory/ })
+      expect(await screen.findByRole('tab', { name: /New memory/, selected: true })).toBeInTheDocument()
+      fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'A medio escribir' } })
+
+      // Con la x.
+      fireEvent.click(within(pestana()!).getByRole('button', { name: 'Close tab' }))
+      expect(await screen.findByRole('alertdialog', { name: 'Discard this memory?' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+      expect(pestana()).not.toBeNull()
+      expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveValue('A medio escribir')
+
+      // Con Ctrl+W.
+      ctrlW(screen.getByRole('textbox', { name: 'Memory title' }))
+      expect(await screen.findByRole('alertdialog', { name: 'Discard this memory?' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+      await waitFor(() => expect(pestana()).toBeNull())
+      expect(screen.getByRole('tab', { name: /Graph/, selected: true })).toBeInTheDocument()
+    })
+
+    it('salir del overlay con una New memory a medio escribir pregunta; sin nada escrito sale directo', async () => {
+      setMemoryApi(apiBasica())
+      const onClose = vi.fn()
+      render(<MemoriesWorkspace {...props()} onClose={onClose} />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
+      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+
+      fireEvent.click(await explorer().findByRole('button', { name: 'New memory' }))
+      await screen.findByRole('tab', { name: /New memory/, selected: true })
+      fireEvent.change(screen.getByRole('textbox', { name: 'Memory title' }), { target: { value: 'A medio escribir' } })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+      expect(await screen.findByRole('alertdialog', { name: 'Leave without saving?' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('textbox', { name: 'Memory title' })).toHaveValue('A medio escribir')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Discard and leave' }))
+      expect(onClose).toHaveBeenCalledTimes(2)
+    })
+
+    it('F4: una New memory sin nada escrito cierra directo', async () => {
+      setMemoryApi(apiBasica())
+      render(<MemoriesWorkspace {...props()} />)
+      fireEvent.click(await explorer().findByRole('button', { name: 'New memory' }))
+      const tab = await screen.findByRole('tab', { name: /New memory/, selected: true })
+      fireEvent.click(within(tab).getByRole('button', { name: 'Close tab' }))
+      await waitFor(() => expect(screen.queryByRole('tab', { name: /New memory/ })).toBeNull())
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+    })
+
+    it('F8: la raiz toma el foco al montar, y abrir desde un nodo del grafo se lo da al titulo', async () => {
+      setMemoryApi(apiBasica())
+      render(<MemoriesWorkspace {...props()} />)
+      expect(raiz()).toHaveAttribute('tabindex', '-1')
+      expect(document.activeElement).toBe(raiz())
+
+      fireEvent.click(await screen.findByRole('button', { name: 'node Otra' }))
+      expect(await screen.findByRole('tab', { name: /Otra/, selected: true })).toBeInTheDocument()
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Memory title' })))
+      // Y el siguiente Ctrl+W, desde donde quedo el foco, cierra la pestana.
+      ctrlW(document.activeElement!)
+      await waitFor(() => expect(screen.queryByRole('tab', { name: /Otra/ })).toBeNull())
+    })
+
+    it('F8: un mousedown adentro con el foco afuera lo trae a la raiz; no se lo saca a un input', async () => {
+      setMemoryApi(apiBasica())
+      const afuera = document.createElement('input')
+      document.body.appendChild(afuera)
+      try {
+        render(<MemoriesWorkspace {...props()} />)
+        const nodoOtra = await screen.findByRole('button', { name: 'node Otra' })
+        afuera.focus()
+        expect(document.activeElement).toBe(afuera)
+        fireEvent.mouseDown(nodoOtra)
+        expect(document.activeElement).toBe(raiz())
+
+        const buscar = screen.getByRole('textbox', { name: 'Search memories' })
+        buscar.focus()
+        fireEvent.mouseDown(buscar)
+        expect(document.activeElement).toBe(buscar)
+
+        // Un portal (el menú «⋯») queda fuera del DOM de la raíz pero sus eventos suben por
+        // React: sacarle el foco lo cerraba antes del click (lo vio el e2e).
+        fireEvent.click(await explorer().findByRole('button', { name: 'Auth pasa a cookies' }))
+        await screen.findByRole('textbox', { name: 'Memory title' })
+        fireEvent.keyDown(screen.getByRole('button', { name: 'More actions' }), { key: 'Enter' })
+        const item = await screen.findByRole('menuitem', { name: 'Connect to another memory…' })
+        item.focus()
+        fireEvent.mouseDown(item)
+        expect(document.activeElement).toBe(item)
+        fireEvent.click(item)
+        expect(await screen.findByText(/Pick the memory this one goes with/)).toBeInTheDocument()
+      } finally {
+        afuera.remove()
+      }
+    })
+
+    it('F1: escribir la memoria de un [[hueco]] lo resuelve en la nota abierta sin cambiar su version', async () => {
+      let avisar: (() => void) | null = null
+      let escrita = false
+      setMemoryApi(apiBasica({
+        observation: vi.fn().mockImplementation(async (id: string) => detalle(id, {
+          content: 'ver [[Falta]]',
+          links: [{ name: 'Falta', syncId: escrita ? 'n1' : null }],
+        })),
+        onChanged: (cb: () => void) => { avisar = cb; return () => {} },
+      }))
+      render(<MemoriesWorkspace {...props()} />)
+      await abrirA()
+      const falta = () => document.querySelector('[data-wikilink="Falta"]') as HTMLElement
+      await waitFor(() => expect(falta()?.className).toContain('cm-lp-wikilink-pendiente'))
+
+      escrita = true
+      avisar!()
+      await waitFor(() => expect(falta().className).not.toContain('cm-lp-wikilink-pendiente'))
+      expect(screen.queryByText(/A newer version replaced this one/)).toBeNull()
+    })
+
+    it('F5: una memoria suelta tiene grafo local aunque la pestana Graph oculte las sueltas', async () => {
+      setMemoryApi(apiBasica({
+        graph: vi.fn().mockResolvedValue({ truncated: 0, nodes: [nodo('a', 'Auth pasa a cookies'), nodo('b', 'Otra')], edges: [] }),
+      }))
+      render(<MemoriesWorkspace {...props()} />)
+      await abrirA()
+      expect(await panelDerecho().findByTestId('fg2d')).toBeInTheDocument()
+      expect(panelDerecho().getByRole('button', { name: 'node Auth pasa a cookies' })).toBeInTheDocument()
+      expect(panelDerecho().queryByText(/Not in the/)).toBeNull()
+    })
+  })
+
+  describe('Remember graph filters', () => {
+    const conGrafo = () => api({
+      graph: vi.fn().mockResolvedValue(grafoAB()),
+      crossProject: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    })
+    // `primeraLectura`: la carga de las prefs al montar tarda lo que diga la prueba; las lecturas
+    // siguientes (el read-modify-write de cada guardado, D15) contestan en el acto.
+    const conSettings = (memoryPrefs: unknown, opts: { primeraLectura?: Promise<unknown> } = {}) => {
+      let store: Record<string, unknown> = { voiceLanguage: 'en', memoryPrefs }
+      const set = vi.fn(async (d: Record<string, unknown>) => { store = d })
+      let primera = opts.primeraLectura
+      const get = async () => {
+        if (primera) { const p = primera; primera = undefined; return p }
+        return store
+      }
+      ;(window as unknown as { settings: unknown }).settings = { get, set }
+      return { set, leer: () => store }
+    }
+
+    it('con Remember on, los filtros guardados vuelven al abrir', async () => {
+      conSettings({ graph: { remember: true, filtros: { ...FILTROS_POR_DEFECTO, hideOrphans: false, inferidas: false } } })
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      expect(await screen.findByRole('button', { name: /Showing unconnected/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Guessed links/ })).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('un cambio se guarda a los 300 ms, y nada se guarda antes de que lleguen las prefs (Review Focus 2)', async () => {
+      let soltar: (v: unknown) => void = () => {}
+      const guardadas = { graph: { remember: true, filtros: { ...FILTROS_POR_DEFECTO, hideOrphans: false } } }
+      const s = conSettings(guardadas, { primeraLectura: new Promise((r) => { soltar = r }) })
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      await screen.findByRole('button', { name: /Guessed links/ })
+      await new Promise((r) => setTimeout(r, 400))
+      expect(s.set).not.toHaveBeenCalled()
+      soltar({ voiceLanguage: 'en', memoryPrefs: guardadas })
+      expect(await screen.findByRole('button', { name: /Showing unconnected/ })).toBeInTheDocument()
+      // Lo restaurado no se pisa con defaults.
+      for (const [d] of s.set.mock.calls) expect((d.memoryPrefs as { graph: { filtros: { hideOrphans: boolean } } }).graph.filtros.hideOrphans).toBe(false)
+      fireEvent.click(screen.getByRole('button', { name: /Guessed links/ }))
+      await waitFor(() => expect(s.set).toHaveBeenCalledWith(expect.objectContaining({
+        memoryPrefs: expect.objectContaining({ graph: expect.objectContaining({ filtros: expect.objectContaining({ inferidas: false, hideOrphans: false }) }) }),
+      })))
+    })
+
+    it('cerrar el overlay dentro de los 300 ms guarda igual el último cambio', async () => {
+      const s = conSettings({ graph: { remember: true } })
+      setMemoryApi(conGrafo())
+      const { unmount } = render(<MemoriesWorkspace {...props()} />)
+      fireEvent.click(await screen.findByRole('button', { name: /Guessed links/ }))
+      unmount()
+      await waitFor(() => expect((s.leer().memoryPrefs as { graph: { filtros?: { inferidas: boolean } } }).graph.filtros?.inferidas).toBe(false))
+    })
+
+    it('con Remember off no se guarda nada', async () => {
+      const s = conSettings({ graph: { remember: false } })
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      fireEvent.click(await screen.findByRole('button', { name: /Guessed links/ }))
+      await new Promise((r) => setTimeout(r, 400))
+      expect(s.set).not.toHaveBeenCalled()
+    })
+
+    it('Reset graph to defaults vuelve filtros y fuerzas al arranque', async () => {
+      conSettings({ graph: { remember: true, filtros: { ...FILTROS_POR_DEFECTO, hideOrphans: false, inferidas: false } } })
+      setMemoryApi(conGrafo())
+      render(<MemoriesWorkspace {...props()} />)
+      await screen.findByRole('button', { name: /Showing unconnected/ })
+      fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+      fireEvent.click(within(screen.getByRole('navigation', { name: 'Settings sections' })).getByRole('button', { name: 'Editor & graph' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+      fireEvent.click(screen.getByRole('tab', { name: /Graph/ }))
+      expect(await screen.findByRole('button', { name: /unconnected hidden/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Guessed links/ })).toHaveAttribute('aria-pressed', 'true')
+    })
+  })
+})

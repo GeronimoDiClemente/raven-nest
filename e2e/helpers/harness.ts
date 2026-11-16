@@ -22,8 +22,23 @@ function uniqueTmp(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
 }
 
-export async function launchHarness(opts?: { withRepo?: boolean }): Promise<Harness> {
-  const homeDir = uniqueTmp('raven-e2e-home-')
+export async function launchHarness(opts?: {
+  withRepo?: boolean
+  keepRealHome?: boolean
+  env?: Record<string, string>
+  /**
+   * Reusa un `homeDir` ya existente (de un `launchHarness` anterior cuyo `teardown` se llamó
+   * con `{ keepHomeDir: true }`) en vez de generar uno nuevo. Hace falta para relanzar la MISMA
+   * identidad local entre dos arranques: `safeStorage` en Windows deriva su clave de cifrado de
+   * `--user-data-dir` (vía el `Local State` de Chromium, DPAPI de por medio) y no sólo de la
+   * cuenta de Windows — un `userDataDir` nuevo por launch (el default, derivado de un `homeDir`
+   * nuevo) deja indescifrable cualquier secreto que `RAVEN_HOME` guardó cifrado en el launch
+   * anterior (keys.bin de memory-key-store.ts, credential.bin), aunque el `RAVEN_HOME` en sí se
+   * reutilice. Pasar el MISMO `homeDir` reproduce también el mismo `userDataDir`.
+   */
+  homeDir?: string
+}): Promise<Harness> {
+  const homeDir = opts?.homeDir ?? uniqueTmp('raven-e2e-home-')
   let repoDir = ''
   if (opts?.withRepo !== false) {
     repoDir = uniqueTmp('raven-e2e-repo-')
@@ -38,16 +53,37 @@ export async function launchHarness(opts?: { withRepo?: boolean }): Promise<Harn
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
   env.RAVEN_E2E = '1'
+  // Headless por default: sin esto cada launch abre una ventana que roba el foco, y una
+  // corrida entera deja a quien esta usando la maquina sin poder trabajar. `main.ts` lo lee
+  // para crear la ventana oculta y sin icono de dock; las capturas siguen andando.
+  // `RAVEN_E2E_SHOW=1` lo apaga, para cuando hace falta MIRAR la app corriendo.
+  if (process.env.RAVEN_E2E_SHOW !== '1') env.RAVEN_E2E_HEADLESS = '1'
   // RAVEN_HOME is what the main process consults for persistent storage paths.
   // HOME / USERPROFILE alone are not sufficient on Windows, where os.homedir()
   // can read the user token rather than env vars.
   env.RAVEN_HOME = homeDir
-  env.HOME = homeDir
-  env.USERPROFILE = homeDir
+  // `keepRealHome` deja el HOME real intacto: RAVEN_HOME ya aisla TODO el
+  // storage de Nest (ravenHome() lo consulta primero), pero las CLIs que Nest
+  // spawnea en una pty heredan HOME y buscan ahí sus credenciales. Un HOME
+  // descartable las deja sin login y el smoke se cuelga en una pantalla de
+  // auth. Solo lo usan los smokes que corren agentes de verdad.
+  //
+  // `RAVEN_E2E_KEEP_REAL_HOME=1` hace lo mismo para TODA la corrida. Es para macOS: sin el HOME
+  // real el sistema no encuentra el llavero de login y cada `safeStorage` abre un modal
+  // («Llavero no encontrado») que frena la prueba y le tapa la pantalla a quien esté usando la
+  // máquina. `--password-store=basic` no lo evita, sólo vale en Linux.
+  if (!opts?.keepRealHome && process.env.RAVEN_E2E_KEEP_REAL_HOME !== '1') {
+    env.HOME = homeDir
+    env.USERPROFILE = homeDir
+  }
   // Main process's ide-config:import handler reads editor configs (VS Code
   // settings.json, IntelliJ XML) from here instead of the real developer
   // machine's actual editor config — same isolation as RAVEN_HOME.
   env.RAVEN_IDE_CONFIG_HOME = homeDir
+  // Extras del test (p.ej. RAVEN_E2E_REPOS). Va ultimo a proposito: un test que
+  // necesite pisar una de las de arriba puede, y el aislamiento de HOME /
+  // RAVEN_HOME ya quedo aplicado antes.
+  Object.assign(env, opts?.env ?? {})
 
   const app = await electron.launch({
     args: [MAIN_JS, `--user-data-dir=${userDataDir}`],
@@ -72,7 +108,11 @@ export async function launchHarness(opts?: { withRepo?: boolean }): Promise<Harn
   }
 }
 
-export async function teardown(h: Harness): Promise<void> {
+export async function teardown(h: Harness, opts?: {
+  /** No borra `h.homeDir`: para cuando un próximo `launchHarness({ homeDir: h.homeDir })` va a
+   *  reusarlo (relanzar la MISMA identidad local — ver el doc comment de `homeDir` arriba). */
+  keepHomeDir?: boolean
+}): Promise<void> {
   // app.close() hangs when background intervals (port polling, spotlight watchers)
   // keep the event loop alive. Race against a hard kill so the worker exits.
   const pid = h.app.process()?.pid
@@ -93,7 +133,7 @@ export async function teardown(h: Harness): Promise<void> {
       }
     } catch {}
   }
-  for (const d of [h.homeDir, h.repoDir]) {
+  for (const d of [opts?.keepHomeDir ? '' : h.homeDir, h.repoDir]) {
     if (!d) continue
     try { rmSync(d, { recursive: true, force: true }) } catch {}
   }

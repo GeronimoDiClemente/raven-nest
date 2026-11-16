@@ -51,7 +51,7 @@ export function moveTabBetweenPanes(
   const nextPanes = panes.flatMap((p) => {
     if (p.id === sourcePaneId) {
       const remaining = (p.editorTabs ?? []).filter((t) => t.relPath !== relPath)
-      // La tab movida era la última: el pane origen se va (sin esto quedaba
+      // La tab movida era la última: el pane origen se va (sin esto quedaría
       // un cascarón sin tabs — negro, incerrable).
       if (remaining.length === 0) return []
       return [{

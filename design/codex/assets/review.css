@@ -1,0 +1,37 @@
+@font-face{font-family:'Geist Variable';src:url('./geist-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+@font-face{font-family:'Geist Mono Variable';src:url('./geist-mono-latin-wght-normal.woff2') format('woff2');font-weight:100 900;font-display:swap}
+:root{--background:#0a0a0a;--card:#141414;--popover:#1f1f1f;--foreground:#f2f2f2;--muted-foreground:#9b9b9b;--ok:#4ade80;--warn:#e3b341;--destructive:#ff6568;--border:rgb(255 255 255 / 0.08);--header-height:32px;--font-sans:'Geist Variable',sans-serif;--font-mono:'Geist Mono Variable',monospace}
+body{font-family:var(--font-sans);background:var(--background);color:var(--foreground);margin:0;padding-top:40px;overflow:auto}
+body>.h-screen{height:calc(100vh - 40px)}body>.min-h-screen{min-height:calc(100vh - 40px)}
+.mono,.font-mono,kbd,code{font-family:var(--font-mono)}
+.agent-logo{width:16px;height:16px;display:inline-block;object-fit:contain;flex-shrink:0;filter:none;opacity:1}
+.local-icon{display:inline-block;width:1em;height:1em;flex-shrink:0;vertical-align:middle}
+.review-bar{position:fixed;top:0;left:0;right:0;height:40px;z-index:1000;display:flex;align-items:center;gap:24px;padding:0 20px;background:var(--popover);border-bottom:1px solid var(--border);font:12px var(--font-sans)}
+.review-bar a{color:var(--foreground);text-decoration:none}.review-bar a:hover{text-decoration:underline}.review-bar span{color:var(--muted-foreground);margin-left:auto}
+.review-notes{position:fixed;right:16px;bottom:12px;z-index:1000;max-width:430px;border:1px solid var(--border);border-radius:6px;background:var(--popover);font:12px/1.6 var(--font-sans);box-shadow:0 4px 16px #0008}
+.review-notes summary{padding:8px 12px;cursor:pointer}.review-notes p{margin:0;padding:0 12px 10px}.review-notes p:last-child{color:var(--muted-foreground)}
+.pane-header{height:var(--header-height);padding:0 12px 0 10px;gap:8px;flex-shrink:0;background:color-mix(in srgb,var(--pane-color,var(--card)) 10%,var(--card));border-bottom:1px solid color-mix(in srgb,var(--pane-color,var(--border)) 27%,transparent)}
+body[data-direction='header-compact'] header{padding-left:10px;background:var(--card)}
+body[data-direction='header-compact'] header>[data-sd-id]{min-width:0}
+body[data-direction='header-task']{--header-height:48px}
+.pane-header-gradient,.glass-fill{background:var(--card)}
+body[data-direction='header-zones'] .pane-header{padding:0;gap:0;position:relative}
+body[data-direction='header-zones'] .identity-block{background:var(--popover);border-color:var(--border)}
+body[data-direction='header-zones'] [data-sd-id='12']{background:transparent;border-color:var(--border);color:var(--muted-foreground)}
+.state-working,.status-working{background-color:var(--muted-foreground);animation:none}
+.state-unread,.status-unread{background-color:var(--foreground)}
+body[data-direction='attention-rail'] .state-unread{background:var(--popover)}
+body[data-direction='sidebar-agent'] .state-waiting{box-shadow:none}
+body[data-direction='sidebar-agent'] .text-muted-foreground{color:var(--muted-foreground)}
+body[data-direction='sidebar-agent'] .sidebar-item{height:40px}
+/* Keep the expanded navigation footprint at Nest's 200px, rail included. */
+body[data-direction='sidebar-tree'] aside:nth-of-type(2),body[data-direction='sidebar-state'] aside:nth-of-type(2){width:156px}
+body[data-direction='sidebar-tree'] .indent-1{padding-left:12px}
+body[data-direction='sidebar-tree'] .indent-2{padding-left:18px;gap:5px}
+body[data-direction='sidebar-tree'] .badge{font-size:9px}
+body[data-direction='sidebar-agent'] .sidebar-item{height:32px}
+body[data-direction='sidebar-agent'] .sidebar-item span{line-height:14px}
+button:disabled{cursor:default}
+*:focus-visible{outline:2px solid var(--foreground);outline-offset:3px}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+@media(max-width:800px){.review-bar{gap:12px;padding:0 10px}.review-bar span{display:none}.review-bar a:last-child{margin-left:auto}.review-notes{max-width:320px}}

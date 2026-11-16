@@ -18,6 +18,21 @@ export type LayoutId =
 
 export const MAX_PANES = 12
 
+/**
+ * El `cmd` centinela de un pane que corre la TUI de memoria: PtyManager no lo escribe tal cual,
+ * lo cambia por el Electron de Nest en modo Node con `dist-electron/memory-tui.js`.
+ */
+export const NEST_MEMORY_TUI_CMD = 'nest-memory-tui'
+
+/** Una máquina de la cuenta de sync. `lastSeenAt` en ms. */
+export interface MaquinaDeLaCuenta {
+  id: string
+  name: string
+  platform: string | null
+  lastSeenAt: number | null
+  current: boolean
+}
+
 export interface Account {
   name: string
   aiType: AIType
@@ -46,9 +61,76 @@ export interface PaneNode {
   url?: string          // browser only: initial url
   sessionPartition?: string  // browser only: persist:browser-<workspaceId>
   shellId?: string      // terminal panes only: which shell to spawn (Windows shell picker)
+  initialInput?: string // one-shot: input written to the PTY once when it first produces output (e.g. "fix the red")
   editorTabs?: EditorTab[]        // editor panes only: open files
   activeEditorTabPath?: string    // editor panes only: which tab is focused
   pinned?: boolean      // Hub: user-pinned pane, shows under the "Pinned" filter
+  /** Pane de worker lanzado por un coordinador (orquestación). No se persiste en la sesión. */
+  orchestration?: { role: 'worker'; workerId: string; coordinatorPaneId: string; colorIndex: number }
+}
+
+// === Orquestación de panes (espejo de electron/orchestration/*: src/ nunca importa de
+// electron/, mismo patrón que WorktreeMeta) ===
+export type OrchestrationWorkerStatus = 'starting' | 'working' | 'needs_input' | 'done' | 'exited' | 'stopped'
+
+/** Espejo de `WorkerRecord` (electron/orchestration/orchestration-state.ts). */
+export interface OrchestrationWorker {
+  workerId: string
+  coordinatorPaneId: string
+  paneId: string
+  label: string
+  colorIndex: number
+  branch: string
+  worktreePath: string
+  baseBranch: string
+  agent: string
+  status: OrchestrationWorkerStatus
+  createdAt: number
+  finishedAt?: number
+  /** Gero pidió "Keep open": el pane no se cierra solo. */
+  keepOpen?: boolean
+}
+
+/** Espejo de `ReviewEntry` (electron/orchestration/review-store.ts): una rama terminada
+ *  esperando la decisión de Gero. */
+export interface OrchestrationReviewEntry {
+  workerId: string
+  label: string
+  colorIndex: number
+  branch: string
+  worktreePath: string
+  baseBranch: string
+  status: OrchestrationWorkerStatus
+  finishedAt?: number
+  repoPath: string
+}
+
+/** Espejo de `ReviewActionResult` (wire-orchestration.ts / review-actions.ts). */
+export type OrchestrationReviewResult =
+  | { ok: true }
+  | { ok: false; error: string; detail?: string }
+
+/** Espejo de `LaunchPaneRequest` (orchestration-service.ts) + el id del pedido. */
+export interface OrchestrationLaunchPaneRequest {
+  requestId: string
+  coordinatorPaneId: string
+  paneId: string
+  aiType: string
+  accountName: string
+  accountDir: string
+  cmd: string
+  repoPath: string
+  label: string
+  colorIndex: number
+  initialInput: string
+  workerId: string
+}
+
+export interface OrchestrationLaunchPaneReply {
+  requestId: string
+  ok: boolean
+  error?: 'tab_full' | 'no_tab'
+  tabPaneCount?: number
 }
 
 export interface ShellInfo {
@@ -69,6 +151,413 @@ export interface WorktreeMeta {
   devPid?: number
   createdAt: number
   updatedAt: number
+}
+
+// === Ticket loop (kept in sync with electron/integrations/ticket-types.ts —
+// src/ never imports from electron/, same pattern as WorktreeMeta above) ===
+export type TicketState = 'todo' | 'in_progress' | 'in_review' | 'done'
+
+export interface Ticket {
+  /** visible id like "PROJ-142" (Jira), "ENG-42" (Linear), "owner/repo#7" (GitHub) */
+  key: string
+  /** internal id the provider needs for its API (issueId, node id, number) */
+  providerId: string
+  title: string
+  url: string
+  state: TicketState
+  /** markdown: description + comments, for TASK.md */
+  context: string
+}
+
+export interface TicketsBridge {
+  list: (pluginId: string) => Promise<Ticket[]>
+  branchName: (user: string, key: string, title: string) => Promise<string>
+  startWork: (args: {
+    pluginId: string
+    ticket: Ticket
+    branch: string
+    worktreePath: string
+  }) => Promise<{ ok: true } | { ok: false; error: string }>
+  tracked: () => Promise<Array<{ branch: string; ticketKey: string }>>
+}
+
+// === Worktree signals — espejo de WorktreeSignal de
+// electron/integrations/worktree-signals.ts (src/ nunca importa de electron/) ===
+export interface WorktreeSignalDTO {
+  repoPath: string
+  ci: 'success' | 'failure' | 'running' | 'unknown'
+  runId?: number
+  runUrl?: string
+  changesRequested: boolean
+  prNumber?: number
+  /** "owner/repo" resolved during the poll; undefined until the first poll cycle. */
+  repo?: string
+}
+
+export interface SignalsBridge {
+  list: () => Promise<WorktreeSignalDTO[]>
+  fixCiPrompt: (repoPath: string) => Promise<string | null>
+  onUpdate: (cb: () => void) => () => void
+}
+
+// === Activity feed (event bus) — espejo de DomainEvent de
+// electron/integrations/bus-types.ts (src/ nunca importa de electron/, mismo
+// patrón que WorktreeSignalDTO arriba). Sólo los tipos, sin los guards
+// runtime (`isDomainEvent` vive en el borde de main, no acá). ===
+export interface TaskCreatedEvent {
+  type: 'task.created'
+  taskId: string
+  pluginId: string
+  providerId: string
+  repoFullName: string | null
+  branch: string
+  title?: string
+}
+export interface SessionOpenedEvent {
+  type: 'session.opened'
+  branch: string
+  repoPath: string
+  pluginId?: string
+  providerId?: string
+}
+export interface SessionClosedEvent {
+  type: 'session.closed'
+  branch: string
+}
+export interface PrOpenedEvent {
+  type: 'pr.opened'
+  branch: string
+  repoFullName: string
+}
+export interface PrMergedEvent {
+  type: 'pr.merged'
+  branch: string
+  repoFullName: string
+}
+export interface CiFailedEvent {
+  type: 'ci.failed'
+  branch: string
+  repoFullName: string
+  runUrl?: string
+  summary?: string
+}
+export interface ErrorDetectedEvent {
+  type: 'error.detected'
+  source: string
+  ref: string
+  summary: string
+}
+export interface BlockStartedEvent {
+  type: 'block.started'
+  taskId?: string
+  label: string
+}
+export interface MeetingTranscribedEvent {
+  type: 'meeting.transcribed'
+  title: string
+  items: string[]
+}
+export interface ChangesRequestedEvent {
+  type: 'changes.requested'
+  branch: string
+  repoFullName: string
+  prNumber: number
+}
+export interface ReviewRequestedEvent {
+  type: 'review.requested'
+  repoFullName: string
+  prNumber: number
+  prTitle: string
+}
+
+export type DomainEvent =
+  | TaskCreatedEvent
+  | SessionOpenedEvent
+  | SessionClosedEvent
+  | PrOpenedEvent
+  | PrMergedEvent
+  | CiFailedEvent
+  | ErrorDetectedEvent
+  | BlockStartedEvent
+  | MeetingTranscribedEvent
+  | ChangesRequestedEvent
+  | ReviewRequestedEvent
+
+export interface ActivityEntry {
+  ev: DomainEvent
+  ts: number
+}
+
+export interface ActivityBridge {
+  /** Snapshot of the ring buffer (newest first) for the initial paint. */
+  list: () => Promise<ActivityEntry[]>
+  /** Live push, one call per event emitted on the bus. Returns the unsubscribe. */
+  onAppend: (cb: (entry: ActivityEntry) => void) => () => void
+}
+
+// === Recipes tab — espejo de RecipeDescriptor de
+// electron/integrations/recipes.ts (src/ nunca importa de electron/). Read-only:
+// "when event → commands" display for the built-in/stored bus recipes. ===
+export interface RecipeDescriptor {
+  id: string
+  when: string
+  commands: string[]
+}
+
+export interface RecipesBridge {
+  list: () => Promise<RecipeDescriptor[]>
+}
+
+// === Automations tab — mirror of Automation in
+// electron/integrations/scheduler.ts (src/ nunca importa de electron/, same
+// convention as RecipeDescriptor above). `nextRunAt`/`scheduleLabel` are NOT
+// part of the persisted model — the main process computes them fresh on every
+// `list()`/`create()`/`update()` call and attaches them to the DTO. ===
+export interface Automation {
+  id: string
+  name: string
+  trigger: string
+  time?: string
+  timezone?: string
+  prompt: string
+  repo?: string
+  provider?: string
+  /** References a saved worker-spec (electron/integrations/worker-spec-store.ts)
+   *  to resolve model/effort/instructions from. `model`/`effort` below, when
+   *  set, take precedence (inline override of the referenced worker's first step). */
+  workerId?: string
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+  enabled: boolean
+  createdAt: number
+  updatedAt: number
+  lastRunAt?: number
+  lastResult?: 'ok' | 'error'
+  lastSummary?: string
+  /** Epoch ms of the next scheduled fire, or null if the trigger doesn't
+   *  parse. Computed server-side by `nextRun`. */
+  nextRunAt: number | null
+  /** Human label for the list row, e.g. "Daily at 18:00". Computed
+   *  server-side by `describeSchedule`. */
+  scheduleLabel: string
+}
+
+export interface AutomationInput {
+  name: string
+  trigger: string
+  time?: string
+  timezone?: string
+  prompt: string
+  repo?: string
+  provider?: string
+  workerId?: string
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+}
+
+export interface AutomationsBridge {
+  list: () => Promise<Automation[]>
+  create: (input: AutomationInput) => Promise<Automation>
+  update: (id: string, patch: Partial<AutomationInput & { enabled: boolean }>) => Promise<Automation | null>
+  delete: (id: string) => Promise<boolean>
+}
+
+// === Hilo del equipo — espejo de ThreadIndexBranch/EstadoRama de
+// electron/integrations/team-thread-note.ts (src/ nunca importa de electron/, mismo
+// patron que arriba). Si cambia alla, cambia aca. ===
+export type TeamThreadEstado = 'activa' | 'sin-worktree' | 'cerrada'
+
+export interface TeamThreadBranch {
+  slug: string
+  branch: string
+  estado: TeamThreadEstado
+  ultimoAutor: string
+  ultimaEntrada: number
+  entradas: number
+}
+
+/** Espejo de `TeamThreadSettings` de electron/integrations/team-thread-config.ts.
+ *  `includedTypes` queda `string[]` aca (no `ObservationType[]`) porque ese tipo no esta
+ *  espejado en src/ todavia y el panel no edita esta lista, solo lee `enabled`. */
+export interface TeamThreadSettings {
+  enabled: boolean
+  includedTypes: string[]
+  writeAgentsPointer: boolean
+}
+
+/** Espejo de los tipos de electron/memory-graph.ts (src/ nunca importa de electron/). El
+ *  puente de datos del grafo navegable de memorias — ver ese archivo para el detalle de
+ *  cómo se computan revision/topic/branch. */
+export type MemoryEdgeKind =
+  | 'manual' | 'wikilink' | 'revision' | 'topic' | 'branch' | 'source' | 'cross-topic' | 'cross-tag' | 'similar'
+
+export interface MemoryGraphNode {
+  syncId: string
+  /** De qué proyecto viene. Es lo que permite agrupar el grafo por proyecto. */
+  projectKey: string
+  /** El nombre legible del proyecto, o `null`. `projectKey` es un hash, así que la UI
+   *  muestra esto y cae a la clave sólo si falta. */
+  projectDisplayName: string | null
+  /** Las etiquetas de la memoria. Es lo que permite agrupar por tag, el equivalente más
+   *  fiel de un Group de Obsidian (una consulta, no un campo). */
+  tags: string[]
+  title: string
+  type: string
+  scope: 'personal' | 'project' | 'team'
+  topicKey: string | null
+  /** Alias del frontmatter (`aliases:`), para el autocompletado de `[[` en la app. Ausente en
+   *  los huecos y en mains viejos. */
+  aliases?: string[]
+  gitBranch: string | null
+  originAi: string | null
+  authorDisplay: string | null
+  updatedAt: number
+  /** true si esta observacion fue reemplazada por otra (superseded_by != null). */
+  superseded: boolean
+  /** Este nodo NO es una memoria: es un `[[...]]` que todavía no apunta a nada. Se dibuja
+   *  hueco y no se puede abrir — no hay nada que abrir. Ver `idDeLinkPendiente`. */
+  pending?: boolean
+}
+
+export interface MemoryGraphEdge {
+  from: string
+  to: string
+  kind: MemoryEdgeKind
+  /** true solo para 'revision'. Las otras dos son simetricas. */
+  directed: boolean
+}
+
+export interface MemoryGraph {
+  nodes: MemoryGraphNode[]
+  edges: MemoryGraphEdge[]
+  /** cuantos nodos se dejaron afuera por el limite. */
+  truncated: number
+}
+
+export interface MemoryGraphQuery {
+  projectKey: string | null // null = todos los proyectos
+  includeSuperseded: boolean // default false
+  limit: number // default 300
+  /** Arista `similar` (tags compartidos): inferencia sobre contenido, no un hecho declarado
+   *  como las otras tres. Opt-in, default false. Ver electron/memory-graph.ts. */
+  includeSimilar?: boolean
+  /** Tope de aristas `similar` por nodo. Default 5 (ver DEFAULT_SIMILAR_MAX_PER_NODE). */
+  similarMaxPerNode?: number
+  /** Umbral minimo de score (0..1) para emitir una arista `similar`. Default 0.3 (ver
+   *  DEFAULT_SIMILAR_MIN_SCORE). */
+  similarMinScore?: number
+}
+
+/** Espejo de `MemoryObservationDetail` en electron/memory-store.ts — una memoria ENTERA,
+ *  con su `content`. Es lo que el panel del grafo muestra al tocar un nodo. */
+export interface MemoryObservationDetail {
+  syncId: string
+  projectKey: string
+  scope: 'personal' | 'project' | 'team'
+  type: string
+  title: string
+  /** `null` en un tombstone: borrar nulea el contenido. */
+  content: string | null
+  tags: string[]
+  topicKey: string | null
+  gitBranch: string | null
+  originAi: string | null
+  authorDisplay: string | null
+  createdAt: number
+  updatedAt: number
+  supersededBy: string | null
+  revisionCount: number
+  /** Cada `[[...]]` del contenido con la memoria a la que apunta, o null si es un hueco. */
+  links?: Array<{ name: string; syncId: string | null }>
+  /** Las memorias que linkean a ésta con `[[...]]`: el «Mentioned in» de Obsidian. */
+  mentionedIn?: Array<{ syncId: string; title: string }>
+}
+
+/** Espejo de los tipos de `crossProjectMemories()` en electron/memory-store.ts (src/ nunca
+ *  importa de electron/): el listado de memorias de TODOS los proyectos juntas, más reciente
+ *  primero. */
+export interface CrossProjectMemoryQuery {
+  /** FTS5. Vacío/ausente = listado plano por fecha. */
+  query?: string
+  limit: number
+  /** Cursor devuelto como `nextCursor` por la página anterior. Ausente = primera página. */
+  cursor?: string | null
+  /** Igual semántica que `MemoryGraphQuery.includeSuperseded`. Default false. */
+  includeSuperseded?: boolean
+}
+
+export interface CrossProjectObservation {
+  syncId: string
+  projectKey: string
+  /** `null` si el proyecto nunca se registró vía `ensureProject()` (fila huérfana). */
+  projectDisplayName: string | null
+  title: string
+  type: string
+  scope: 'personal' | 'project' | 'team'
+  originAi: string | null
+  authorDisplay: string | null
+  updatedAt: number
+  tags: string[]
+}
+
+export interface CrossProjectMemoryPage {
+  items: CrossProjectObservation[]
+  /** Cursor para pedir la página siguiente, o `null` si esta fue la última. */
+  nextCursor: string | null
+}
+
+// === @Nest desde Slack — espejo de SlackMention/SlackAction de
+// electron/integrations/slack-envelopes.ts (src/ nunca importa de electron/) ===
+export interface SlackMentionDTO {
+  channel: string
+  threadTs: string
+  user: string
+  text: string
+}
+
+export interface SlackActionDTO {
+  actionId: string
+  value?: string
+  channel: string
+  threadTs?: string
+  user: string
+}
+
+export interface SlackMentionsBridge {
+  /** Menciones `@Nest` empujadas desde el socket (main). Devuelve el unsubscribe. */
+  onMention: (cb: (m: SlackMentionDTO) => void) => () => void
+  /** Clicks de botones Block Kit empujados desde el socket. Devuelve el unsubscribe. */
+  onAction: (cb: (a: SlackActionDTO) => void) => () => void
+  /** Postea al MISMO thread (bot token main-side). Sin token → { ok: false }. */
+  postThread: (args: { channel: string; threadTs: string; text: string }) => Promise<{ ok: boolean }>
+}
+
+// === Notion spec→worktree ===
+export interface NotionBridge {
+  /** Baja la página como markdown, la escribe en <worktree>/.nest/spec.md y
+   *  devuelve el markdown para inyectarlo como prompt inicial del agente. */
+  specToWorktree: (pageId: string, worktreePath: string) =>
+    Promise<{ ok: true; prompt: string } | { ok: false; error: string }>
+}
+
+// === Google Calendar — espejo de GcalEvent de
+// electron/integrations/gcal.ts (src/ nunca importa de electron/) ===
+export interface GcalEventDTO {
+  id: string
+  summary?: string
+  description?: string
+  start?: { dateTime?: string; date?: string }
+  end?: { dateTime?: string; date?: string }
+}
+
+export interface GcalBridge {
+  /** OAuth desktop (loopback + PKCE). Guarda las creds en pluginCreds('gcal'). */
+  openOAuth: () => Promise<{ ok: true } | { ok: false; error: string }>
+  /** Bloques del rango (block→session). Errores degradan a []. */
+  listEvents: (timeMin: string, timeMax: string) => Promise<GcalEventDTO[]>
+  /** Escribe <worktree>/.nest/spec.md con el título/contexto y devuelve el prompt. */
+  startSession: (args: { title: string; context: string; worktreePath: string }) =>
+    Promise<{ ok: true; prompt: string } | { ok: false; error: string }>
 }
 
 export type DiffLineType = 'add' | 'del' | 'context' | 'meta'
@@ -116,6 +605,11 @@ export interface PaneMetric {
   pid: number
   cpuPercent: number
   memBytes: number
+  // CSS color for the AI bullet / which AI logo to render — passed through
+  // unchanged from MetricsPaneInput (see electron/metrics-collector.ts's
+  // own PaneMetric, which already carries these).
+  aiColor?: string
+  aiType?: AIType
 }
 export interface DiskBucket {
   name: string
@@ -139,6 +633,19 @@ export interface RepoMetric {
   diskBuckets?: DiskBucket[]
   worktrees: WorktreeMetricInfo[]
 }
+/** Un proceso que quedó vivo de una tarea de fondo de un agente que ya terminó. */
+export interface OrphanProcess {
+  pid: number
+  pgid: number
+  cpu: number
+  /** Cuánto lleva vivo, en segundos. */
+  segundos: number
+  comando: string
+  agente: 'claude'
+  proyecto: string
+  tarea: string
+}
+
 export interface MetricsSnapshot {
   totalSystemMemBytes: number
   totals: { cpuPercent: number; memBytes: number; ramSharePercent: number }
@@ -173,6 +680,19 @@ export interface RavenPreset {
   spotlightIgnore?: string[]
 }
 
+/** Lo que contesta `worktree:create`: el main no tira, devuelve el motivo. */
+export type WorktreeCreateResult = { ok: true; meta: WorktreeMeta } | { ok: false; error: string }
+
+/** Lo que un preset ejecuta, para mostrarlo antes de aprobarlo. */
+export interface PresetReview {
+  trusted: boolean
+  hash: string
+  postCreate: string[]
+  setup: string[]
+  dev: string | null
+  env: Record<string, string>
+}
+
 export interface ConversationMeta {
   id: string
   aiType: string
@@ -204,6 +724,136 @@ export interface CustomCLI {
   color: string
 }
 
+// === Worker-spec / model-per-task — mirror of WorkerStep/WorkerSpec in
+// electron/integrations/worker-spec-store.ts (src/ nunca importa de
+// electron/, same convention as Automation above). ===
+export interface WorkerStep {
+  agent: AIType
+  customCliId?: string
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+  instructions?: string
+  role?: string
+  /** Saved CLI account to launch this step with (bypasses the account picker
+   *  at run time). Unset = ask at launch. */
+  account?: string
+}
+export interface WorkerSpec {
+  id: string
+  name: string
+  description?: string
+  steps: WorkerStep[]
+  createdAt: number
+  updatedAt: number
+}
+export interface WorkerSpecInput {
+  name: string
+  description?: string
+  steps: WorkerStep[]
+}
+export interface WorkerSpecsBridge {
+  list: () => Promise<WorkerSpec[]>
+  save: (input: WorkerSpecInput & { id?: string }) => Promise<WorkerSpec>
+  delete: (id: string) => Promise<boolean>
+}
+
+export interface HandoffBridge {
+  read: (worktreePath: string) => Promise<string | null>
+  write: (worktreePath: string, content: string) => Promise<void>
+}
+
+// === Graph orchestration (renderer mirror of electron/integrations/graph-*) ===
+export type GraphRole = 'architect' | 'coder' | 'reviewer' | 'tester' | (string & {})
+export type GraphNodeKind = 'agent' | 'gate'
+export interface GraphNode {
+  id: string
+  role: GraphRole
+  kind: GraphNodeKind
+  agent?: AIType
+  model?: string
+  effort?: 'low' | 'medium' | 'high'
+  focus?: string
+  instructions?: string
+  dependsOn: string[]
+}
+export interface GraphTemplate {
+  id: string
+  name: string
+  description?: string
+  builtIn?: boolean
+  nodes: GraphNode[]
+  createdAt: number
+  updatedAt: number
+}
+export interface GraphTemplateInput {
+  name: string
+  description?: string
+  nodes: GraphNode[]
+}
+
+export type NodeRunState =
+  | 'queued' | 'running' | 'needs_input' | 'blocked' | 'done' | 'failed' | 'skipped'
+export type GraphMode = 'auto' | 'gate' | 'step'
+export type PendingDecision =
+  | { kind: 'approve'; gateId: string }
+  | { kind: 'requestChanges'; feedback: string }
+/** Lo que un reviewer dejó escrito en su artefacto, ya parseado. */
+export interface GraphVerdict {
+  concerns: string[]
+  blocking: boolean
+}
+export interface NodeRuntime {
+  state: NodeRunState
+  paneId?: string
+  startedAt?: number
+  endedAt?: number
+  summary?: string
+  artifact?: string
+  verdict?: GraphVerdict
+  exitCode?: number
+}
+export interface GraphRun {
+  runId: string
+  ticketId: string
+  templateId: string
+  worktreePath: string
+  repoPath?: string
+  branch: string
+  nodes: Record<string, NodeRuntime>
+  startedAt: number
+  mode: GraphMode
+  round: number
+  revisionNotes?: Record<string, string>
+  pendingDecision?: PendingDecision
+}
+export interface PersistedGraphRun {
+  run: GraphRun
+  seen: string[]
+}
+
+export interface GraphTemplatesBridge {
+  list: () => Promise<GraphTemplate[]>
+  save: (input: GraphTemplateInput & { id?: string }) => Promise<GraphTemplate>
+  delete: (id: string) => Promise<boolean>
+}
+export interface GraphRunStartInput {
+  repoPath: string
+  templateId: string
+  ticketId: string
+  branch: string
+}
+export interface GraphRunsBridge {
+  list: () => Promise<PersistedGraphRun[]>
+  start: (input: GraphRunStartInput) => Promise<
+    { ok: true; runId: string; worktreePath: string } | { ok: false; error: string }
+  >
+  attach: (runId: string, nodeId: string) => Promise<{ paneId: string; exists: boolean; buffer: string }>
+  // Decisiones humanas: encolan un pendingDecision que aplica el tick, no aplican nada acá.
+  setMode: (runId: string, mode: GraphMode) => Promise<{ ok: boolean }>
+  approve: (runId: string, gateId: string) => Promise<{ ok: boolean }>
+  requestChanges: (runId: string, feedback: string) => Promise<{ ok: boolean }>
+}
+
 export interface GridLayout {
   rows: number
   cols: number
@@ -224,23 +874,38 @@ export const COLOR_PALETTE = [
   '#666666', // gray
 ]
 
-export const AI_CONFIG: Record<AIType, { label: string; color: string; bg: string; cmd: string; noAccount?: boolean }> = {
+export const AI_CONFIG: Record<AIType, {
+  label: string
+  color: string
+  bg: string
+  cmd: string
+  noAccount?: boolean
+  modelFlag?: string   // CLI flag that selects a model, e.g. '--model'. Absent = no model selection.
+  models?: string[]    // known selectable model ids/aliases for a picker
+  effortFlag?: string  // CLI flag for reasoning effort, e.g. '--effort'. Absent = no effort control. (capability-only for now)
+}> = {
   // ORDEN = como se ven en el picker (4 columnas, 3 filas + Add CLI). Puesto
   // para que no queden dos tiles de la misma familia de color pegados, ni al
   // lado ni arriba/abajo: hay cinco acromaticos (codex, opencode, cursor,
-  // grok, terminal), tres azules (gemini, deepseek, browser) y dos violetas
-  // (copilot, qwen). Los mas usados quedan en la primera fila.
-  claude:   { label: 'Claude',   color: '#E07B54', bg: '#2a1a14', cmd: 'claude'     },
-  gemini:   { label: 'Gemini',   color: '#4F9EFF', bg: '#0d1f35', cmd: 'gemini'     },
-  codex:    { label: 'Codex',    color: '#aaaaaa', bg: '#1c1c1c', cmd: 'codex'      },
+  // grok, terminal), dos azules (gemini, deepseek) y dos violetas (copilot,
+  // qwen). Los mas usados quedan en la primera fila.
+  //
+  // browser y terminal (mas abajo) tambien son acromaticos; el criterio de
+  // arriba no los tiene en cuenta.
+  claude:   { label: 'Claude',   color: '#E07B54', bg: '#2a1a14', cmd: 'claude',     modelFlag: '--model', models: ['opus', 'sonnet', 'haiku'], effortFlag: '--effort' },
+  gemini:   { label: 'Gemini',   color: '#4F9EFF', bg: '#0d1f35', cmd: 'gemini',     modelFlag: '--model', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] },
+  codex:    { label: 'Codex',    color: '#aaaaaa', bg: '#1c1c1c', cmd: 'codex',      modelFlag: '--model' },
   copilot:  { label: 'Copilot',  color: '#7C5CFC', bg: '#150d2e', cmd: 'gh copilot' },
   deepseek: { label: 'DeepSeek', color: '#4D6BFE', bg: '#0c1330', cmd: 'dsh',          noAccount: true },
-  opencode: { label: 'OpenCode', color: '#FFFFFF', bg: '#111111', cmd: 'opencode', noAccount: true },
+  opencode: { label: 'OpenCode', color: '#FFFFFF', bg: '#111111', cmd: 'opencode', noAccount: true, modelFlag: '--model' },
   qwen:     { label: 'Qwen',     color: '#6950EF', bg: '#14103a', cmd: 'qwen',         noAccount: true },
   cursor:   { label: 'Cursor',   color: '#D4D4D4', bg: '#181818', cmd: 'cursor-agent', noAccount: true },
   grok:     { label: 'Grok',     color: '#E8E8E8', bg: '#141414', cmd: 'grok',         noAccount: true },
-  browser:  { label: 'Browser',  color: '#0066FF', bg: '#0a1428', cmd: '',           noAccount: true },
-  terminal: { label: 'Terminal', color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
+  // browser y terminal NO son marca de nadie: la excepcion que protege el
+  // color de Claude/Gemini/etc. (marca de tercero) no cubre a ninguno de los
+  // dos, asi que van acromaticos como cualquier otro estado de la app.
+  browser:  { label: 'Browser',  color: 'var(--muted-foreground)', bg: '#0a1428', cmd: '',           noAccount: true },
+  terminal: { label: 'Terminal', color: 'var(--muted-foreground)', bg: '#1a1a1a', cmd: '',           noAccount: true },
   custom:   { label: 'Custom',   color: '#888888', bg: '#1a1a1a', cmd: '',           noAccount: true },
   editor:   { label: 'Editor',   color: '#4EC9B0', bg: '#0d1f1c', cmd: '',           noAccount: true },
 }
@@ -255,7 +920,7 @@ export const PICKER_AI_TYPES: AIType[] = (Object.keys(AI_CONFIG) as AIType[]).fi
 
 export interface SessionPane {
   // Persistido para que hubPanes (que referencia ids) sobreviva el restart:
-  // regenerar ids en el restore dejaba el Hub restaurado vacío. Los
+  // regenerar ids en el restore dejaría el Hub restaurado vacío. Los
   // workspaces GUARDADOS (plantillas re-cargables) siguen regenerando id al
   // cargar — ver loadWorkspace.
   id?: string
@@ -271,7 +936,7 @@ export interface SessionPane {
   shellId?: string
   url?: string  // browser only: last navigated URL, restored on session load
   pinned?: boolean  // Hub pin — survives session restore
-  // editor only: sin estos dos, un pane de editor restauraba como cascarón
+  // editor only: sin estos dos, un pane de editor restauraría como cascarón
   // sin tabs — negro y sin affordance de cierre (el × vive por-tab).
   editorTabs?: EditorTab[]
   activeEditorTabPath?: string
@@ -334,6 +999,13 @@ export function equalSizes(count: number): number[] {
   return sizes
 }
 
+/** Spec 2026-11-02: lo que devuelve conectar / «Turn on encryption». */
+export type CifradoAlConectar =
+  | { estado: 'lista' }
+  | { estado: 'activada'; recoveryCode: string; aviso: string | null }
+  | { estado: 'esperando-autorizacion'; huella: string }
+  | { estado: 'sin-estado'; detalle: string }
+
 // Augment Window with our IPC API
 declare global {
   interface Window {
@@ -342,10 +1014,29 @@ declare global {
       save: (cli: CustomCLI) => Promise<void>
       delete: (id: string) => Promise<void>
     }
+    orchestration: {
+      snapshot: () => Promise<OrchestrationWorker[]>
+      replyLaunchPane: (res: OrchestrationLaunchPaneReply) => Promise<void>
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onLaunchPane: (cb: (req: OrchestrationLaunchPaneRequest) => void) => () => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onClosePane: (cb: (msg: { paneId: string }) => void) => () => void
+      /** Cambió el estado de los workers; sin payload, se vuelve a pedir `snapshot()`. */
+      onChanged: (cb: () => void) => () => void
+      reviewList: () => Promise<OrchestrationReviewEntry[]>
+      keepOpen: (workerId: string) => Promise<OrchestrationReviewResult>
+      /** La cuenta del banner llegó a 0; main revalida (done, no mantenido, worktree limpio). */
+      autoClose: (workerId: string) => Promise<OrchestrationReviewResult>
+      merge: (workerId: string) => Promise<OrchestrationReviewResult>
+      openPr: (workerId: string) => Promise<OrchestrationReviewResult>
+      discard: (workerId: string) => Promise<OrchestrationReviewResult>
+      /** Override del cierre automático, sólo bajo RAVEN_E2E=1; null = 120 s. */
+      autoCloseMs: number | null
+    }
     pty: {
       create: (paneId: string, cmd: string, accountDir: string, repoPath?: string, shellId?: string) => Promise<{ ok: true } | { ok: false; error: string }>
       write: (paneId: string, data: string) => void
-      resize: (paneId: string, cols: number, rows: number, source?: string) => void
+      resize: (paneId: string, cols: number, rows: number) => void
       kill: (paneId: string) => Promise<void>
       exists: (paneId: string) => Promise<boolean>
       getBuffer: (paneId: string) => Promise<string>
@@ -388,6 +1079,328 @@ declare global {
     dialog: {
       openFolder: () => Promise<string | null>
     }
+    memory: {
+      ensureDeviceId: () => Promise<string>
+      /** `cifrado` (spec 2026-11-02): conectar asegura la cuenta en el mismo paso. Opcional:
+       *  un main viejo no lo manda. */
+      connect: (token: string, deviceId: string) => Promise<{ ok: boolean; error?: string; itemCount?: number; cifrado?: CifradoAlConectar }>
+      /**
+       * Declara qué cuenta de Nest está usando el store. Sella el autor de cada escritura y
+       * acota el push a esa cuenta. Opcional: un preload viejo no lo expone.
+       * `opts.adopt: false` sigue adelante con el swap pero sin reclamar lo que
+       * haya en `_local` — el usuario contestó "no son mías" en MemoryAdoptionDialog.
+       */
+      setUser?: (userId: string | null, opts?: { adopt?: boolean }) => Promise<unknown>
+      /**
+       * Antes de llamar a setUser() con una cuenta que todavía no tiene base propia, chequea
+       * si `_local` tiene memorias sin dueño para preguntar en vez de adoptarlas en silencio.
+       * Opcional: un preload viejo no lo expone — en ese caso el hook cae directo a
+       * setUser(), sin preguntar.
+       */
+      checkPendingAdoption?: (userId: string | null) => Promise<{ hasPending: boolean; count: number; projects: string[] }>
+      /**
+       * §9.2 — pide un token al servicio de sync con el JWT del login. Opcional: un preload
+       * viejo no lo expone, y el hook cae al token pegado a mano.
+       */
+      registerDevice?: (jwt: string) => Promise<
+        { ok: true; deviceId: string; token: string } | { ok: false; error: string }
+      >
+      /**
+       * Cifrado de equipo (spec 2026-10-14-cifrado-de-equipo) — mismo patrón que las de
+       * `encryption*` personal, pero por `teamId`: cada equipo tiene su propia maestra.
+       * Opcionales: un preload viejo no los expone.
+       */
+      teamEncryptionStatus?: (teamId: string) => Promise<{
+        activated: boolean
+        wrap: { wrapped: string; wrapMeta: Record<string, unknown> | null } | null
+        pendingDevices: Array<{ deviceId: string; name: string; publicKey: string }>
+        hasMaster: boolean
+        estadoRemotoLeido?: boolean
+        huellaPropia?: string | null
+        huellasPorDevice?: Record<string, string>
+        /** El cifrado de equipo exige el personal activo en este device. */
+        hasPersonalKey?: boolean
+        /** Filas de equipo que el servidor todavía tiene en claro (sólo leader con clave). */
+        recryptPending?: number | null
+        /** La envoltura de esta máquina abre una maestra que no es la del equipo. */
+        keyMismatch?: boolean
+        /** Memorias de este equipo retenidas en esta máquina por falta de clave de equipo. */
+        heldCount?: number
+        /** Si este usuario es leader del equipo, según el servidor. */
+        isLeader?: boolean
+      }>
+      teamEncryptionActivate?: (teamId: string) => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
+      teamEncryptionAdopt?: (teamId: string) => Promise<{ ok: true; adoptada: boolean } | { ok: false; error: string }>
+      /** `fingerprint`: la huella que la tarjeta MOSTRÓ. Si la pública que main.ts vuelve
+       * a pedir no da esa huella, no se envuelve nada. */
+      teamEncryptionAuthorize?: (teamId: string, deviceId: string, fingerprint: string) => Promise<{ ok: boolean; error?: string }>
+      teamEncryptionRecover?: (teamId: string, code: string) => Promise<{ ok: boolean; error?: string }>
+      /** La migración retroactiva: `remaining` es lo que el SERVIDOR sigue teniendo en
+       * claro al terminar (lo rechazado como `stale` vuelve en la próxima corrida). */
+      teamEncryptionRecrypt?: (teamId: string) => Promise<{
+        total: number; applied: number; rejected: number; remaining: number; error?: string
+      }>
+      /**
+       * Aprueba la vinculación de otra máquina — la que corre el paquete portátil y no puede
+       * abrir un navegador. Opcional por lo mismo que `registerDevice`: un preload viejo no
+       * lo expone, y la tarjeta se esconde en vez de romperse.
+       */
+      linkApprove?: (jwt: string, userCode: string) => Promise<
+        { ok: true } | { ok: false; error: string }
+      >
+      /**
+       * A qué servicio de sync le habla esta instalación. `elegida` es `null` cuando nadie
+       * la cambió — o sea que sale del build o del default. Opcionales por lo mismo que las
+       * de arriba: un preload viejo no las expone y la UI se esconde en vez de romperse.
+       */
+      syncService?: () => Promise<{ url: string; elegida: string | null; porDefecto: string }>
+      setSyncService?: (url: string | null) => Promise<
+        { ok: true; url: string; hayQueReconectar: boolean } | { ok: false; error: string }
+      >
+      disconnect: (opts?: { deleteCloud?: boolean }) => Promise<{
+        ok: boolean
+        cloudDeleteFailed?: string
+        /** El token quedó vivo en el servidor: el revoke contra `/v1/devices/revoke` falló. */
+        tokenRevokeFailed?: string
+      }>
+      status: () => Promise<{
+        connected: boolean
+        deviceId: string | null
+        itemCount: number
+        pendingCount: number
+        daemonStatus: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
+        /**
+         * El CÓDIGO del último cambio de estado del daemon: 'offline', 'needs_key',
+         * 'not_in_beta', 'device_limit', 'auth', 'lock_held', 'needs_encryption_setup'
+         * (spec 2026-11-02: sin maestra no sube nada). No es texto para mostrar —
+         * la copia la decide el renderer.
+         *
+         * Existe porque un mismo `daemonStatus` puede tener motivos distintos que la UI
+         * tiene que distinguir: `paused` es "sin red" O "otra instancia tiene el candado
+         * de sincronización", y decirle "estás offline" al segundo caso es mentirle.
+         */
+        daemonStatusDetail?: string
+        /** Spec 2026-11-02 §4: filas propias que siguen en claro en la nube. Ausente hasta
+         *  el primer status del servidor. */
+        plaintextPending?: number
+        /** Pista de UI: si esta cuenta puede compartir memoria con otras personas. El que
+         *  autoriza de verdad es el servidor. `undefined` = todavía no se sabe. */
+        puedeCompartirMemoria?: boolean
+        /**
+         * Lo que el servidor reporta en `GET /v1/sync/status`. Ausente hasta que el
+         * daemon recibe su primera respuesta. El cliente NO calcula estos numeros: los
+         * limites de nube los hace cumplir el servicio y el cliente los muestra.
+         */
+        quota?: { used_bytes: number; max_bytes: number }
+        /** El tope de proyectos del plan. Ausente hasta el primer status. */
+        limits?: { max_projects: number }
+        /** Los proyectos que ocupan lugar en la nube, con nombre local. */
+        cloudProjects?: Array<{ projectKey: string; name: string }>
+        /** El proyecto elegido al bajar de plan, o null. */
+        keptProjectKey?: string | null
+        /** Más proyectos en la nube que los que el plan sincroniza. */
+        overLimit?: boolean
+        /**
+         * True when main's memory subsystem never initialized. The preload exposes
+         * `window.memory` unconditionally, so its mere presence proves nothing — this
+         * flag is the only signal the renderer gets that memory is dead on this machine.
+         */
+        unavailable?: boolean
+      }>
+      /** Devuelve la baja de ESTE oyente; un preload viejo devuelve void. */
+      onStatus: (cb: (status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required') => void) => (() => void) | void
+      /** @deprecated Borra los oyentes de todas las instancias: usá la baja de `onStatus`. */
+      removeStatusListener: () => void
+      /** Un agente escribió una memoria. Devuelve la baja de la suscripción. */
+      onChanged?: (cb: () => void) => () => void
+      /**
+       * Para la pantalla de reconocimiento del hub: local-first, funciona sin
+       * login. `projectCount` excluye `__global__` (no es un proyecto reconocible).
+       */
+      hubStats: () => Promise<{ itemCount: number; projectCount: number }>
+      encryptionStatus?: () => Promise<{
+        available: boolean
+        active: boolean
+        keyEpoch: number
+        pendingDevices: Array<{ deviceId: string; name: string }>
+        undecryptable: number
+        /** `false` = no se pudo leer el estado del servidor. Con esto en falso la tarjeta
+         *  no ofrece activar: un corte de red deja `keyEpoch` en 0, que es indistinguible
+         *  de "sin cifrado", y activar sin clave borra las envolturas de las otras. */
+        estadoRemotoLeido?: boolean
+        /** Huella de la clave de esta máquina, y la de cada una que espera autorización.
+         *  Comparar a ojo es lo único que detecta que el servidor sustituyó una clave. */
+        huellaPropia?: string | null
+        huellasPorDevice?: Record<string, string>
+        huellaDeLaClave?: string | null
+      }>
+      encryptionActivate?: () => Promise<
+        // `aviso` va con el código, no en lugar de él: si la clave no se pudo guardar en esta
+        // máquina el código es lo ÚNICO que queda, así que perderlo por reportar el problema
+        // sería el peor resultado posible.
+        | { ok: true; recoveryCode: string; aviso?: string | null }
+        | { ok: false; error: string }
+      >
+      /** Toma la envoltura que otra máquina ya publicó para ésta. `adoptada: false` cuando
+       *  todavía no hay ninguna — el caso normal hasta que el usuario autorice desde la otra. */
+      encryptionAdopt?: () => Promise<{ ok: boolean; adoptada?: boolean; error?: string }>
+      /** `fingerprint`: la huella que la tarjeta MOSTRÓ. */
+      encryptionAuthorize?: (deviceId: string, fingerprint: string) => Promise<{ ok: boolean; error?: string }>
+      encryptionRecover?: (code: string) => Promise<{ ok: boolean; error?: string }>
+      encryptionReencrypt?: () => Promise<{ total: number; queued: number; error?: string }>
+      /** Spec 2026-11-02 §4: «Turn on encryption» — adopta, activa o espera autorización. */
+      encryptionSecure?: () => Promise<CifradoAlConectar>
+      /** El código de la última activación hasta que el usuario confirme que lo guardó
+       *  (sólo en memoria del main). */
+      encryptionPendingRecoveryCode?: () => Promise<string | null>
+      encryptionConfirmRecoveryCode?: () => Promise<{ ok: true }>
+      encryptionRegenerateRecoveryCode?: () => Promise<{ ok: true; recoveryCode: string } | { ok: false; error: string }>
+      /**
+       * Puente de datos del grafo navegable de memorias (estilo Obsidian) — ver
+       * electron/memory-graph.ts. Optional: un preload viejo no lo expone.
+       */
+      graph?: (query?: Partial<MemoryGraphQuery>) => Promise<MemoryGraph>
+      /**
+       * El listado de memorias de TODOS los proyectos juntas, paginado por cursor. Ver
+       * electron/memory-store.ts's crossProjectMemories(). Optional: un preload viejo no lo
+       * expone.
+       */
+      crossProject?: (query?: Partial<CrossProjectMemoryQuery>) => Promise<CrossProjectMemoryPage>
+      /** Una memoria entera por id, con su `content`. `null` si no existe o esta borrada. */
+      observation?: (syncId: string) => Promise<MemoryObservationDetail | null>
+      /** Conectar dos memorias a mano. Sin dirección: "esta va con esta". */
+      link?: (a: string, b: string, note?: string | null) => Promise<{ ok: boolean; error?: string }>
+      unlink?: (a: string, b: string) => Promise<{ ok: boolean }>
+      /**
+       * Escribir una memoria desde la UI. Sin repo vinculado va al proyecto global, que es
+       * lo que significa: algo que vale más allá de un repo.
+       *
+       * `source` no se manda — lo fija el main en `'ui'`.
+       */
+      saveFromUi?: (input: {
+        title: string
+        content?: string
+        type?: string
+        tags?: string[]
+        topicKey?: string | null
+        worktreePath?: string | null
+      }) => Promise<{ ok: boolean; syncId?: string; error?: string }>
+      /** Corregir una memoria ya guardada. Mismo mecanismo que `memory_update` del MCP. */
+      updateFromUi?: (input: {
+        syncId: string
+        title?: string
+        content?: string
+        tags?: string[]
+      }) => Promise<{
+        ok: boolean
+        reason?: string | null
+        error?: string
+        /** Lo que quedó guardado (después del trim y de `redact()`), también con 'unchanged'.
+         *  Ausente en un main viejo. */
+        saved?: { title: string; content: string }
+      }>
+      /** Borrar una memoria. Escribe una tombstone: el borrado tiene que cruzar a las
+       *  otras máquinas, y una fila que simplemente desaparece vuelve a bajar en el pull. */
+      deleteFromUi?: (syncId: string) => Promise<{ ok: boolean; error?: string }>
+      /**
+       * Comparte un proyecto LOCAL con un equipo — pega contra POST /v1/projects/share
+       * (server/src/share.ts), la única forma de que `projects.team_id` quede seteado.
+       * Opcional: un preload viejo no lo expone.
+       */
+      shareProjectWithTeam?: (projectKey: string, teamId: string) => Promise<{ ok: boolean; error?: string }>
+      /** Elegir el proyecto que sigue sincronizando (POST /v1/projects/keep).
+       *  Opcional: un preload viejo no lo expone. */
+      keepProject?: (projectKey: string) => Promise<{ ok: boolean; error?: string }>
+      /** Máquinas de la cuenta (GET /v1/devices). Opcional como el resto. */
+      devices?: () => Promise<{ ok: true; devices: MaquinaDeLaCuenta[] } | { ok: false; error: string }>
+      /** Revocar otra máquina de la cuenta por id (POST /v1/devices/revoke). */
+      revokeDevice?: (deviceId: string) => Promise<{ ok: true } | { ok: false; error: string }>
+      /** Pedirle al daemon un status nuevo (al cambiar el plan). */
+      refreshStatus?: () => Promise<{ ok: boolean }>
+      /**
+       * El vault, proyección Markdown de la memoria de la cuenta activa a
+       * `.raven-nest/memory-vault/<userId>/`. Optional: un preload viejo no los expone.
+       */
+      vaultGetSettings?: () => Promise<{
+        ok: boolean
+        error?: string
+        settings?: { version: number; enabled: boolean; root: string | null; includeSuperseded: boolean; includeTeamScope: boolean }
+        rootDir?: string
+        defaultRootDir?: string
+      }>
+      vaultSetSettings?: (patch: {
+        enabled?: boolean
+        root?: string | null
+        includeSuperseded?: boolean
+        includeTeamScope?: boolean
+      }) => Promise<{
+        ok: boolean
+        error?: string
+        settings?: { version: number; enabled: boolean; root: string | null; includeSuperseded: boolean; includeTeamScope: boolean }
+        regenerated?: { ok: boolean; error?: string; rootDir?: string }
+      }>
+      vaultRegenerate?: () => Promise<{
+        ok: boolean
+        error?: string
+        rootDir?: string
+        result?: { written: number; moved: number; deleted: number; conflicts: number; warnings: unknown[] }
+      }>
+      vaultReveal?: () => Promise<{ ok: boolean; error?: string }>
+      /**
+       * El fallo mudo. Una sesion con `health: 'silent'` es una terminal que Nest lanzo con
+       * memoria y que nunca llego al bridge: esta corriendo sin memoria y, sin esto, el
+       * usuario no tiene forma de enterarse.
+       */
+      sessions?: () => Promise<{
+        ok: boolean
+        sessions: Array<{
+          paneId: string
+          aiType: string
+          account: string
+          health: 'writing' | 'silent' | 'disabled'
+          sessionId: string | null
+          startedAt: number
+        }>
+        silentCount: number
+      }>
+      /** Lo que esta bloqueado y por que, agrupado por razon. */
+      doctor?: () => Promise<{
+        ok: boolean
+        blockedTotal: number
+        groups: Array<{ reason: string; count: number; oldestAt: number; reversible: boolean }>
+        /** Los repos que quedaron sólo en esta máquina por el tope del plan. */
+        localOnlyProjects?: Array<{ projectKey: string; name: string; count: number }>
+      }>
+      /** Cuan atrasado esta el vault respecto de la base. */
+      vaultHealth?: () => Promise<{
+        ok: boolean
+        enabled: boolean
+        rootDir: string
+        noteCount: number
+        conflictCount: number
+        lastGeneratedAt: number | null
+      }>
+      /**
+       * El hilo de equipo, por worktree. Optional: un
+       * preload viejo no los expone, mismo motivo que el vault arriba.
+       */
+      teamThreadGetSettings?: (projectKey: string) => Promise<{ ok: boolean; error?: string; settings?: TeamThreadSettings }>
+      teamThreadSetSettings?: (
+        projectKey: string,
+        worktreePath: string,
+        patch: Partial<TeamThreadSettings>,
+        /** `message` es texto para el usuario (p. ej., el plan no admite compartir);
+         *  `error` sigue siendo el codigo. El panel muestra `message` si viene. */
+      ) => Promise<{ ok: boolean; error?: string; message?: string; warnings?: unknown[]; settings?: TeamThreadSettings }>
+      teamThreadRegenerate?: (worktreePath: string, projectKey: string) => Promise<{ ok: boolean; error?: string; warnings?: unknown[] }>
+      /**
+       * projectKey se resuelve del lado main (mismo camino que
+       * `handoff:read` usa para lo mismo); el renderer nunca lo calcula.
+       */
+      teamThreadProjectKeyForWorktree?: (worktreePath: string) => Promise<{ ok: boolean; error?: string; projectKey?: string }>
+      /** Proyeccion de solo lectura del indice, para pintar el grafo. */
+      teamThreadRead?: (worktreePath: string) => Promise<{ ok: boolean; error?: string; branches?: TeamThreadBranch[] }>
+    }
     platform: {
       isWin: boolean
       isMac: boolean
@@ -409,18 +1422,32 @@ declare global {
       e2eBypass: boolean
       // Plan simulado para demos/E2E (RAVEN_E2E_PLAN); null fuera de RAVEN_E2E.
       e2ePlan?: string | null
+      // Período de facturación simulado (RAVEN_E2E_BILLING): JSON crudo { billingInterval,
+      // currentPeriodEnd, cancelAtPeriodEnd }; null fuera de RAVEN_E2E. Ver useProfile.
+      e2eBilling?: string | null
+      // Repos simulados para E2E (RAVEN_E2E_REPOS), JSON de UserRepo[]; null
+      // fuera de RAVEN_E2E. Ver useUserRepos.
+      e2eRepos?: string | null
     }
     // Test-only hook, installed by App.tsx only when appFlags.e2eBypass is
     // true. Lets Playwright link a repo to the active tab without driving
     // the native OS folder-picker dialog (window.dialog.openFolder), which
     // is not automatable.
     __e2e_linkRepo?: (path: string) => void
+    // Test-only hook, same gate as __e2e_linkRepo:
+    // overrides the derived paneAITypesByPath map so Playwright can see the
+    // repo/worktree row logos without spawning real PTYs for every AI type.
+    __e2e_setFakePaneAITypes?: (byPath: Record<string, AIType[]>) => void
     windowControls: {
       send: (action: 'minimize' | 'maximize' | 'close') => void
-      onShown: (callback: () => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onShown: (callback: () => void) => () => void
+      /** La ventana pasó a pantalla completa (o volvió). En macOS ahí se esconden los semáforos. */
+      onFullScreen?: (cb: (full: boolean) => void) => () => void
     }
     updater: {
-      onStatus: (cb: (status: 'downloading' | 'ready' | 'error', msg?: string) => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onStatus: (cb: (status: 'downloading' | 'ready' | 'error', msg?: string) => void) => () => void
       install: () => void
       checkForUpdates: () => Promise<'up-to-date' | 'update-found' | 'error'>
     }
@@ -435,7 +1462,11 @@ declare global {
     }
     electronShell: {
       openExternal: (url: string) => void
-      onDeepLink: (cb: (url: string) => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onDeepLink: (cb: (url: string) => void) => () => void
+      // Cold-launch pull: consumes any deep-link URL buffered before the
+      // renderer was ready (see electron/preload.ts's deeplink:consume call).
+      consumePendingDeepLink: () => Promise<string | null>
     }
     mcp: {
       read: (filePath: string) => Promise<Record<string, unknown>>
@@ -473,7 +1504,10 @@ declare global {
         branches: string[]
         defaultBranch: string | null
       }>
-      pickRepoFolder: () => Promise<string | null>
+      // expectedRemote (optional): validates the picked folder's `origin`
+      // remote matches before accepting it — prevents linking the wrong
+      // repo's folder (see electron/main.ts's dialog:pickRepoFolder handler).
+      pickRepoFolder: (expectedRemote?: string) => Promise<string | null>
       shortstat: (
         worktreePath: string,
         base?: string,
@@ -488,21 +1522,25 @@ declare global {
     speech: {
       check: () => Promise<boolean>
       transcribe: (audio: Uint8Array, language?: string) => Promise<string>
-      onStatus: (cb: (status: 'loading' | 'ready') => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onStatus: (cb: (status: 'loading' | 'ready') => void) => () => void
+      /** @deprecated Borra los oyentes de TODAS las instancias: usá la baja de `onStatus`. */
       removeStatusListener: () => void
     }
     github: {
       openOAuth: () => Promise<void>
-      onOAuthCode: (cb: (code: string) => void) => void
+      onOAuthCode: (cb: (code: string) => void) => () => void
       removeOAuthListener: () => void
     }
     gitlab: {
       openOAuth: () => Promise<void>
-      onOAuthCode: (cb: (code: string) => void) => void
+      onOAuthCode: (cb: (code: string) => void) => () => void
       removeOAuthListener: () => void
     }
     keybinds: {
-      onTabCycle: (cb: (shift: boolean) => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onTabCycle: (cb: (shift: boolean) => void) => () => void
+      /** @deprecated Borra TODOS los oyentes del canal: usá la baja de `onTabCycle`. */
       removeTabCycleListener: () => void
     }
     pathUtils: {
@@ -530,7 +1568,7 @@ declare global {
         | { ok: true; worktrees: WorktreeMeta[] }
         | { ok: false; error: string }
       >
-      create: (opts: { repoPath: string; branch: string; fromBranch?: string; path?: string; presetId?: string }) => Promise<WorktreeMeta>
+      create: (opts: { repoPath: string; branch: string; fromBranch?: string; path?: string; presetId?: string }) => Promise<WorktreeCreateResult>
       remove: (worktreePath: string) => Promise<void>
       get: (worktreePath: string) => Promise<WorktreeMeta | null>
       setPreset: (worktreePath: string, presetId: string | null) => Promise<void>
@@ -539,15 +1577,24 @@ declare global {
         dstWorktreePath: string,
         files: string[],
       ) => Promise<{ copied: number; skipped: number; errors: string[] }>
+      listAll: () => Promise<
+        | { ok: true; worktrees: WorktreeMeta[] }
+        | { ok: false; error: string }
+      >
     }
     preset: {
       list: (repoPath: string) => Promise<RavenPreset[]>
       save: (repoPath: string, preset: RavenPreset) => Promise<void>
       delete: (repoPath: string, presetId: string) => Promise<void>
       apply: (worktreePath: string, presetId: string) => Promise<void>
+      /** Lo que el preset ejecuta y si este repo ya lo aprobó (`electron/preset-trust.ts`). */
+      review: (repoPath: string, presetId: string) => Promise<PresetReview | null>
+      trust: (repoPath: string, presetId: string, hash: string) => Promise<{ ok: true } | { ok: false; error: string }>
       cancel: (worktreePath: string) => Promise<void>
-      onSetupProgress: (cb: (worktreePath: string, line: string) => void) => void
-      onSetupState: (cb: (worktreePath: string, state: WorktreeMeta['setupState']) => void) => void
+      /** Cada uno devuelve su propia baja, que saca sólo ese oyente. */
+      onSetupProgress: (cb: (worktreePath: string, line: string) => void) => () => void
+      onSetupState: (cb: (worktreePath: string, state: WorktreeMeta['setupState']) => void) => () => void
+      /** @deprecated Borra los oyentes de TODAS las secciones: usá la baja de cada `on*`. */
       removeListeners: () => void
     }
     port: {
@@ -581,6 +1628,10 @@ declare global {
       importVSCode: (themePath: string) => Promise<ThemeOpResult>
       searchOpenVSX: (query: string) => Promise<{ ok: true; results: OpenVSXThemeResult[] } | { ok: false; error: string }>
       installOpenVSX: (namespace: string, name: string) => Promise<{ ok: true; installed: string[] } | { ok: false; error: string }>
+      /** Abre un tema de terminal y devuelve su texto crudo, o null si se canceló. */
+      readTerminalThemeFile: () => Promise<
+        { ok: true; texto: string; nombre: string } | { ok: false; error: string } | null
+      >
       loadFromFile: () => Promise<ThemeOpResult | null>
     }
     ide: {
@@ -592,8 +1643,10 @@ declare global {
       start: (worktreePath: string) => Promise<void>
       stop: () => Promise<void>
       status: () => Promise<{ active: boolean; worktreePath?: string; events?: number; errors?: number }>
-      onStatus: (cb: (status: { active: boolean; worktreePath?: string; events?: number }) => void) => void
-      onWarning: (cb: (msg: string) => void) => void
+      /** Cada uno devuelve su propia baja, que saca sólo ese oyente. */
+      onStatus: (cb: (status: { active: boolean; worktreePath?: string; events?: number }) => void) => () => void
+      onWarning: (cb: (msg: string) => void) => () => void
+      /** @deprecated Borra los oyentes de TODAS las secciones: usá la baja de cada `on*`. */
       removeListeners: () => void
     }
     benchmark: {
@@ -611,7 +1664,9 @@ declare global {
       forward: (paneId: string) => Promise<void>
       reload: (paneId: string) => Promise<void>
       destroy: (paneId: string) => Promise<void>
-      onNavigated: (cb: (paneId: string, url: string) => void) => void
+      /** Devuelve su propia baja, que saca sólo este oyente. */
+      onNavigated: (cb: (paneId: string, url: string) => void) => () => void
+      /** @deprecated Borra los oyentes de TODAS las celdas: usá la baja de `onNavigated`. */
       removeListeners: () => void
       // Snapshot (dataURL PNG) del contenido de un pane para el fantasma del
       // drag. kind 'browser' captura el WebContentsView nativo; 'dom' captura
@@ -620,6 +1675,10 @@ declare global {
     }
     settings: {
       get: () => Promise<{
+        voiceLanguage?: string
+        hasSeenMemoryHub?: boolean
+        hasSeenMemoriesWelcome?: boolean
+        memoryPrefs?: unknown
         keybindings: {
           voiceInput: string
           newPane: string
@@ -639,6 +1698,84 @@ declare global {
       refreshDisk: (worktreePaths: string[]) => Promise<Record<string, { total: number; buckets: DiskBucket[] }>>
       killPid: (pid: number) => Promise<{ ok: true } | { ok: false; error: string }>
       portsByPids: (pids: number[]) => Promise<Record<number, number[]>>
+      /** Lo que dejaron vivo tareas de fondo de agentes que ya terminaron (`huerfanos-de-tareas.ts`). */
+      orphans: (refresh?: boolean) => Promise<OrphanProcess[]>
+      killOrphan: (pid: number) => Promise<{ ok: true } | { ok: false; error: string }>
     }
+    tickets: TicketsBridge
+    signals: SignalsBridge
+    activity: ActivityBridge
+    slackMentions: SlackMentionsBridge
+    notion: NotionBridge
+    gcal: GcalBridge
+    recipes: RecipesBridge
+    automations: AutomationsBridge
+    workerSpecs: WorkerSpecsBridge
+    handoff: HandoffBridge
+    graphTemplates: GraphTemplatesBridge
+    graphRuns: GraphRunsBridge
   }
+}
+
+// === Marketplace de integraciones ===
+export type PluginType = 'action' | 'panel' | 'integration'
+export type PluginCategory =
+  | 'comms' | 'docs' | 'pm' | 'ci' | 'design' | 'observability' | 'other'
+
+export interface ConfigField {
+  key: string
+  label: string
+  type: 'text' | 'password' | 'select'
+  required?: boolean
+  options?: { value: string; label: string }[]
+  placeholder?: string
+}
+
+export interface AuthSpec {
+  kind: 'oauth' | 'apiKey' | 'none'
+  fields?: ConfigField[]
+}
+
+export interface MenuContribution {
+  id: string          // 'slack.notify'
+  label: string       // 'Notificar a Slack'
+  actionId: string    // se pasa a window.pluginActions.run(pluginId, actionId, ...)
+  surface: 'sidebar' | 'repoActions'
+}
+
+export interface EventHook {
+  on: 'onAgentDone' | 'onWorktreeReady' | 'onPrPushed'
+  actionId: string
+}
+
+export interface PluginContributions {
+  menuItems?: MenuContribution[]
+  events?: EventHook[]
+  // paneType: diferido a slices futuros
+}
+
+export interface PluginManifest {
+  id: string
+  name: string
+  description: string
+  category: PluginCategory
+  icon: string
+  color: string
+  type: PluginType
+  // `(string & {})` keeps the 'raven' literal as an autocomplete hint while
+  // still accepting any third-party publisher id (a plain `'raven' | string`
+  // collapses to `string`). 'raven' = curated/built-in.
+  publisher: 'raven' | (string & {})
+  tier: 'free' | 'pro' | 'team-enterprise'
+  comingSoon?: boolean
+  auth?: AuthSpec
+  configSchema?: ConfigField[]
+  contributes?: PluginContributions
+}
+
+export interface InstalledPlugin {
+  pluginId: string
+  scope: 'personal' | 'team'
+  enabled: boolean
+  config: Record<string, unknown>
 }

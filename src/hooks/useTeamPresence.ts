@@ -12,8 +12,8 @@ export interface PresenceState {
 }
 
 // Builds the presence payload including the profile's real github_login,
-// so Stats can match "online" against the dev's GitHub login
-// (previously it was guessed from the email prefix and almost never matched).
+// so Stats can match "online" against the dev's GitHub login (guessing it from
+// the email prefix almost never matches).
 async function buildPresencePayload(
   currentUserId: string,
   repo: string | null,
@@ -41,9 +41,8 @@ async function buildPresencePayload(
 
 export function useTeamPresence(teamId: string | null, currentUserId: string | null) {
   const [presence, setPresence] = useState<Record<string, PresenceState>>({})
-  // H5: Hold the subscribed channel so updatePresence can call .track() on it.
-  // Previously updatePresence created a NEW channel and never subscribed it,
-  // so the track() call silently dropped on the floor.
+  // Hold the subscribed channel so updatePresence can call .track() on it: a
+  // track() on a new, unsubscribed channel is silently dropped.
   const channelRef = useRef<RealtimeChannel | null>(null)
 
   useEffect(() => {

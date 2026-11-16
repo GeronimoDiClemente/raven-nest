@@ -5,7 +5,8 @@
     "moduleResolution": "bundler",
     "target": "ESNext",
     "strict": true,
+    "jsx": "react-jsx",
     "skipLibCheck": true
   },
-  "include": ["electron.vite.config.ts", "electron/**/*.ts", "src/types.ts", "src/lib/ide-config-mappings.ts", "src/lib/theme-registry.ts"]
+  "include": ["electron.vite.config.ts", "electron/**/*.ts", "electron/**/*.tsx", "src/types.ts", "src/lib/ide-config-mappings.ts", "src/lib/theme-registry.ts"]
 }

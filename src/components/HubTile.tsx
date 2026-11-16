@@ -26,7 +26,7 @@ export default function HubTile({
 }: Props) {
   const { pane, tabId, tabName, isActiveTab, busy } = entry
   // Active-tab panes stay mounted at real size behind the overlay — never
-  // resize their PTY from a tile (see spec: "PTY size").
+  // resize their PTY from a tile.
   const { containerRef, focusTile } = useHubTerminal(pane.id, !isActiveTab)
   const [ended, setEnded] = useState(false)
 
@@ -59,9 +59,6 @@ export default function HubTile({
     >
       <div className="hub-tile-header">
         <span className="pane-color-btn" style={{ background: aiColor, cursor: 'default' }} />
-        {/* Identify the terminal by what the user actually named it (rename label,
-            then note) — the agent type is the same for every tile, so it's the
-            last-resort fallback, not the primary identifier. */}
         <span className="hub-tile-label" style={{ color: aiColor }} title={hubLabel}>{hubLabel}</span>
         {pane.accountName && !AI_CONFIG[pane.aiType]?.noAccount && (
           <span className="pane-account-name">{pane.accountName}</span>

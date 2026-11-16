@@ -30,7 +30,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             {this.state.error.message}
           </pre>
           <button
-            style={{ marginTop: 12, fontSize: 12, color: '#a78bfa', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            style={{ marginTop: 12, fontSize: 12, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
             onClick={() => this.setState({ error: null })}
           >
             ↺ Try again

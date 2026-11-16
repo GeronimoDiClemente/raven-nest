@@ -1,0 +1,695 @@
+import { createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, verify, type JsonWebKey } from 'node:crypto'
+import type { Pool, PoolClient } from 'pg'
+import { hashToken } from './auth'
+import { veredictoDeElegibilidad, type Elegibilidad } from './elegibilidad'
+import { borrarEnvolturasFueraDeEquipos } from './membership-sync'
+import { PLANES_PAGOS } from './plan-sync'
+import { UUID_RE } from './uuid'
+
+/**
+ * §9.2 — la emisión del token, el único camino nuevo del servicio y el único aditivo:
+ * todo lo demás (auth por token, tenancy por `user_id`, cuotas, allowlist) ya estaba
+ * escrito y ejercitado desde el día uno por la cuenta única.
+ *
+ * La decisión que la spec dejaba abierta ("si el emisor verifica el JWT de Supabase o si
+ * la identidad se muda también") queda tomada por lo barato: **se verifica el JWT de
+ * Supabase**. La identidad sigue viviendo en Supabase; el servicio sólo comprueba que el
+ * portador tiene un login válido y le abre una fila en `devices`. Mudar la identidad es un
+ * cambio posterior que no obliga a reescribir esto: lo único que cambiaría es esta función.
+ */
+export interface JwtIdentity {
+  userId: string
+  email: string | null
+}
+
+function decodeSegment(seg: string): Record<string, unknown> | null {
+  try {
+    const json = Buffer.from(seg, 'base64url').toString('utf8')
+    const parsed = JSON.parse(json)
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Verifica un JWT de login de Supabase (HS256 con el secreto del proyecto) y devuelve la
+ * identidad, o `null` si no lo es. Nunca lanza: cualquier entrada mal formada es un `null`.
+ *
+ * `now` se inyecta en vez de leer el reloj adentro para que el vencimiento se pueda testear
+ * sin fake timers.
+ */
+export function verifySupabaseJwt(token: string, secret: string, now: number): JwtIdentity | null {
+  // Un secreto vacío verificaría contra HMAC(''), que cualquiera puede calcular. Es un
+  // error de configuración, no una credencial inválida, pero el modo seguro es el mismo.
+  if (!secret) return null
+
+  const partes = token.split('.')
+  if (partes.length !== 3) return null
+  const [headerB64, payloadB64, firmaB64] = partes
+
+  const header = decodeSegment(headerB64)
+  // Sólo HS256. `none` y cualquier otro alg se rechazan explícitamente: aceptar el alg que
+  // dice el token es la confusión de algoritmo clásica, y con `none` la firma sobra.
+  if (!header || header.alg !== 'HS256') return null
+
+  const esperada = createHmac('sha256', secret).update(`${headerB64}.${payloadB64}`).digest()
+  let recibida: Buffer
+  try {
+    recibida = Buffer.from(firmaB64, 'base64url')
+  } catch {
+    return null
+  }
+  // timingSafeEqual exige el mismo largo, así que la comparación de largos va primero y por
+  // separado — no filtra nada que el atacante no controle ya.
+  if (recibida.length !== esperada.length) return null
+  if (!timingSafeEqual(recibida, esperada)) return null
+
+  return identidadDelPayload(decodeSegment(payloadB64), now)
+}
+
+/**
+ * Lo que se le exige al payload una vez que la FIRMA ya cerró. Es común a los dos algoritmos:
+ * cambiar cómo se verifica la firma no puede aflojar qué tokens valen.
+ */
+function identidadDelPayload(payload: Record<string, unknown> | null, now: number): JwtIdentity | null {
+  if (!payload) return null
+
+  // El rol es el chequeo que más importa acá: la ANON KEY de Supabase es un JWT firmado con
+  // ESTE MISMO secreto y es pública (viaja en el bundle de cualquier cliente). Sin esto,
+  // cualquiera con la anon key se registra un device. `service_role` se rechaza por lo
+  // mismo desde el otro lado: es una credencial de servidor, no un usuario.
+  if (payload.role !== 'authenticated') return null
+
+  // Un token sin vencimiento no es un login, es una llave permanente.
+  if (typeof payload.exp !== 'number') return null
+  if (payload.exp * 1000 <= now) return null
+
+  const sub = payload.sub
+  if (typeof sub !== 'string' || sub === '') return null
+
+  return { userId: sub, email: typeof payload.email === 'string' ? payload.email : null }
+}
+
+/** De dónde salen las claves públicas del proyecto. La implementa `jwks.ts`. */
+export interface ClavesDeFirma {
+  /** La clave pública que el emisor publica para ese `kid`, o `null` si no la conoce. */
+  paraKid(kid: string): Promise<JsonWebKey | null>
+}
+
+/** Con qué puede verificar este servicio un login. Los dos campos son opcionales a propósito. */
+export interface EmisorDeLogin {
+  /** El secreto simétrico legacy del proyecto (`SUPABASE_JWT_SECRET`). */
+  secretoHs256?: string
+  /** El JWKS del proyecto, para los que firman con claves asimétricas. */
+  claves?: ClavesDeFirma
+}
+
+/**
+ * Verifica un JWT de login de Supabase **sin importar cómo firme el proyecto**.
+ *
+ * Supabase movió la firma de un secreto simétrico compartido (HS256) a claves asimétricas
+ * por proyecto (ES256 + un `kid` que resuelve contra `/auth/v1/.well-known/jwks.json`). El
+ * proyecto de Nest ya está del lado nuevo —verificado el 2026-09-21 contra un token real de
+ * la app y contra el JWKS publicado—, así que el camino HS256 solo rechazaba **todo** login
+ * legítimo, y ningún valor de `SUPABASE_JWT_SECRET` lo arreglaba: ese secreto ya no firma.
+ *
+ * Los dos caminos conviven porque el secreto legacy sigue siendo válido en proyectos que no
+ * migraron, y porque durante una rotación hay un rato con las dos cosas vivas.
+ *
+ * **El algoritmo lo decide lo que este servicio TIENE, no lo que el token dice.** Un token
+ * ES256 no se mira si no hay JWKS configurado, y uno HS256 no se mira si no hay secreto. Esa
+ * es la defensa contra la confusión de algoritmo: el JWKS es público, así que un atacante
+ * conoce la clave pública y podría firmar un HS256 usándola de secreto.
+ */
+export async function verificarJwtDeSupabase(
+  token: string,
+  now: number,
+  emisor: EmisorDeLogin
+): Promise<JwtIdentity | null> {
+  const partes = token.split('.')
+  if (partes.length !== 3) return null
+  const [headerB64, payloadB64, firmaB64] = partes
+
+  const header = decodeSegment(headerB64)
+  if (!header) return null
+
+  if (header.alg === 'HS256') {
+    return emisor.secretoHs256 ? verifySupabaseJwt(token, emisor.secretoHs256, now) : null
+  }
+  // Cualquier otro alg —`none`, `RS256`, lo que sea— cae acá y se rechaza: sólo se soportan
+  // los dos que Supabase emite.
+  if (header.alg !== 'ES256' || !emisor.claves) return null
+
+  // Sin `kid` no se prueba con todas las claves: elegir clave a fuerza bruta convierte una
+  // rotación a medio hacer en una ventana donde una clave retirada sigue sirviendo.
+  const kid = header.kid
+  if (typeof kid !== 'string' || kid === '') return null
+
+  let jwk: JsonWebKey | null
+  try {
+    jwk = await emisor.claves.paraKid(kid)
+  } catch {
+    // Un JWKS que no contesta es un problema de red, y desde acá se ve igual que una
+    // credencial inválida. Lo distingue el llamador, que sabe si hay emisor configurado.
+    return null
+  }
+  if (!jwk) return null
+
+  // La clave tiene que ser la que ESE alg necesita. Un JWKS que devolviera una RSA no
+  // habilita un token que dice ES256: ahí la confusión la pondría el emisor, no el atacante.
+  //
+  // Honestidad sobre lo que prueban los tests: sacando este chequeo, el del `alg` de arriba y
+  // el del largo de la firma —los tres a la vez— la suite sigue verde (medido el 2026-09-21).
+  // O sea que quien rechaza el token de contrabando es la verificación ECDSA misma, y estas
+  // tres líneas son defensa en profundidad, no la defensa. Se quedan porque el día que este
+  // verificador acepte un segundo algoritmo pasan a ser lo único que separa a uno del otro.
+  const forma = jwk as { kty?: string; crv?: string; alg?: string }
+  if (forma.kty !== 'EC' || forma.crv !== 'P-256') return null
+  if (forma.alg !== undefined && forma.alg !== 'ES256') return null
+
+  const firma = Buffer.from(firmaB64, 'base64url')
+  // JWS lleva la firma cruda R||S, 64 bytes para P-256. Node por defecto espera DER, de ahí
+  // el `dsaEncoding`; el largo se chequea antes porque `verify` con basura tira.
+  if (firma.length !== 64) return null
+
+  let ok = false
+  try {
+    const clave = createPublicKey({ key: jwk, format: 'jwk' })
+    ok = verify('sha256', Buffer.from(`${headerB64}.${payloadB64}`), { key: clave, dsaEncoding: 'ieee-p1363' }, firma)
+  } catch {
+    return null
+  }
+  if (!ok) return null
+
+  return identidadDelPayload(decodeSegment(payloadB64), now)
+}
+
+/** Mismo formato que emitía la edge function `memory-token`: `nmk_` + 32 bytes al azar. */
+export function generateDeviceToken(): string {
+  return `nmk_${randomBytes(32).toString('base64url')}`
+}
+
+export type RegisterResult =
+  | { ok: true; deviceId: string; token: string }
+  | { ok: false; status: 403; error: string }
+
+/**
+ * Crea (o reusa) el usuario, verifica el allowlist y abre una fila en `devices`. Devuelve
+ * el token UNA sola vez: el servicio guarda el hash y nada más (§9.1).
+ *
+ * Sobre el plan: el JWT de Supabase no lo trae, así que un usuario nuevo entra como `free`.
+ * Desde 2b-2 el plan llega por `POST /internal/plan` (webhook de Stripe) y, como red de
+ * seguridad, acá se relee `profiles.plan` con el JWT: si es pago y el actual no lo es, se
+ * escribe junto con la allowlist, ANTES del chequeo de allowlist. Nunca baja un plan.
+ *
+ * El tope de máquinas por plan NO se aplica acá: lo aplica `authenticate` en cada request,
+ * que es donde ya está testeado y donde el cliente sabe leer `device_limit_reached`.
+ * Registrar siempre y fallar al sincronizar mantiene una sola fuente de esa regla.
+ *
+ * `supabaseJwt` es el mismo JWT que `verifySupabaseJwt` ya validó para esta request (lo
+ * manda `http.ts`, que es quien lo tiene crudo). Se usa DESPUÉS de que el device quedó
+ * registrado, para sincronizar `team_memberships` (Team Memory Layer 1, Parte 2) — nunca
+ * antes, y nunca dentro de la misma transacción: es un fetch de red a Supabase, y colgar la
+ * transacción de registro del device esperando esa red convertiría un timeout de Supabase
+ * en un timeout del registro. Ver `syncTeamMemberships`.
+ */
+export async function registerDevice(
+  pool: Pool,
+  identity: JwtIdentity,
+  device: { name: string; platform?: string | null },
+  supabaseJwt?: string
+): Promise<RegisterResult> {
+  // Spec 2b-2 §4.6: fuera de la transacción, por lo mismo que `syncTeamMemberships`: colgar el
+  // registro de la red de Supabase convertiría su timeout en el del registro.
+  const planPago = await planPagoDeSupabase(identity.userId, supabaseJwt)
+
+  const client = await pool.connect()
+  let result: RegisterResult
+  try {
+    await client.query('begin')
+
+    await asegurarUsuario(client, identity)
+    // Pagar te mete en la beta (decisión 5) ANTES del chequeo: alguien que pagó y perdió el
+    // aviso del webhook no recibe `not_in_beta`.
+    if (planPago) await escribirPlanPago(client, identity.userId, planPago)
+
+    const { rows: permitido } = await client.query(
+      'select 1 from allowlist where user_id = $1',
+      [identity.userId]
+    )
+    if (permitido.length === 0) {
+      // Rollback y no 401: la credencial es buena, lo que falta es el beta. El mismo código
+      // que devuelve `authenticate`, para que el cliente no tenga que aprender otro. Retorno
+      // directo (no cae a la sincronización de equipos de más abajo): sin device no hay nada
+      // que registrar y no tiene sentido gastar el fetch a Supabase.
+      await client.query('rollback')
+      return { ok: false, status: 403, error: 'not_in_beta' }
+    }
+
+    const token = generateDeviceToken()
+    // `devices.id` es `uuid primary key` SIN default en 001_init.sql, asi que el id se
+    // genera acá — no lo pone Postgres.
+    const deviceId = randomUUID()
+    await client.query(
+      `insert into devices (id, user_id, name, platform, token_hash)
+       values ($1, $2, $3, $4, $5)`,
+      [deviceId, identity.userId, device.name, device.platform ?? null, hashToken(token)]
+    )
+
+    await client.query('commit')
+    result = { ok: true, deviceId, token }
+  } catch (err) {
+    await client.query('rollback').catch(() => { /* la conexión ya puede estar rota */ })
+    throw err
+  } finally {
+    client.release()
+  }
+
+  // Fuera del try/finally de arriba a propósito: `client` ya se liberó, y esto usa su propia
+  // conexión y su propia transacción corta (ver `syncTeamMemberships`). Best-effort: nunca
+  // lanza, así que nunca puede convertir un registro de device exitoso en uno fallido.
+  await syncTeamMemberships(pool, identity.userId, supabaseJwt)
+  return result
+}
+
+// --- Team Memory Layer 1, Parte 2 — sincronización de membresía ---------------------------
+
+/** Timeout del fetch a Supabase REST: ni tan corto que rebote una red lenta, ni tan largo
+ * que un Supabase caído demore la respuesta del registro de device más de lo razonable. */
+const SUPABASE_MEMBERSHIPS_TIMEOUT_MS = 5000
+
+export interface TeamMembership {
+  teamId: string
+  teamName: string | null
+  role: string | null
+}
+
+/** La forma cruda que devuelve PostgREST para `select=team_id,role,teams(name)`. */
+interface SupabaseTeamMemberRow {
+  team_id?: unknown
+  role?: unknown
+  // PostgREST embebe una relación many-to-one como objeto ({name: "..."}), que es lo que
+  // devuelve en la práctica y lo que testean los tests de este archivo. Se acepta también el
+  // array por si la config de la FK del lado de Supabase cambiara la cardinalidad que
+  // PostgREST infiere — defensivo, no ejercitado.
+  teams?: { name?: unknown } | { name?: unknown }[] | null
+}
+
+/**
+ * Trae las membresías ACTIVAS del usuario desde Supabase REST, autenticada con el MISMO JWT
+ * que ya validó `verifySupabaseJwt` para esta request — nunca una service-role key, para que
+ * la consulta quede sujeta a la misma RLS que vería el usuario si la hiciera él mismo.
+ */
+export async function fetchActiveTeamMemberships(
+  supabaseUrl: string,
+  anonKey: string,
+  userId: string,
+  jwt: string
+): Promise<TeamMembership[]> {
+  const url =
+    `${supabaseUrl.replace(/\/+$/, '')}/rest/v1/team_members` +
+    `?user_id=eq.${encodeURIComponent(userId)}&status=eq.active&select=team_id,role,teams(name)`
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SUPABASE_MEMBERSHIPS_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${jwt}`, apikey: anonKey },
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
+  if (!res.ok) {
+    throw new Error(`supabase team_members respondió ${res.status}`)
+  }
+
+  const body = (await res.json()) as unknown
+  if (!Array.isArray(body)) return []
+  return body.map((row) => {
+    const r = row as SupabaseTeamMemberRow
+    const teamsField = Array.isArray(r.teams) ? r.teams[0] : r.teams
+    const rawName =
+      teamsField && typeof teamsField === 'object' ? (teamsField as { name?: unknown }).name : undefined
+    return {
+      teamId: String(r.team_id),
+      teamName: typeof rawName === 'string' ? rawName : null,
+      role: typeof r.role === 'string' ? r.role : null,
+    }
+  })
+}
+
+/**
+ * `profiles.plan` del propio usuario, leído con SU JWT (spec 2b-2 §4.6): la RLS lo deja leer y
+ * `protect_profile_billing_columns` impide que el cliente lo escriba, así que es la verdad de
+ * Stripe. `null` si no hay fila o el plan no es un string. Lanza en un no-2xx o error de red.
+ */
+export async function fetchPlanDeSupabase(
+  supabaseUrl: string,
+  anonKey: string,
+  userId: string,
+  jwt: string
+): Promise<string | null> {
+  const url = `${supabaseUrl.replace(/\/+$/, '')}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=plan`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SUPABASE_MEMBERSHIPS_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetch(url, { headers: { Authorization: `Bearer ${jwt}`, apikey: anonKey }, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+  if (!res.ok) throw new Error(`supabase profiles respondió ${res.status}`)
+  const body = (await res.json()) as unknown
+  if (!Array.isArray(body)) return null
+  const plan = (body[0] as { plan?: unknown } | undefined)?.plan
+  return typeof plan === 'string' ? plan : null
+}
+
+/**
+ * Best effort, como `syncTeamMemberships`: sin config, sin JWT o con cualquier falla devuelve
+ * `null` y el registro sigue exactamente como antes. Sólo devuelve planes PAGOS: un `free`
+ * leído no se usa nunca (la red de seguridad sólo sube; bajar es trabajo del webhook).
+ */
+export async function planPagoDeSupabase(userId: string, supabaseJwt: string | undefined): Promise<string | null> {
+  const supabaseUrl = process.env.SUPABASE_URL
+  const anonKey = process.env.SUPABASE_ANON_KEY
+  if (!supabaseUrl || !anonKey || !supabaseJwt) return null
+  try {
+    const plan = await fetchPlanDeSupabase(supabaseUrl, anonKey, userId, supabaseJwt)
+    return plan && PLANES_PAGOS.has(plan) ? plan : null
+  } catch (err) {
+    console.warn('[devices] no se pudo leer el plan de Supabase', err)
+    return null
+  }
+}
+
+/**
+ * El email se refresca en cada registro (el usuario pudo cambiarlo en Supabase); el plan no se
+ * toca, porque acá no lo sabemos y pisarlo con 'free' degradaría a un pago.
+ */
+async function asegurarUsuario(client: PoolClient, identity: JwtIdentity): Promise<void> {
+  await client.query(
+    `insert into users (id, email) values ($1, $2)
+     on conflict (id) do update set email = coalesce(excluded.email, users.email)`,
+    [identity.userId, identity.email]
+  )
+}
+
+/**
+ * La red de seguridad del plan pago, escrita: sube el plan y mete en la allowlist. El usuario
+ * ya tiene que existir (`asegurarUsuario`).
+ *
+ * Sólo sube (D4): se escribe si el plan actual NO es pago. Un `enterprise` o `team` puesto a
+ * mano no lo pisa un `cloud` leído de Supabase.
+ */
+async function escribirPlanPago(client: PoolClient, userId: string, planPago: string): Promise<void> {
+  await client.query(
+    `update users set plan = $2 where id = $1 and plan <> all($3::text[])`,
+    [userId, planPago, [...PLANES_PAGOS]]
+  )
+  await client.query('insert into allowlist (user_id) values ($1) on conflict do nothing', [userId])
+}
+
+/**
+ * La red de seguridad del plan pago de `registerDevice`, sola: si Supabase dice que la cuenta
+ * paga, se escribe el plan y la allowlist exactamente como lo haría un registro con JWT. Si no
+ * paga (o no hay JWT, o Supabase no contesta) no escribe nada.
+ *
+ * La usa `/v1/link/approve`, que es el último paso con el JWT del usuario: el claim que emite
+ * el token corre en la otra máquina y llama a `registerDevice` SIN JWT. Sin esto, `check`
+ * decía `ok` gracias a Supabase y el claim devolvía `not_in_beta` (Ruling P1).
+ */
+export async function aplicarPlanPagoDeSupabase(
+  pool: Pool,
+  identity: JwtIdentity,
+  supabaseJwt: string | undefined
+): Promise<void> {
+  const planPago = await planPagoDeSupabase(identity.userId, supabaseJwt)
+  if (!planPago) return
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    await asegurarUsuario(client, identity)
+    await escribirPlanPago(client, identity.userId, planPago)
+    await client.query('commit')
+  } catch (err) {
+    await client.query('rollback').catch(() => { /* la conexión ya puede estar rota */ })
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/** Lo que `/v1/link/check` le dice a la página de una máquina nueva. */
+export interface EstadoDeMaquinaNueva {
+  eligibility: Elegibilidad
+  /** El plan efectivo de la cuenta, con la red de Supabase aplicada: la página adapta el copy. */
+  plan: string
+}
+
+/**
+ * Spec login-y-compra-sin-nest §3: lo que `registerDevice` + `authenticate` le harían a una
+ * máquina NUEVA de esta cuenta, sin crear nada — ni `users`, ni allowlist, ni token.
+ *
+ * La red de seguridad del plan pago se aplica igual que en `registerDevice`, pero en memoria:
+ * un plan pago leído de Supabase sube a uno que no lo es y cuenta como beta (pagar te mete en
+ * la allowlist, decisión 5). El test de acuerdo de `link-check.test.ts` compara esto contra
+ * registrar y autenticar de verdad.
+ */
+export async function elegibilidadDeMaquinaNueva(
+  pool: Pool,
+  identity: JwtIdentity,
+  supabaseJwt?: string
+): Promise<EstadoDeMaquinaNueva> {
+  const planPago = await planPagoDeSupabase(identity.userId, supabaseJwt)
+  const { rows } = await pool.query(
+    `select u.plan,
+            exists (select 1 from allowlist a where a.user_id = $1) as allowed,
+            (select count(*)::int from devices d where d.user_id = $1 and d.revoked_at is null) as vivas
+       from (select 1) as uno
+       left join users u on u.id = $1`,
+    [identity.userId]
+  )
+  const fila = rows[0] as { plan: string | null; allowed: boolean; vivas: number }
+  // Una cuenta que el servicio no conoce entraría como `free` (el default de `users.plan`).
+  const planGuardado = fila.plan ?? 'free'
+  const plan = planPago && !PLANES_PAGOS.has(planGuardado) ? planPago : planGuardado
+  const eligibility = veredictoDeElegibilidad({
+    enAllowlist: fila.allowed || planPago !== null,
+    plan,
+    maquinasPrevias: fila.vivas,
+  })
+  return { eligibility, plan }
+}
+
+/**
+ * Reemplaza (delete + insert) las filas de `team_memberships` de un usuario, en una sola
+ * transacción — nunca un insert incremental: la respuesta de Supabase es el set completo de
+ * membresías activas de ESTE momento, así que lo que ya no viene ahí ya no es cierto.
+ *
+ * Sólo si `memberships_version` sigue en `versionLeida`, la que había ANTES de pedirle el set
+ * a Supabase. Si cambió, un aviso de `/internal/memberships` se aplicó mientras tanto y es al
+ * menos tan nuevo como este set: escribir encima resucitaba a un miembro recién sacado
+ * (auditoría 2026-11-05). No toca `memberships_as_of`: esa marca es del reloj de Supabase y
+ * ordena los avisos entre sí; estamparla con el reloj de acá hacía que el aviso siguiente se
+ * descartara por "viejo". `false` = no escribió.
+ */
+export async function replaceTeamMemberships(
+  pool: Pool,
+  userId: string,
+  memberships: TeamMembership[],
+  versionLeida: number
+): Promise<boolean> {
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    const { rows } = await client.query('select memberships_version from users where id = $1 for update', [userId])
+    if (rows.length === 0 || Number(rows[0].memberships_version) !== versionLeida) {
+      await client.query('rollback')
+      return false
+    }
+    await client.query('delete from team_memberships where user_id = $1', [userId])
+    for (const m of memberships) {
+      await client.query(
+        `insert into team_memberships (user_id, team_id, team_name, role, status, synced_at)
+         values ($1, $2, $3, $4, 'active', now())`,
+        [userId, m.teamId, m.teamName, m.role]
+      )
+    }
+    await borrarEnvolturasFueraDeEquipos(client, userId, memberships.map((m) => m.teamId))
+    await client.query('update users set memberships_version = memberships_version + 1 where id = $1', [userId])
+    await client.query('commit')
+    return true
+  } catch (err) {
+    await client.query('rollback').catch(() => { /* la conexión ya puede estar rota */ })
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/** La versión del espejo de un usuario (ver `replaceTeamMemberships`). */
+export async function versionDeMembresias(pool: Pool, userId: string): Promise<number> {
+  const { rows } = await pool.query('select memberships_version from users where id = $1', [userId])
+  return rows.length === 0 ? 0 : Number(rows[0].memberships_version)
+}
+
+/**
+ * Sincroniza `team_memberships` desde Supabase — BEST EFFORT, siempre.
+ *
+ * Sin `SUPABASE_URL`, sin `SUPABASE_ANON_KEY`, o sin el JWT del login (los tres hacen
+ * falta), simplemente no hace nada: es el caso de test/dev sin Supabase configurado, y el
+ * registro de device tiene que seguir funcionando exactamente igual que antes de que esto
+ * existiera. Un fallo del fetch o de la escritura tampoco propaga — sólo se loguea como
+ * warning — porque nada de esto puede tumbar un registro de device por un problema ajeno
+ * (Supabase caído, un 500, la red). El estado que YA hubiera en `team_memberships` para ese
+ * usuario queda tal cual quedó la última vez que esto sí funcionó.
+ */
+export async function syncTeamMemberships(
+  pool: Pool,
+  userId: string,
+  supabaseJwt: string | undefined
+): Promise<void> {
+  const supabaseUrl = process.env.SUPABASE_URL
+  const anonKey = process.env.SUPABASE_ANON_KEY
+  if (!supabaseUrl || !anonKey || !supabaseJwt) return
+
+  try {
+    // La versión se lee ANTES del fetch: lo que se aplique durante el fetch gana.
+    const version = await versionDeMembresias(pool, userId)
+    const memberships = await fetchActiveTeamMemberships(supabaseUrl, anonKey, userId, supabaseJwt)
+    if (!(await replaceTeamMemberships(pool, userId, memberships, version))) {
+      console.warn('[devices] team_memberships: un aviso llegó durante el registro, se queda el aviso')
+    }
+  } catch (err) {
+    console.warn('[devices] no se pudo sincronizar team_memberships', err)
+  }
+}
+
+export type RevokeResult =
+  | { ok: true; revoked: number }
+  | { ok: false; status: 401; error: 'unauthorized' }
+  | { ok: false; status: 404; error: 'not_found' }
+  | { ok: false; status: 400; error: 'use_self_revoke' | 'invalid_device_id' }
+
+export interface DeviceListado {
+  id: string
+  name: string
+  platform: string | null
+  last_seen_at: string | null
+  current: boolean
+}
+
+/** El device vivo al que pertenece un token `nmk_`, o null. Sin gates de plan (ver `revokeDevices`). */
+async function deviceDelToken(pool: Pool, token: string): Promise<{ id: string; user_id: string } | null> {
+  const limpio = (token ?? '').replace(/^Bearer\s+/i, '').trim()
+  if (!limpio) return null
+  const { rows } = await pool.query(
+    'select id, user_id from devices where token_hash = $1 and revoked_at is null',
+    [hashToken(limpio)]
+  )
+  return rows.length === 0 ? null : { id: rows[0].id, user_id: rows[0].user_id }
+}
+
+/**
+ * Las máquinas vivas de la cuenta de quien llama, la más vista primero. Mismo criterio de
+ * auth que `revokeDevices`: token `nmk_` sin gates de allowlist ni plan, para que Settings
+ * pueda listar (y desconectar) también desde `plan_required`.
+ */
+export async function listDevices(
+  pool: Pool,
+  token: string
+): Promise<{ ok: true; devices: DeviceListado[] } | { ok: false; status: 401; error: 'unauthorized' }> {
+  const caller = await deviceDelToken(pool, token)
+  if (!caller) return { ok: false, status: 401, error: 'unauthorized' }
+  const { rows } = await pool.query(
+    `select id, name, platform, last_seen_at from devices
+      where user_id = $1 and revoked_at is null
+      order by last_seen_at desc nulls last, created_at desc`,
+    [caller.user_id]
+  )
+  return {
+    ok: true,
+    devices: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      platform: r.platform ?? null,
+      last_seen_at: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
+      current: r.id === caller.id,
+    })),
+  }
+}
+
+/**
+ * Revoca la credencial de un device. Es el gemelo de `registerDevice`: sin él, un token
+ * emitido vive para siempre y desconectar una máquina no invalida nada del lado del
+ * servicio — que es exactamente lo que pasaba, porque el cliente "revocaba" contra una edge
+ * function de Supabase que nunca se deployó.
+ *
+ * Autentica con el token `nmk_` en vez del JWT del login: es lo único que tiene la máquina
+ * que se está desconectando, y alcanza — un token identifica un device sin ambigüedad.
+ *
+ * **No pasa por `authenticate`, y es a propósito.** `authenticate` rechaza con 403 a quien
+ * quedó fuera del allowlist o del plan, y esa gente tiene que poder revocar igual: es la
+ * misma razón por la que la UI ofrece Disconnect desde los estados `plan_required` y
+ * `error`. Poder cerrar una credencial no puede depender de seguir siendo cliente.
+ *
+ * Un token ya revocado devuelve 401 igual que uno inventado: no hay nada que decirle a
+ * alguien que trae una credencial muerta, y distinguir los dos casos filtra si existió.
+ */
+export async function revokeDevices(
+  pool: Pool,
+  token: string,
+  opts: { all?: boolean; deviceId?: string } = {}
+): Promise<RevokeResult> {
+  const caller = await deviceDelToken(pool, token)
+  if (!caller) return { ok: false, status: 401, error: 'unauthorized' }
+
+  // Por id: desconectar OTRA máquina de la cuenta (Settings › Account). `all` + `deviceId`
+  // es ambiguo y se rechaza en vez de elegir uno: revocar de más no se deshace.
+  if (opts.deviceId !== undefined) {
+    if (opts.all === true || !UUID_RE.test(opts.deviceId)) {
+      return { ok: false, status: 400, error: 'invalid_device_id' }
+    }
+    // pg devuelve los uuid en minúscula y la regex acepta mayúscula: sin normalizar, el id
+    // propio en mayúsculas esquivaría el chequeo y el UPDATE (uuid case-insensitive) lo revocaría.
+    const id = opts.deviceId.toLowerCase()
+    // La propia va por el revoke sin id: así la UI no cierra su sesión por un click ambiguo.
+    if (id === caller.id) return { ok: false, status: 400, error: 'use_self_revoke' }
+    const revocadas = await revocarYBorrarEnvolturas(
+      pool, 'id = $1 and user_id = $2 and revoked_at is null', [id, caller.user_id]
+    )
+    if (!revocadas) return { ok: false, status: 404, error: 'not_found' }
+    return { ok: true, revoked: revocadas }
+  }
+
+  // `all` es para un "cerrar sesión en todas las máquinas". El default revoca sólo la que
+  // llama: desconectar una máquina no tiene por qué dejar al resto afuera.
+  const revocadas = opts.all
+    ? await revocarYBorrarEnvolturas(pool, 'user_id = $1 and revoked_at is null', [caller.user_id])
+    : await revocarYBorrarEnvolturas(pool, 'id = $1 and revoked_at is null', [caller.id])
+
+  return { ok: true, revoked: revocadas }
+}
+
+/**
+ * Revoca las máquinas que cumplen `donde` y, en la misma sentencia, borra sus envolturas de
+ * equipo: la máquina revocada conserva su privado, y su envoltura en la base + un dump =
+ * la maestra del equipo (opción A de `2026-11-09-rotacion-clave-equipo-design.md`). Devuelve
+ * cuántas revocó.
+ */
+async function revocarYBorrarEnvolturas(pool: Pool, donde: string, params: unknown[]): Promise<number> {
+  const { rows } = await pool.query(
+    `with revocadas as (
+       update devices set revoked_at = now() where ${donde} returning id
+     ), borradas as (
+       delete from team_key_wraps w using revocadas r where w.slot = r.id::text
+     )
+     select count(*)::int as n from revocadas`,
+    params
+  )
+  return Number(rows[0].n)
+}

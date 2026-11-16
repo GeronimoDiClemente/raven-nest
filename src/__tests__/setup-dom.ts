@@ -33,6 +33,26 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver
 }
 
+// jsdom no implementa Element.prototype.scrollIntoView ni la Pointer Capture API.
+// El Select de Radix (src/components/ui/select.tsx) llama a las dos sin guardarlas
+// detras de un `typeof === 'function'` (a diferencia de TabBar.tsx, que si se cuida):
+// SelectContent hace `candidate.scrollIntoView(...)` al posicionar el item activo, y
+// el trigger llama `target.hasPointerCapture(event.pointerId)` en su onPointerDown.
+// Sin esto cualquier test que abra un <Select> revienta con
+// "scrollIntoView is not a function" / "hasPointerCapture is not a function".
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = function scrollIntoView() {}
+}
+if (typeof Element.prototype.hasPointerCapture !== 'function') {
+  Element.prototype.hasPointerCapture = function hasPointerCapture() { return false }
+}
+if (typeof Element.prototype.setPointerCapture !== 'function') {
+  Element.prototype.setPointerCapture = function setPointerCapture() {}
+}
+if (typeof Element.prototype.releasePointerCapture !== 'function') {
+  Element.prototype.releasePointerCapture = function releasePointerCapture() {}
+}
+
 afterEach(() => {
   cleanup()
 })

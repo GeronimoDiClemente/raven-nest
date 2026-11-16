@@ -1,5 +1,6 @@
 export type NombreRuta =
   | 'manifest'
+  | 'metricas'
   | 'accounts'
   | 'account'
   | 'plan'
@@ -36,6 +37,7 @@ export function rutaDe(pathname: string): Ruta | null {
   if (resto === null) return null
 
   if (resto === '/manifest') return { nombre: 'manifest' }
+  if (resto === '/metrics') return { nombre: 'metricas' }
   if (resto === '' || resto === '/accounts') {
     return resto === '/accounts' ? { nombre: 'accounts' } : null
   }

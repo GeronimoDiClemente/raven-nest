@@ -1,0 +1,338 @@
+// Shared wire types between the daemon-side IPC server (electron/memory-ipc-server.ts,
+// runs inside Electron main with better-sqlite3) and the stdio MCP shim
+// (electron/memory-mcp/, spawned with ELECTRON_RUN_AS_NODE by each AI CLI).
+//
+// Deliberately dependency-free (no better-sqlite3, no electron) so the shim can import
+// it without pulling in native bindings — see docs/nest-memory-architecture.md §1.1.
+//
+// Transport: newline-delimited JSON over a named pipe (Windows) or unix socket
+// (macOS/Linux). One request per line, one response per line. Not JSON-RPC 2.0 —
+// this channel is internal-only (daemon <-> shim on the same machine), so there is no
+// need for the wire compatibility JSON-RPC buys us. The MCP-facing protocol spoken by
+// the shim to the AI CLI (stdio, JSON-RPC 2.0) is a separate, outer layer implemented
+// in electron/memory-mcp/index.ts.
+
+// La lista es la fuente de verdad y el tipo se deriva de ella: no pueden divergir.
+export const TIPOS = [
+  'decision',
+  'bugfix',
+  'architecture',
+  'discovery',
+  'pattern',
+  'config',
+  'preference',
+  'session',
+  // El resumen que un agente deja en .nest/handoff.md, guardado ADEMÁS como observación
+  // para que "retomar en otra máquina" funcione aunque el worktree local no tenga el
+  // archivo — ver electron/main.ts's handoff:write/handoff:read.
+  'handoff',
+] as const
+
+export type ObservationType = (typeof TIPOS)[number]
+
+export type ObservationSource = 'mcp' | 'hook' | 'pty' | 'import' | 'ui'
+
+export interface SaveMemoryParams {
+  cwd: string
+  title: string
+  content: string
+  type: ObservationType
+  topicKey?: string
+  tags?: string[]
+  source: ObservationSource
+  originAi?: string
+  originAccount?: string
+  gitBranch?: string
+}
+
+export interface SaveMemoryResult {
+  syncId: string
+  // 'source_ref_updated': the row matched by import identity (source_ref), not by a
+  // topic-key collision — it may not have a topic_key at all. Distinct from 'topic_updated'
+  // so a caller inspecting outcome can tell the two resolution paths apart.
+  outcome: 'inserted' | 'topic_updated' | 'source_ref_updated' | 'duplicate'
+  redacted: boolean
+}
+
+export interface SearchMemoryParams {
+  cwd: string
+  query: string
+  limit?: number
+}
+
+export interface ContextMemoryParams {
+  cwd: string
+  limit?: number
+  /** Con `true` trae las más recientes de TODOS los proyectos y el `cwd` no filtra. */
+  allProjects?: boolean
+}
+
+// `refreshed` is only ever present (and only ever `true`) when memory-ipc-server.ts's
+// pull-through search fallback fired — a local zero-result search triggered an immediate
+// daemon pull before re-querying. Absent on every other response, including a fallback
+// that ran but still found nothing locally after the pull — the field reports whether a
+// server refresh was ATTEMPTED, not whether it changed the result.
+export interface SearchMemoryResult {
+  items: ObservationSummary[]
+  refreshed?: boolean
+}
+
+export interface ObservationSummary {
+  syncId: string
+  title: string
+  content: string
+  type: ObservationType
+  topicKey: string | null
+  tags: string[]
+  updatedAt: number
+  originAi: string | null
+  gitBranch: string | null
+  /**
+   * `true` cuando `content` es el principio y no el texto entero: el llamador pidió un
+   * presupuesto de caracteres. Quien lo reciba tiene que saber que hay más y dónde pedirlo
+   * (`memory_get` con el `syncId`), porque lo peor que puede hacer un agente con un texto
+   * cortado es tratarlo como completo y sacar conclusiones de lo que no leyó.
+   */
+  contentTruncated?: boolean
+}
+
+export interface HookSessionStartParams {
+  cwd: string
+  sessionId: string
+  aiType: string
+  account: string
+}
+
+export interface HookSessionStartResult {
+  additionalContext: string
+}
+
+export interface HookStopParams {
+  cwd: string
+  sessionId: string
+  /**
+   * El transcript que la CLI ya escribió. Opcional: un shim viejo no lo manda, y sin él
+   * el cierre sigue funcionando — sólo que sin resumen.
+   */
+  transcriptPath?: string
+}
+
+export interface HookPreCompactParams {
+  cwd: string
+  sessionId: string
+  transcriptPath?: string
+}
+
+// Local delete/tombstone origination. Not exposed as an MCP tool — this is the
+// store/protocol-level capability so a tombstone CAN be originated locally and replicate
+// through the normal mutation_log/push path.
+export interface DeleteMemoryParams {
+  cwd: string
+  syncId: string
+}
+
+export interface DeleteMemoryResult {
+  ok: boolean
+}
+
+// Promueve una observacion existente a scope 'team' — la unica forma de que una fila salga
+// de 'personal'/'project'. Expuesta como la tool MCP memory_promote (memory-mcp/tools.ts).
+export interface PromoteMemoryParams {
+  cwd: string
+  syncId: string
+  reason?: string
+}
+
+export interface PromoteMemoryResult {
+  promoted: boolean
+}
+
+// MCP `memory_get` (docs/nest-memory-architecture.md §1.1) — traer una memoria puntual por
+// su sync_id. Envuelve MemoryStore.getSummary(); ver su doc comment en memory-store.ts para
+// el porqué de filtrar sólo `deleted`, no `superseded_by`, acá.
+export interface GetMemoryParams {
+  cwd: string
+  syncId: string
+}
+
+/**
+ * Un vecino de una memoria en el grafo: con quién está conectada y para qué lado.
+ *
+ * Vive acá y no en `memory-vecinos.ts` porque es un tipo de la LÍNEA: viaja del daemon al
+ * shim, y este archivo es el único que el shim puede importar sin arrastrar bindings
+ * nativos. `memory-vecinos.ts` lo toma de acá, no al revés.
+ */
+export interface VecinoDeMemoria {
+  syncId: string
+  title: string
+  topicKey: string | null
+  /**
+   * `outgoing`: esta memoria menciona a la vecina. `incoming`: la vecina menciona a ésta
+   * — el backlink. `both`: conectadas a mano, que es una relación sin sentido propio.
+   */
+  direction: 'outgoing' | 'incoming' | 'both'
+  via: 'wikilink' | 'manual'
+}
+
+/**
+ * Un `[[...]]` del texto con la memoria a la que apunta, o `null` si es un hueco. Vive acá
+ * por la misma razón que `VecinoDeMemoria`; `memory-vecinos.ts` lo re-exporta.
+ */
+export interface WikilinkResuelto {
+  /** El destino tal como se escribió, sin alias ni sección: `[[a|b]]` → `a`. */
+  name: string
+  syncId: string | null
+}
+
+export interface GetMemoryResult {
+  /** `null` — nunca una excepción — cuando el syncId no existe o está borrado. */
+  item: ObservationSummary | null
+  /**
+   * Con qué otras memorias está conectada. Vacío si no hay ninguna, o si el id no existe.
+   *
+   * Viaja CON la memoria y no en una tool aparte, a propósito: el agente que ya la tiene en
+   * la mano tiene que poder seguir el grafo sin pagar otra vuelta. Si averiguar los vecinos
+   * costara una segunda llamada, recuperar por búsqueda seguiría siendo lo más barato y
+   * nadie caminaría el grafo.
+   */
+  neighbors: VecinoDeMemoria[]
+  /**
+   * Los nombres que esta memoria menciona con `[[...]]` y que todavía no existen.
+   *
+   * No es un error: apuntar a algo no escrito es lo que hace barato linkear de más, y el
+   * link empieza a andar solo el día que esa memoria se escribe. Se devuelve para poder VER
+   * el hueco — un link pendiente es una memoria que alguien ya decidió que hacía falta.
+   */
+  pendingLinks: string[]
+  /** Cada `[[...]]` del texto con su destino (`syncId: null` = hueco), en el orden en que aparecen. */
+  resolvedLinks: WikilinkResuelto[]
+  /** Las propiedades del panel lateral de la app. Opcionales: un Nest viejo no las manda. */
+  scope?: 'personal' | 'project' | 'team'
+  revisionCount?: number
+}
+
+/**
+ * `memory.status`: la pestaña Status de la TUI cuando Nest está abierto. Sin esto la TUI sólo
+ * podía decir "Nest owns this memory": los conflictos del vault y el cruce de sesiones los
+ * conoce sólo el proceso de Nest, no la base.
+ */
+export interface StatusMemoryResult {
+  total: number
+  /** Memorias vivas por `type`. */
+  byType: Record<string, number>
+  team: number
+  /** Cambios propios esperando subir. */
+  pending: number
+  /** `null`: sin nube conectada, la memoria es sólo local. */
+  sync: {
+    status: 'idle' | 'syncing' | 'paused' | 'error' | 'plan_required'
+    /** El código del motivo (`offline`, `lock_held`, `needs_key`…), como `memory:status`. */
+    detail: string | null
+    /** Filas propias que siguen en claro en la nube; `null` hasta el primer status. */
+    plaintextPending: number | null
+  } | null
+  /** Notas en `_conflicts/` del vault; `null` con el vault apagado. */
+  conflicts: number | null
+  /** El cruce de `memory-sessions.ts` (§2.2): panes con memoria que escriben y que callan. */
+  sessions: {
+    writing: number; silent: number; disabled: number
+    /** Qué agente corre en cada pane (`aiType`), para nombrarlos. Un Nest viejo no lo manda. */
+    agents?: Array<{ aiType: string; health: 'writing' | 'silent' | 'disabled' }>
+  } | null
+}
+
+/** `memory.doctor`: lo bloqueado con su motivo, para la pestaña Doctor de la TUI con Nest abierto. */
+export interface DoctorMemoryResult {
+  /** `mutation_log` con `blocked_reason` y sin subir: el mismo filtro que `nestmux-memory doctor`. */
+  blocked: Array<{ syncId: string | null; title: string; reason: string }>
+  /** Filas que llegaron cifradas y esta máquina no puede abrir. */
+  undecryptable: number
+}
+
+// MCP `memory_update` (docs/nest-memory-architecture.md §1.1) — corrige título/contenido/
+// tags de una memoria puntual ya guardada, sin pasar por el merge-por-topic_key de
+// memory_save. Envuelve MemoryStore.update(); ver su doc comment para el mecanismo de
+// replicación (mismo camino que save(), no uno nuevo).
+export interface UpdateMemoryParams {
+  cwd: string
+  syncId: string
+  title?: string
+  content?: string
+  /** `null` explícito borra los tags; ausente los deja como están. */
+  tags?: string[] | null
+  /** Si viene y es distinto del actual, se cambia. */
+  type?: ObservationType
+}
+
+export interface UpdateMemoryResult {
+  updated: boolean
+  syncId?: string
+  redacted?: boolean
+  reason?: 'not_found' | 'deleted' | 'superseded' | 'unchanged'
+}
+
+// ── Request/response envelope ────────────────────────────────────────────────
+
+export type MemoryMethod =
+  | 'memory.save'
+  | 'memory.search'
+  | 'memory.context'
+  | 'memory.delete'
+  | 'memory.promote'
+  | 'memory.get'
+  | 'memory.update'
+  // El grafo, para que un agente pueda VER la estructura desde su terminal. Si el grafo solo
+  // existe en la ventana de Nest, entonces es una funcion de la app y no de la memoria — y
+  // quien se lleva el plugin a otro editor se queda sin ella.
+  | 'memory.graph'
+  | 'memory.status'
+  | 'memory.doctor'
+  | 'hook.sessionStart'
+  | 'hook.stop'
+  | 'hook.preCompact'
+  | 'ping'
+
+export interface MemoryRequest {
+  id: string
+  method: MemoryMethod
+  params: unknown
+  // Shared-secret handshake validated by memory-ipc-server.ts on every request.
+  // Node's `net` module gives no way to set a custom Windows named-pipe DACL or verify
+  // the connecting process's user SID, so an unpredictable pipe name alone is not
+  // access control — see memory-local-auth.ts for the full rationale and the read-only
+  // provenance of this token (a 0600 file under ravenHome, generated once).
+  token: string
+}
+
+export interface MemoryResponseOk {
+  id: string
+  ok: true
+  result: unknown
+}
+
+export interface MemoryResponseErr {
+  id: string
+  ok: false
+  error: string
+}
+
+export type MemoryResponse = MemoryResponseOk | MemoryResponseErr
+
+/**
+ * Windows named pipe or POSIX unix socket path for the daemon's IPC server.
+ *
+ * `pipeId` must be an unpredictable, per-install random value (see
+ * memory-local-auth.ts's `ensureLocalAuthMaterial`) — NOT derived from ravenHomeDir. A
+ * name derived from a guessable path (the user's home directory) lets any local process
+ * compute it and either connect to it (no Windows ACL restricts named-pipe connections to
+ * the creating user by default via Node's `net` module) or squat on the name before Nest
+ * starts. Making the name unguessable closes the squatting
+ * angle; the `token` field on every MemoryRequest (validated in memory-ipc-server.ts) is
+ * the actual access control for the "who can issue calls" angle.
+ */
+export function daemonSocketPath(ravenHomeDir: string, isWin: boolean, pipeId: string): string {
+  if (isWin) {
+    return `\\\\.\\pipe\\nest-memory-${pipeId}`
+  }
+  return `${ravenHomeDir}/.raven-nest/memory/daemon.sock`
+}

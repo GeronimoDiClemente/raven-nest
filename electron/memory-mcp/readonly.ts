@@ -1,0 +1,192 @@
+// El modo sin daemon: leer la memoria con Nest cerrado.
+//
+// **Por qué existe.** El shim normal reenvía todo al daemon que corre adentro de Electron, y
+// sin socket la memoria sería una función de la APP: quien se lleva el plugin a otro editor
+// y no tiene Nest abierto se quedaría sin nada. Eso es exactamente lo que no puede pasar si
+// la memoria es la feature.
+//
+// **Qué hace y qué no.** Abre el SQLite en SÓLO LECTURA y responde las consultas. No escribe
+// nunca, y no es un descuido: el daemon es quien sincroniza, quien resuelve los conflictos y
+// quien lleva el `lamport`. Un segundo escritor sin esa coordinación produce divergencias que
+// el merge no puede arreglar después. Escribir sigue necesitando la app, y cuando no está, se
+// dice con todas las letras en vez de fallar raro.
+//
+// Dos lectores concurrentes sobre el mismo archivo son seguros: el store abre en WAL, que
+// admite lectores mientras alguien escribe.
+import type { BaseSqlite } from '../sqlite-forma'
+import { abridorDeLecturaPorDefecto } from '../sqlite-motor'
+import { buildMemoryGraph, type MemoryGraph } from '../memory-graph'
+import { renderMemoryGraphText } from '../memory-graph-text'
+import { readActivePointer } from '../memory-active-store'
+import { contextObservations, CONTEXT_MAX_CHARS, getObservationSummary, projectKeyForRootPath, searchObservations } from '../memory-reads'
+import { GLOBAL_PROJECT_KEY, resolveProjectKey } from '../memory-project-key'
+import type { MemoryMethod, ObservationSummary } from '../memory-protocol'
+
+/**
+ * Lo que el modo sin daemon sabe responder: **todo lo que es leer**. Con sólo el grafo, quien
+ * se lleva el plugin a otro editor tendría el mapa de sus memorias y no el contenido.
+ */
+const LEGIBLES: ReadonlySet<MemoryMethod> = new Set<MemoryMethod>([
+  'memory.graph', 'memory.search', 'memory.context', 'memory.get', 'ping',
+])
+
+export function esMetodoDeLectura(method: MemoryMethod): boolean {
+  return LEGIBLES.has(method)
+}
+
+/**
+ * Mensaje único para todo lo que necesita la app. Dice qué falta y qué hacer, en vez de un
+ * error de transporte — quien lo lee es un agente que tiene que decidir si reintentar.
+ *
+ * No afirma que Nest esté cerrado: sin detectar procesos no se sabe, y con una Nest vieja
+ * abierta (sin Memories, p.ej. v1.5.1) "Nest is not running" era falso y mandaba a abrir algo
+ * que ya estaba abierto. Dice lo que sí se sabe —no contestó el servicio— y las dos causas.
+ */
+export const SIN_APP =
+  "Couldn't reach Nest's memory service, so memory is read-only right now. Either Nest isn't " +
+  "open, or the Nest that's open is a version without Memories — update Nest to the latest " +
+  'version. Reading works — memory_search, memory_context, memory_get and memory_graph all ' +
+  'answer from disk. Saving, updating and promoting need Nest open: it is what keeps the ' +
+  'replicas in sync. Tell the user what you would have saved so it is not lost.'
+
+export class MemoryReadonlyClient {
+  private db: BaseSqlite | null = null
+
+  /**
+   * `pathExplicito` lo usa el paquete portátil: él ya decidió cuál base abrir (§5.2 del spec,
+   * `base-para-el-paquete.ts`) y esa decisión contempla un caso que el puntero no — una
+   * máquina que nunca tuvo Nest y abre su propia base.
+   */
+  constructor(private readonly ravenHomeDir: string, private readonly pathExplicito?: string) {}
+
+  /**
+   * `null` cuando no hay nada que abrir: sin puntero de cuenta activa, o con un puntero que
+   * apunta a un archivo que ya no está. Los dos casos son lo mismo para quien llama.
+   */
+  private abrir(): BaseSqlite {
+    if (this.db) return this.db
+    const path = this.pathExplicito ?? readActivePointer(this.ravenHomeDir)?.storePath ?? null
+    if (!path) {
+      throw new Error(
+        "Couldn't reach Nest's memory service and no memory database was found for this " +
+        'machine. Open a Nest version with Memories once so it can record which account is active.'
+      )
+    }
+    try {
+      // El motor lo pone el arranque: `better-sqlite3` adentro de Electron, `node:sqlite` en
+      // el paquete portátil. Este archivo no nombra a ninguno — es el mismo motivo por el que
+      // `memory-store.ts` tampoco, y lo fija `paquete-sin-nativas.test.ts`.
+      const abrir = abridorDeLecturaPorDefecto()
+      if (!abrir) throw new Error('No read-only database opener was registered at startup')
+      const db = abrir(path)
+      // Abrir es diferido: un archivo que no es una base —o un binding nativo incompatible—
+      // recién explota en la primera consulta, lejos de acá y con el catch de abajo ya fuera
+      // de alcance. Este pragma es la consulta que fuerza el fallo mientras todavía se puede
+      // explicar.
+      db.pragma('user_version')
+      this.db = db
+      return db
+    } catch (err) {
+      // Dos fallas distintas necesitan dos mensajes distintos: "no encontré la base, abrí Nest
+      // una vez" para un binding nativo incompatible es MENTIRA —el archivo está, el puntero
+      // está— y manda a hacer algo que no arregla nada. Quien lee esto es un agente que tiene
+      // que decidir si reintentar o avisar.
+      const detalle = err instanceof Error ? err.message : String(err)
+      throw new Error(
+        `The memory database exists at ${path} but could not be opened: ${detalle}`
+      )
+    }
+  }
+
+  async call<T = unknown>(method: MemoryMethod, params: unknown): Promise<T> {
+    if (method === 'ping') return { ok: true } as T
+    if (!esMetodoDeLectura(method)) throw new Error(SIN_APP)
+
+    const db = this.abrir()
+
+    const p = (params ?? {}) as {
+      projectKey?: string | null
+      tag?: string | null
+      includeSimilar?: boolean
+      limit?: number
+      query?: string
+      syncId?: string
+      cwd?: string
+    }
+
+    // `memory_search` y `memory_context` llegan con el `cwd` del agente, no con una clave de
+    // proyecto: la clave la deriva el daemon. Sin daemon se pregunta a la tabla `projects`,
+    // que guarda el `root_path` con el que el repo se enroló — derivarla del path a secas
+    // daría otra clave cuando el repo tiene remote, y la respuesta sería un "no hay nada de
+    // este repo" falso.
+    // `null` = todos los proyectos. Es el caso de un repo que nunca se abrió en Nest, que
+    // para quien se llevó el plugin a otro editor es lo NORMAL, no la excepción: filtrar por
+    // una clave que la base no conoce devolvería vacío, y un vacío que en realidad significa
+    // "no supe de qué repo me hablás" es indistinguible de "no tenés nada guardado".
+    const claveDeProyecto = (): string | null => {
+      if (p.projectKey) return p.projectKey
+      if (!p.cwd) return null
+      const enrolado = projectKeyForRootPath(db, p.cwd)
+      if (enrolado) return enrolado
+      const derivada = resolveProjectKey({ rootPath: p.cwd })
+      // Derivarla del path sólo sirve si la base la conoce: con remote de git la clave sale
+      // del remote, así que la del path sería otra y no matchearía nada.
+      const conocida = db
+        .prepare('SELECT 1 FROM observations WHERE project_key = ? LIMIT 1')
+        .get(derivada)
+      return conocida ? derivada : null
+    }
+
+    // Las tres lecturas que no son el grafo. Devuelven la MISMA forma que devuelve el daemon
+    // (`memory-ipc-server.ts`), porque del otro lado hay un agente que no sabe —ni tiene por
+    // qué saber— si Nest estaba abierto cuando preguntó.
+    // `offline: true` en las tres. El grafo lo dice en su propio texto; éstas devuelven JSON
+    // y sin la marca el agente no tiene forma de saber que está mirando una foto del disco,
+    // que puede estar atrás de lo que la nube ya tiene. Es un campo extra: el resto de la forma
+    // es la del daemon.
+    if (method === 'memory.search') {
+      const items = searchObservations(
+        db, claveDeProyecto(), GLOBAL_PROJECT_KEY, p.query ?? '', p.limit ?? 10
+      )
+      return { items, offline: true } as T
+    }
+    if (method === 'memory.context') {
+      // El MISMO presupuesto que con la app abierta: el modo sin daemon no puede ser el
+      // camino barato de conseguir el volcado entero.
+      const items = contextObservations(
+        db, claveDeProyecto(), GLOBAL_PROJECT_KEY, p.limit ?? 10, CONTEXT_MAX_CHARS
+      )
+      return { items, offline: true } as T
+    }
+    if (method === 'memory.get') {
+      const item: ObservationSummary | null = p.syncId ? getObservationSummary(db, p.syncId) : null
+      return { item, offline: true } as T
+    }
+
+    const graph: MemoryGraph = buildMemoryGraph(db, {
+      projectKey: p.projectKey ?? null,
+      // Las reemplazadas entran: la arista `revision` es el linaje de una idea y sin ellas no
+      // hay linaje. Mismo criterio que el camino con daemon.
+      includeSuperseded: true,
+      includeSimilar: p.includeSimilar ?? false,
+      limit: p.limit ?? 200,
+    })
+
+    const filtrado = p.tag
+      ? { ...graph, nodes: graph.nodes.filter((n) => n.tags.includes(p.tag!)) }
+      : graph
+    const ids = new Set(filtrado.nodes.map((n) => n.syncId))
+    const conAristas = { ...filtrado, edges: filtrado.edges.filter((e) => ids.has(e.from) && ids.has(e.to)) }
+
+    const encabezado = p.tag ? `#${p.tag}` : p.projectKey ? p.projectKey : 'Todas las memorias'
+    // El aviso va en el propio dibujo: quien lo lee tiene que saber que está mirando una foto
+    // de lo que hay en disco, que puede estar atrás de lo que la nube ya tiene.
+    const texto = `${renderMemoryGraphText(conAristas, { encabezado })}\n\n(Nest cerrado — lectura directa del disco, sin sincronizar.)`
+    return { text: texto } as T
+  }
+
+  close(): void {
+    try { this.db?.close() } catch { /* cerrar una base ya cerrada no es un problema */ }
+    this.db = null
+  }
+}

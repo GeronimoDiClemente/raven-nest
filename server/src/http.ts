@@ -1,0 +1,785 @@
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import type { Pool } from 'pg'
+import { authenticate } from './auth'
+import { handlePush } from './push'
+import { handlePull } from './pull'
+import { handleStatus } from './status'
+import { handleDeleteData } from './delete-data'
+import { createRateLimiter } from './rate-limit'
+import { registerDevice, revokeDevices, listDevices, verificarJwtDeSupabase, type ClavesDeFirma, type EmisorDeLogin, type JwtIdentity } from './devices'
+import { clavesDeSupabase } from './jwks'
+import { iniciarVinculacion, leerDatosDelPedido, aprobarVinculacion, consultarVinculacion, reclamarVinculacion } from './link'
+import { handleShareProject } from './share'
+import { handleKeepProject } from './keep'
+import { enrollDeviceKey, getKeyState, publishWraps } from './keys'
+import { getTeamKeyState, activateTeamKey, authorizeTeamDevice } from './team-keys'
+import { recryptTeamObservations, listRecryptPending } from './team-keys-recrypt'
+import { handleBeta } from './betas'
+import { aplicarPlan, leerAvisoDePlan, verificarFirmaDePlan } from './plan-sync'
+import { aplicarMembresias, leerAvisoDeMembresias } from './membership-sync'
+import { calcularMetricas, esPedidoDeMetricas } from './metricas'
+import { frescuraDelBackup, ultimoBackupBueno } from './backup'
+import { UUID_RE } from './uuid'
+import { cabecerasCors, origenesDeVinculacion } from './cors'
+import { ipDelCliente } from './ip-del-cliente'
+import { registrarRequest, rutaParaLog, emisorDelEntorno as emisorDeRegistro, type LineaDeRequest } from './registro-de-requests'
+
+// El emisor del JWKS se arma UNA vez por URL y se guarda: cada instancia tiene su propio
+// caché, así que una por request no cachearía nada y saldría a Supabase en cada login.
+let jwksCacheado: { url: string; claves: ClavesDeFirma } | null = null
+
+/**
+ * Con qué puede este servicio verificar un login, según lo que haya en el entorno. `null`
+ * significa que no hay NINGUNA forma — ahí va el 503, que es configuración faltante y no una
+ * credencial mala.
+ *
+ * Se lee el entorno en cada request (y no una vez al cargar el módulo) por lo mismo que ya
+ * hacía el secreto: permite arrancar el proceso sin las variables y setearlas después.
+ *
+ * Las dos vías conviven porque Supabase movió la firma de un secreto simétrico compartido a
+ * una clave por proyecto: un proyecto migrado (como el de Nest) sólo se verifica por JWKS, y
+ * uno que no migró, sólo por secreto.
+ */
+function emisorDelEntorno(): EmisorDeLogin | null {
+  const secreto = process.env.SUPABASE_JWT_SECRET ?? ''
+  const url = process.env.SUPABASE_URL ?? ''
+  if (!secreto && !url) return null
+  if (url && jwksCacheado?.url !== url) jwksCacheado = { url, claves: clavesDeSupabase(url) }
+  return {
+    secretoHs256: secreto || undefined,
+    claves: url ? jwksCacheado?.claves : undefined,
+  }
+}
+
+/**
+ * El prólogo de las rutas que autentican con el JWT del login de Supabase (`/v1/devices`,
+ * `/v1/link/approve`, `/v1/link/check`). Si no hay login válido contesta ella misma —503 si
+ * falta configuración, 401 si la credencial no sirve— y devuelve `null`: el llamador sólo
+ * tiene que cortar. El JWT crudo vuelve junto a la identidad porque `registerDevice` y la red
+ * del plan pago lo reusan contra Supabase REST.
+ */
+async function loginDeSupabase(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ruta: string
+): Promise<{ identity: JwtIdentity; jwt: string } | null> {
+  const emisor = emisorDelEntorno()
+  if (!emisor) {
+    // Configuración faltante, no culpa del cliente. Con un 401 acá el usuario vería
+    // "tus credenciales no sirven" cuando lo que falta es una variable del servicio.
+    console.error(`[http] ${ruta} sin SUPABASE_URL ni SUPABASE_JWT_SECRET: no se puede verificar ningún login`)
+    send(res, 503, { error: 'issuer_unavailable' })
+    return null
+  }
+  const jwt = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim()
+  const identity = await verificarJwtDeSupabase(jwt, Date.now(), emisor)
+  if (!identity) {
+    send(res, 401, { error: 'unauthorized' })
+    return null
+  }
+  return { identity, jwt }
+}
+
+const MAX_BATCH = 500
+const MAX_BODY_BYTES = 20 * 1024 * 1024
+
+// §11.6. 60 por minuto es ~300 veces el ritmo real del cliente (un pull cada 5 minutos), así
+// que sólo lo toca un bug de loop o un ataque. Uno por verbo: un push agresivo no tiene por
+// qué dejar al device sin poder leer.
+const pushLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
+const pullLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
+// §9.2. El registro no lleva token de device (todavía no hay uno), así que la clave del
+// límite no puede ser el device: es la IP (`ipDelCliente`, que detrás del proxy necesita
+// `TRUST_PROXY=1`). Mucho más bajo que el de push/pull porque un
+// registro por máquina y por vida es lo normal — diez por hora ya es un bug o un abuso.
+const registerLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 60_000 })
+// Arrancar una vinculación no pide credenciales —es el punto: la máquina que la pide todavía
+// no tiene ninguna— así que el único freno acá es este. El del poll es distinto y vive en la
+// fila: `last_polled_at`, para que un cliente con un bucle apretado no queme una conexión de
+// base por vuelta.
+const linkLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 60_000 })
+// `check` tiene el mismo techo que `start` pero por CUENTA, no por IP (Ruling P2): detrás del
+// proxy de Railway muchas personas salen por la misma IP, y una que recarga la página de
+// aprobación no tiene por qué gastarle el balde a otra. Va después del JWT, así que un 401 no
+// lo gasta; probar códigos al azar exige una cuenta, y cada cuenta tiene sus 20 por hora.
+const linkCheckLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 60_000 })
+// `approve` contesta con la misma escalera 404/400/409 que `check`: sin su propio balde
+// serviría para enumerar códigos salteando el de `check`. Mismos números, por cuenta, después
+// del JWT. Es un balde aparte para que aprobar no le gaste a la página el de `check`.
+const linkApproveLimiter = createRateLimiter({ limit: 20, windowMs: 60 * 60_000 })
+/**
+ * Las rutas de claves no tenian limitador y `publishWraps` es la operacion mas cara del
+ * servicio: toma el advisory lock de la cuenta y el `for update` sobre `users` mientras
+ * inserta. Sin limite, un device con token valido podia encadenarlos y dejar sin conexiones
+ * al resto (medido: un `push` vacio de otra cuenta paso de 97ms a 2.640ms con diez publishes
+ * concurrentes y `PG_POOL_MAX` en 10).
+ *
+ * El limite es bajo a proposito y no molesta al uso real: un usuario activa el cifrado una
+ * vez, autoriza una maquina cada tanto, y la tarjeta lee el estado al abrir el overlay. Doce
+ * por minuto es mas de lo que cualquiera de esos flujos necesita.
+ */
+const keysLimiter = createRateLimiter({ limit: 12, windowMs: 60_000 })
+/**
+ * La migración retroactiva de equipo (`recrypt` + `recrypt-pending`) va aparte del de claves.
+ * Compartiéndolo, una migración de pocos miles de filas (lotes de 200, más una consulta de lo
+ * pendiente por vuelta) se comía los 12 por minuto a la tercera vuelta — y con ellos la
+ * readopción de claves de arranque y la tarjeta de ESE device. Cada request de recrypt es
+ * caro (una transacción por fila), así que el techo sigue siendo bajo: 60 por minuto deja
+ * migrar unas 6.000 filas por minuto, y un cliente que lo toque espera el `Retry-After`.
+ */
+const teamRecryptLimiter = createRateLimiter({ limit: 60, windowMs: 60_000 })
+function send(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {}
+): void {
+  const payload = JSON.stringify(body)
+  // El spread va PRIMERO y los propios después, para que los propios siempre ganen. Al revés
+  // — que es como estaba — un caller que pasara `Content-Type` o `Content-Length` en los
+  // extra los pisaba en silencio: el `Content-Length` de esta función es el único que
+  // corresponde al `payload` que se manda acá abajo, y anunciar otro deja al cliente leyendo
+  // de menos (respuesta truncada) o esperando bytes que nunca llegan hasta el timeout.
+  res.writeHead(status, {
+    ...headers,
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(payload),
+  })
+  res.end(payload)
+}
+
+/**
+ * The request body EXACTLY as it arrived, as ONE utf8 decode over the concatenated bytes.
+ *
+ * One decode, not `data += chunk`: decoding every chunk independently splits any multibyte
+ * character that straddles a chunk boundary into two U+FFFD. Node hands `data` events out in
+ * ~64 KB Buffers, so a 680 KB body of Spanish markdown (the TYPICAL push batch: 200 mutations
+ * at the spec's measured 3407 B average) came back with 9 replacement characters and the push
+ * still answered `applied` — permanent corruption.
+ *
+ * The size cap sums `chunk.length`, which is BYTES (a string's `.length` is UTF-16 code units
+ * and undercounts every non-ASCII body). Over the cap rejects with `{ status: 413 }`.
+ *
+ * `/internal/plan` uses it directly because its signature is over the raw bytes: parsing and
+ * re-serializing would change what was signed. Everything else goes through `readBody`.
+ */
+function readRawBody(req: IncomingMessage, maxBytes: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let bytes = 0
+    let done = false
+    req.on('data', (chunk: Buffer) => {
+      if (done) return
+      bytes += chunk.length
+      if (bytes > maxBytes) {
+        done = true
+        chunks.length = 0
+        reject(Object.assign(new Error('too large'), { status: 413 }))
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => { if (!done) resolve(Buffer.concat(chunks).toString('utf8')) })
+    req.on('error', reject)
+  })
+}
+
+/** Tope del cuerpo de `/internal/plan`: un aviso son dos campos, 64 KiB sobra. */
+const MAX_PLAN_BODY_BYTES = 64 * 1024
+
+/**
+ * `readRawBody` + `JSON.parse`, capped at `MAX_BODY_BYTES`. An empty body is `{}`; JSON that
+ * does not parse is a 400 `bad json`.
+ */
+async function readBody(req: IncomingMessage): Promise<unknown> {
+  const raw = await readRawBody(req, MAX_BODY_BYTES)
+  if (raw.length === 0) return {}
+  const badJson = () => Object.assign(new Error('bad json'), { status: 400 })
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw badJson()
+  }
+  // Valid JSON that is not an object (`null`, `42`, `"x"`, `[]`) used to sail through
+  // and blow up downstream — `body.mutations` on a null body throws a TypeError inside
+  // the caller's try and got reported as a 500. It is bad client input, so it is a 400
+  // here, and the 500 channel stays clean for actual server faults.
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw badJson()
+  return parsed
+}
+
+/**
+ * Everything from `authenticate` down runs inside this try/catch, not just the JSON
+ * parsing and the handler calls. `authenticate` itself does a DB query and can reject
+ * (e.g. the pool is briefly unreachable) — if that rejection happened outside a catch, it
+ * would surface as an unhandled rejection on the async request listener, which crashes the
+ * whole process on one bad request. Routing a request that never reaches `authenticate`
+ * needs no such guard (nothing async has happened yet), so only the auth-and-onward path is
+ * wrapped.
+ */
+async function handleRequest(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const url = new URL(req.url ?? '/', `http://${req.headers.host}`)
+  const path = url.pathname
+
+  // Toca la base: un `/health` que contesta 200 con Postgres caído le dice a un monitor de
+  // uptime que todo anda mientras ninguna request de sync puede funcionar. El tope de conexión
+  // del pool (`db.ts`) hace que esto falle en 5s y no se cuelgue.
+  if (path === '/health') {
+    try {
+      await pool.query('select 1')
+      return send(res, 200, { ok: true })
+    } catch (err) {
+      console.error('[health] la base no responde:', (err as Error).message)
+      return send(res, 503, { ok: false })
+    }
+  }
+
+  // Para un monitor de uptime aparte del de `/health`: un backup que dejó de correr no tumba
+  // nada, así que nadie se entera hasta que hace falta restaurar. Sólo dice las horas, ni la
+  // clave del objeto ni el tamaño.
+  if (path === '/health/backup') {
+    try {
+      const f = frescuraDelBackup(await ultimoBackupBueno(pool), new Date())
+      return send(res, f.ok ? 200 : 503, f)
+    } catch (err) {
+      console.error('[health] no se pudo leer el último backup:', (err as Error).message)
+      return send(res, 503, { ok: false, horas: null })
+    }
+  }
+
+  // La beta cerrada se reparte desde acá (ver `betas.ts`). Con su propio try/catch por lo
+  // mismo que el resto: una falla de R2 o de la base no puede tumbar el proceso.
+  if (path.startsWith('/beta/') || path.startsWith('/v1/beta/')) {
+    try {
+      if (await handleBeta(pool, req, res, path)) return
+    } catch (err) {
+      console.error('[http] beta', err)
+      return send(res, 500, { error: 'internal' })
+    }
+  }
+
+  // Spec 2b-2 §4.5: el aviso de plan del webhook de Stripe. Fuera de `authenticate`: la
+  // credencial es la firma HMAC, no un token de device.
+  if (path === '/internal/plan') return handleInternalPlan(pool, req, res)
+  // Lo mismo para la membresía de equipos (hueco del 30-oct): mismo secreto y misma firma.
+  if (path === '/internal/memberships') return handleInternalMemberships(pool, req, res)
+  // Las métricas del back-office: mismo secreto y firma, y sólo devuelve conteos.
+  if (path === '/internal/metrics') return handleInternalMetrics(pool, req, res)
+
+  // §9.2 — la emisión del token. Va ANTES de `authenticate` y fuera de su try/catch porque
+  // es el único camino que NO lleva un token `nmk_`: la credencial es el JWT del login que
+  // Nest ya tiene, y este endpoint es justamente el que devuelve el `nmk_` por primera vez.
+  // `GET` en la misma ruta lista las máquinas de la cuenta (spec 2b-3): autentica con el
+  // `nmk_` y tampoco pasa por `authenticate`, por el mismo motivo que el revoke.
+  if (path === '/v1/devices') {
+    if (req.method === 'GET') return handleListDevices(pool, req, res)
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleRegisterDevice(pool, req, res)
+  }
+
+  // Vincular una máquina sin navegador (spec del portátil §7). Tres puertas: la que pide el
+  // código, la que el usuario aprueba con su sesión, y la que espera el token. Ninguna de las
+  // tres emite credenciales por su cuenta: eso sigue siendo de `registerDevice`.
+  if (path === '/v1/link/start') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleLinkStart(pool, req, res)
+  }
+  // `approve` y `check` son las dos que llama la página `nestmux.com/link`: llevan CORS
+  // (preflight incluido) y ninguna otra ruta lo tiene. Las cabeceras se fijan UNA vez con
+  // `setHeader` antes de despachar: `writeHead` las mezcla con las de cada respuesta, así que
+  // todo status (200, 4xx, 5xx, 429) las lleva sin que cada `send` tenga que acordarse.
+  if (path === '/v1/link/approve' || path === '/v1/link/check') {
+    const origen = typeof req.headers.origin === 'string' ? req.headers.origin : undefined
+    const cors = cabecerasCors(origen, origenesDeVinculacion(process.env.LINK_WEB_ORIGINS))
+    for (const [nombre, valor] of Object.entries(cors)) res.setHeader(nombre, valor)
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return path === '/v1/link/check' ? handleLinkCheck(pool, req, res) : handleLinkApprove(pool, req, res)
+  }
+  if (path === '/v1/link/poll') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleLinkPoll(pool, req, res)
+  }
+
+  // El gemelo del registro. Tampoco pasa por `authenticate`: autentica con el token `nmk_`
+  // pero SIN los gates de allowlist y plan, porque alguien que quedó fuera del beta o bajó
+  // de plan tiene que poder cerrar su credencial igual.
+  if (path === '/v1/devices/revoke') {
+    if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+    return handleRevokeDevice(pool, req, res)
+  }
+
+  // §5.4: the old Supabase-shaped routes are served as aliases so this service can be
+  // pointed at a Nest build that predates the client's route change. This is a bring-up
+  // affordance, not a permanent surface — delete the aliases once nothing depends on them.
+  const isPush = path === '/v1/sync/push' || path === '/functions/v1/memory-sync/push'
+  const isPull = path === '/v1/sync/pull' || path === '/functions/v1/memory-sync/pull'
+  const isStatus = path === '/v1/sync/status'
+  // §5.5, option 2: the right-to-delete endpoint the spec left undefined. `/v1/sync/
+  // delete-data` is the real name; the Supabase-shaped path is served as an alias exactly
+  // like §5.4 does for push and pull, because `electron/main.ts` still posts to it and a
+  // 404 there breaks the right to delete SILENTLY (the client only reads `res.ok`).
+  const isDelete =
+    path === '/v1/sync/delete-data' || path === '/functions/v1/memory-sync/delete-cloud-data'
+  // Team Memory Layer 1, Parte 3: la única vía por la que `projects.team_id` se escribe.
+  const isShare = path === '/v1/projects/share'
+  // Spec 2b-2 §4.7: qué proyecto sigue sincronizando quien bajó de plan.
+  const isKeep = path === '/v1/projects/keep'
+  // Cifrado (spec 2026-09-09 §5.3, camino B): el servicio guarda claves públicas y blobs
+  // sellados. No aprende nada que pueda abrir.
+  const isKeysEnroll = path === '/v1/keys/enroll'
+  const isKeysGet = path === '/v1/keys'
+  const isKeysPublish = path === '/v1/keys/publish'
+  // Cifrado de equipo (spec 2026-10-14): mismo ruteo plano que /v1/keys*, con team_id por
+  // query string en el GET y por body en los POST — nunca un segmento dinámico.
+  const isTeamKeyGet = path === '/v1/teams/key'
+  const isTeamKeyActivate = path === '/v1/teams/key/activate'
+  const isTeamKeyAuthorize = path === '/v1/teams/key/authorize'
+  const isTeamKeyRecrypt = path === '/v1/teams/key/recrypt'
+  const isTeamKeyRecryptPending = path === '/v1/teams/key/recrypt-pending'
+
+  if (!isPush && !isPull && !isStatus && !isDelete && !isShare
+      && !isKeysEnroll && !isKeysGet && !isKeysPublish
+      && !isTeamKeyGet && !isTeamKeyActivate && !isTeamKeyAuthorize && !isTeamKeyRecrypt
+      && !isTeamKeyRecryptPending && !isKeep) {
+    return send(res, 404, { error: 'not_found' })
+  }
+
+  try {
+    const auth = await authenticate(pool, req.headers.authorization)
+    if (!auth.ok) return send(res, auth.status, { error: auth.error })
+
+    // Después de autenticar, no antes: la clave es el device, y el device sale del token.
+    // Limitar por IP dejaría a una oficina entera detrás de un NAT compartiendo cuota.
+    if (isPush || isPull || isKeysEnroll || isKeysGet || isKeysPublish
+        || isTeamKeyGet || isTeamKeyActivate || isTeamKeyAuthorize || isTeamKeyRecrypt
+        || isTeamKeyRecryptPending) {
+      const limiter = isPush ? pushLimiter
+        : isPull ? pullLimiter
+          : (isTeamKeyRecrypt || isTeamKeyRecryptPending) ? teamRecryptLimiter
+            : keysLimiter
+      const verdict = limiter.check(auth.deviceId)
+      if (!verdict.ok) {
+        return send(res, 429, { error: 'rate_limited' }, {
+          'Retry-After': String(verdict.retryAfterSeconds),
+        })
+      }
+    }
+
+    if (isStatus) return send(res, 200, await handleStatus(pool, auth))
+    // Takes no input — everything it deletes is scoped by the authenticated identity — so
+    // the body is deliberately not read. The client posts `{}`.
+    if (isDelete) return send(res, 200, await handleDeleteData(pool, auth))
+    if (isShare) {
+      const body = (await readBody(req)) as Record<string, unknown>
+      const result = await handleShareProject(pool, auth, body as never)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
+    if (isKeep) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const result = await handleKeepProject(pool, auth, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
+
+    // Pasan por `authenticate` como push y pull: la credencial es el device token, y los
+    // gates de allowlist y plan aplican igual — sin nube no hay nada que cifrar.
+    if (isKeysGet) {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
+      // `?slot=recovery` es el unico valor que el cliente usa hoy; cualquier otro cae al
+      // comportamiento de siempre (la envoltura del device que llama).
+      return send(res, 200, await getKeyState(pool, auth, url.searchParams.get('slot') ?? undefined))
+    }
+    if (isKeysEnroll) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const result = await enrollDeviceKey(pool, auth, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
+    if (isKeysPublish) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const result = await publishWraps(pool, auth, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true, key_epoch: result.keyEpoch })
+    }
+
+    if (isTeamKeyGet) {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
+      const teamId = url.searchParams.get('team_id') ?? ''
+      if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      if (!UUID_RE.test(teamId)) return send(res, 400, { error: 'invalid_team_id' })
+      const result = await getTeamKeyState(pool, auth, teamId, url.searchParams.get('slot') ?? undefined)
+      if ('ok' in result) return send(res, result.status, { error: result.error })
+      return send(res, 200, result)
+    }
+    if (isTeamKeyActivate) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const teamId = typeof body.team_id === 'string' ? body.team_id : ''
+      if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      if (!UUID_RE.test(teamId)) return send(res, 400, { error: 'invalid_team_id' })
+      const result = await activateTeamKey(pool, auth, teamId, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
+    if (isTeamKeyAuthorize) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const teamId = typeof body.team_id === 'string' ? body.team_id : ''
+      if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      if (!UUID_RE.test(teamId)) return send(res, 400, { error: 'invalid_team_id' })
+      const result = await authorizeTeamDevice(pool, auth, teamId, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { ok: true })
+    }
+    if (isTeamKeyRecryptPending) {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method_not_allowed' })
+      const teamId = url.searchParams.get('team_id') ?? ''
+      if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      if (!UUID_RE.test(teamId)) return send(res, 400, { error: 'invalid_team_id' })
+      const result = await listRecryptPending(pool, auth, teamId, { after: url.searchParams.get('after') ?? undefined })
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, { total: result.total, items: result.items })
+    }
+    if (isTeamKeyRecrypt) {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+      const body = (await readBody(req)) as Record<string, unknown>
+      const teamId = typeof body.team_id === 'string' ? body.team_id : ''
+      if (!teamId) return send(res, 400, { error: 'missing_team_id' })
+      if (!UUID_RE.test(teamId)) return send(res, 400, { error: 'invalid_team_id' })
+      const result = await recryptTeamObservations(pool, auth, teamId, body)
+      if (!result.ok) return send(res, result.status, { error: result.error })
+      return send(res, 200, result)
+    }
+
+    const body = (await readBody(req)) as Record<string, unknown>
+    if (isPush) {
+      const mutations = Array.isArray(body.mutations) ? body.mutations : []
+      // Decided on the mutation count alone, before handlePush ever opens a connection or
+      // starts a transaction — a batch this large is rejected outright, not partially run.
+      if (mutations.length > MAX_BATCH) return send(res, 413, { error: 'batch_too_large' })
+      return send(res, 200, await handlePush(pool, auth, { mutations } as never))
+    }
+    return send(res, 200, await handlePull(pool, auth, body as never))
+  } catch (err) {
+    // A `status` on the error means it is the client's fault (bad JSON, an oversized body)
+    // and safe to echo back. Anything else is ours — log it server-side and hand the client
+    // a generic code instead of leaking internals (a stack trace, a driver error message).
+    if (esBaseNoDisponible(err)) return sendNoDisponible(res, path, err)
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http]', path, err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/**
+ * La base no está disponible para esta request: el pool no consiguió conexión a tiempo, una
+ * consulta pasó su tope (`db.ts`), o Postgres no acepta conexiones (reinicio, corte de red).
+ * No es un bug de la request, así que va un 503 con `Retry-After` en vez de un 500 — el
+ * cliente lo trata como pasajero y vuelve más tarde.
+ */
+export function esBaseNoDisponible(err: unknown): boolean {
+  const msg = (err as { message?: unknown })?.message
+  if (typeof msg === 'string' && /timeout exceeded when trying to connect|connection timeout|Connection terminated/i.test(msg)) return true
+  const code = (err as { code?: unknown })?.code
+  // 57014 = query_canceled (corte por statement_timeout); 57P01..03 = Postgres apagándose o
+  // arrancando; los otros, la conexión TCP misma.
+  return ['57014', '57P01', '57P02', '57P03', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND'].includes(code as string)
+}
+
+const REINTENTO_SIN_BASE_S = 5
+
+function sendNoDisponible(res: ServerResponse, path: string, err: unknown): void {
+  // La ruta normalizada, no el path crudo: el de `/beta/` lleva un token.
+  console.error('[http] base no disponible', rutaParaLog(path), (err as Error).message)
+  send(res, 503, { error: 'unavailable' }, { 'Retry-After': String(REINTENTO_SIN_BASE_S) })
+}
+
+/**
+ * `POST /v1/devices` (§9.2). Recibe el JWT del login en `Authorization`, verifica la firma
+ * contra `SUPABASE_JWT_SECRET` y devuelve el token del device UNA sola vez.
+ *
+ * El secreto se lee en cada request en vez de una sola vez al cargar el módulo: el costo es
+ * nulo y permite arrancar el proceso sin la variable (todo el resto del servicio funciona
+ * sin ella) y setearla después, en vez de morir al importar.
+ */
+async function handleRegisterDevice(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const login = await loginDeSupabase(req, res, '/v1/devices')
+    if (!login) return
+    const { identity, jwt } = login
+
+    const verdict = registerLimiter.check(ipDelCliente(req))
+    if (!verdict.ok) {
+      return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
+    }
+
+    const body = (await readBody(req)) as Record<string, unknown>
+    // El nombre lo manda el cliente (C8: `navigator.platform` daba `Win32` en las dos PCs y
+    // el servidor las colapsaba en una). Si no viene, uno genérico antes que fallar.
+    const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim().slice(0, 120) : 'Nest'
+    const platform = typeof body.platform === 'string' ? body.platform.slice(0, 120) : null
+
+    // El JWT crudo viaja también acá — no sólo la identidad ya decodificada — porque
+    // `registerDevice` lo necesita para autenticar la sincronización de `team_memberships`
+    // contra Supabase REST con la MISMA credencial (Team Memory Layer 1, Parte 2).
+    const result = await registerDevice(pool, identity, { name, platform }, jwt)
+    if (!result.ok) return send(res, result.status, { error: result.error })
+
+    // `token` viaja una sola vez y no se puede volver a pedir: el servicio guarda el hash.
+    return send(res, 201, { device_id: result.deviceId, token: result.token })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/devices', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /v1/link/start` — sin credenciales, porque quien llama todavía no tiene ninguna. */
+async function handleLinkStart(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const verdict = linkLimiter.check(ipDelCliente(req))
+    if (!verdict.ok) {
+      return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
+    }
+    // Un cliente viejo manda `{}`: `leerDatosDelPedido` lo convierte en dos null.
+    const body = (await readBody(req)) as Record<string, unknown>
+    const r = await iniciarVinculacion(pool, Date.now(), leerDatosDelPedido(body))
+    return send(res, 201, {
+      user_code: r.codigoDeUsuario,
+      device_code: r.codigoDeDispositivo,
+      expires_in: Math.floor(r.venceEn / 1000),
+      interval: Math.ceil(r.intervalo / 1000),
+    })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/link/start', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /v1/link/approve` — con el JWT de Supabase, desde la máquina que SÍ tiene sesión. */
+async function handleLinkApprove(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const login = await loginDeSupabase(req, res, '/v1/link/approve')
+    if (!login) return
+
+    const verdict = linkApproveLimiter.check(login.identity.userId)
+    if (!verdict.ok) {
+      return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
+    }
+
+    const body = (await readBody(req)) as Record<string, unknown>
+    const codigo = typeof body.user_code === 'string' ? body.user_code : ''
+    if (!codigo) return send(res, 400, { error: 'missing_user_code' })
+
+    // El JWT viaja para la red de seguridad del plan pago (Ruling P1): el claim no lo tiene.
+    const r = await aprobarVinculacion(pool, login.identity, codigo, Date.now(), login.jwt)
+    if (!r.ok) return send(res, r.status, { error: r.error })
+    return send(res, 200, { ok: true })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/link/approve', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /v1/link/check` — con el JWT de Supabase; lo que la página muestra antes de aprobar. */
+async function handleLinkCheck(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const login = await loginDeSupabase(req, res, '/v1/link/check')
+    if (!login) return
+
+    const verdict = linkCheckLimiter.check(login.identity.userId)
+    if (!verdict.ok) {
+      return send(res, 429, { error: 'rate_limited' }, { 'Retry-After': String(verdict.retryAfterSeconds) })
+    }
+
+    const body = (await readBody(req)) as Record<string, unknown>
+    // `user_code` como `approve`; `code` es el nombre del spec, aceptado igual.
+    const codigo = typeof body.user_code === 'string' ? body.user_code
+      : typeof body.code === 'string' ? body.code : ''
+    if (!codigo) return send(res, 400, { error: 'missing_user_code' })
+
+    const r = await consultarVinculacion(pool, login.identity, codigo, Date.now(), login.jwt)
+    if (!r.ok) return send(res, r.status, { error: r.error })
+    return send(res, 200, {
+      device_name: r.pedido.deviceName,
+      platform: r.pedido.platform,
+      created_at: r.pedido.createdAt,
+      expires_at: r.pedido.expiresAt,
+      expires_in: r.pedido.expiresIn,
+      eligibility: r.pedido.eligibility,
+      plan: r.pedido.plan,
+    })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/link/check', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /v1/link/poll` — el secreto del body ES la credencial; por eso no hay header. */
+async function handleLinkPoll(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const body = (await readBody(req)) as Record<string, unknown>
+    const codigo = typeof body.device_code === 'string' ? body.device_code : ''
+    if (!codigo) return send(res, 400, { error: 'missing_device_code' })
+    const nombre = typeof body.name === 'string' && body.name.trim() !== ''
+      ? body.name.trim().slice(0, 120)
+      : undefined
+    // Igual que en `/v1/devices`: texto acotado, o nada. Hasta el 2026-10-02 se leía el nombre
+    // y se tiraba la plataforma, así que las máquinas vinculadas por código quedaban sin ella.
+    const plataforma = typeof body.platform === 'string' ? body.platform.slice(0, 120) : null
+
+    const r = await reclamarVinculacion(pool, codigo, Date.now(), nombre, plataforma)
+    // **`res.ok` significa exactamente una cosa: tenés el token.** Por eso "todavía no" va con
+    // 400 y no con 202, que es lo que pedía el cuerpo pero que `fetch` considera `ok` — un
+    // cliente que mire sólo eso leería la espera como éxito y guardaría un token vacío. Es la
+    // misma clase de falla silenciosa que el comentario de `/functions/v1/...` documenta más
+    // arriba. Además es la forma del RFC 8628, que es de donde sale este flujo.
+    if (r.estado === 'pendiente') return send(res, 400, { status: 'authorization_pending' })
+    if (r.estado === 'muy-seguido') return send(res, 429, { status: 'slow_down' })
+    if (r.estado === 'vencido') return send(res, 410, { status: 'expired' })
+    if (r.estado === 'rechazado') return send(res, 403, { status: 'denied', error: r.error })
+    return send(res, 200, { status: 'linked', token: r.token, device_id: r.deviceId })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/link/poll', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `GET /v1/devices` — ver `listDevices`. */
+async function handleListDevices(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const result = await listDevices(pool, req.headers.authorization ?? '')
+    if (!result.ok) return send(res, result.status, { error: result.error })
+    return send(res, 200, { devices: result.devices })
+  } catch (err) {
+    console.error('[http] /v1/devices', err)
+    return send(res, 500, { error: 'internal_error' })
+  }
+}
+
+/** `POST /v1/devices/revoke` — ver `revokeDevices`. Body opcional: `{ all?: boolean, deviceId?: string }`. */
+async function handleRevokeDevice(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const body = (await readBody(req)) as Record<string, unknown>
+    const result = await revokeDevices(pool, req.headers.authorization ?? '', {
+      all: body.all === true,
+      // Un deviceId que no es string (número, objeto) cuenta como presente-e-inválido.
+      deviceId: body.deviceId === undefined ? undefined : typeof body.deviceId === 'string' ? body.deviceId : '',
+    })
+    if (!result.ok) return send(res, result.status, { error: result.error })
+    return send(res, 200, { ok: true, revoked: result.revoked })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /v1/devices/revoke', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/**
+ * `POST /internal/plan` (spec 2b-2 §4.5). Sin `PLAN_SYNC_SECRET` la ruta no existe (404): un
+ * secreto vacío verificaría contra HMAC(''), que cualquiera calcula.
+ */
+async function handleInternalPlan(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const secreto = process.env.PLAN_SYNC_SECRET ?? ''
+  if (!secreto) return send(res, 404, { error: 'not_found' })
+  if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+  try {
+    const cuerpo = await readRawBody(req, MAX_PLAN_BODY_BYTES)
+    const firma = req.headers['x-nest-signature']
+    const cabecera = Array.isArray(firma) ? firma[0] : firma
+    if (!verificarFirmaDePlan(cabecera, cuerpo, secreto, Math.floor(Date.now() / 1000))) {
+      return send(res, 401, { error: 'unauthorized' })
+    }
+    const leido = leerAvisoDePlan(cuerpo)
+    if (!leido.ok) return send(res, 400, { error: leido.error })
+    await aplicarPlan(pool, leido.aviso)
+    // Sólo user_id y plan: el cuerpo entero no se loguea.
+    console.log('[plan-sync] plan aplicado', { user_id: leido.aviso.userId, plan: leido.aviso.plan })
+    return send(res, 200, { ok: true })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /internal/plan', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/** `POST /internal/memberships`: el aviso de Supabase con el set completo de equipos activos. */
+async function handleInternalMemberships(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const secreto = process.env.PLAN_SYNC_SECRET ?? ''
+  if (!secreto) return send(res, 404, { error: 'not_found' })
+  if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+  try {
+    const cuerpo = await readRawBody(req, MAX_PLAN_BODY_BYTES)
+    const firma = req.headers['x-nest-signature']
+    const cabecera = Array.isArray(firma) ? firma[0] : firma
+    if (!verificarFirmaDePlan(cabecera, cuerpo, secreto, Math.floor(Date.now() / 1000))) {
+      return send(res, 401, { error: 'unauthorized' })
+    }
+    const leido = leerAvisoDeMembresias(cuerpo)
+    if (!leido.ok) return send(res, 400, { error: leido.error })
+    const aplicado = await aplicarMembresias(pool, leido.aviso)
+    console.log('[membership-sync]', aplicado ? 'aplicado' : 'viejo, ignorado', {
+      user_id: leido.aviso.userId, equipos: leido.aviso.memberships.length,
+    })
+    return send(res, 200, aplicado ? { ok: true } : { ok: true, ignored: 'stale' })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /internal/memberships', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+/**
+ * `POST /internal/metrics`: los agregados de `metricas.ts` para el admin-api. POST y no GET
+ * porque la firma va sobre un cuerpo, y el cuerpo (`{"consulta":"metricas"}`) es lo que impide
+ * reusar una firma de otra ruta interna.
+ */
+async function handleInternalMetrics(pool: Pool, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const secreto = process.env.PLAN_SYNC_SECRET ?? ''
+  if (!secreto) return send(res, 404, { error: 'not_found' })
+  if (req.method !== 'POST') return send(res, 405, { error: 'method_not_allowed' })
+  try {
+    const cuerpo = await readRawBody(req, MAX_PLAN_BODY_BYTES)
+    const firma = req.headers['x-nest-signature']
+    const cabecera = Array.isArray(firma) ? firma[0] : firma
+    if (!verificarFirmaDePlan(cabecera, cuerpo, secreto, Math.floor(Date.now() / 1000))) {
+      return send(res, 401, { error: 'unauthorized' })
+    }
+    if (!esPedidoDeMetricas(cuerpo)) return send(res, 400, { error: 'bad_request' })
+    return send(res, 200, { ok: true, metricas: await calcularMetricas(pool) })
+  } catch (err) {
+    const status = (err as { status?: number }).status ?? 500
+    if (status === 500) console.error('[http] /internal/metrics', err)
+    return send(res, status, { error: status === 500 ? 'internal_error' : (err as Error).message })
+  }
+}
+
+export function createApp(pool: Pool, registrar: (l: LineaDeRequest) => void = emisorDeRegistro()) {
+  return createServer((req, res) => {
+    registrarRequest(req, res, registrar)
+    handleRequest(pool, req, res).catch((err) => {
+      // Last-resort net: handleRequest already catches everything reachable through the
+      // routes above. This exists only so a bug in that catch itself still can't produce
+      // an unhandled rejection that takes the process down. Los handlers con try propio
+      // (devices, link, keys) dejan escapar acá un pool saturado: también es un 503.
+      if (res.headersSent) return console.error('[http] unhandled', err)
+      if (esBaseNoDisponible(err)) return sendNoDisponible(res, new URL(req.url ?? '/', 'http://x').pathname, err)
+      console.error('[http] unhandled', err)
+      send(res, 500, { error: 'internal_error' })
+    })
+  })
+}

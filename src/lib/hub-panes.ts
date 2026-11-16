@@ -3,8 +3,8 @@ import type { WorkspaceTab } from '../types'
 /**
  * Quita los ids en `removed` del hubPanes de TODA tab Hub. Al cerrar un pane
  * (desde su workspace o cerrando el workspace entero) hay que podar su id del
- * Hub: sin esto quedaba colgante en la sesión persistida y shouldConfirmTabClose
- * preguntaba por "curación" que ya no existe. Devuelve el mismo array (y las
+ * Hub: sin esto quedaría colgante en la sesión persistida y shouldConfirmTabClose
+ * preguntaría por "curación" que ya no existe. Devuelve el mismo array (y las
  * mismas referencias de tab) cuando no hay nada que podar.
  */
 export function pruneHubPanes(tabs: WorkspaceTab[], removed: ReadonlySet<string>): WorkspaceTab[] {

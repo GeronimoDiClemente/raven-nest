@@ -15,8 +15,15 @@ test('abrir un archivo desde el Explorer, editarlo y guardarlo actualiza el disc
       ;(window as unknown as { __e2e_linkRepo?: (p: string) => void }).__e2e_linkRepo?.(repoDir)
     }, h.repoDir)
 
-    // El Explorer vive dentro del sidebar, que arranca colapsado.
-    await h.page.locator('.sidebar-toggle').click()
+    // El Explorer vive dentro del sidebar, que arranca colapsado. El boton de
+    // toggle paso a <Button> sin clase propia (Task 7); el nombre accesible
+    // sale del title, que alterna segun el estado (ver e2e/03-memories-in-app.spec.ts).
+    await h.page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ }).click()
+
+    // Expandir el sidebar deja la pestana Worktrees activa por default (asi
+    // es desde que SidebarTabBar existe, 2026-09-07, antes de esta migracion
+    // y de este spec) — hace falta pasar a Explorer a mano.
+    await h.page.getByRole('tab', { name: 'Explorer' }).click()
 
     await expect(h.page.locator('.explorer-panel')).toBeVisible({ timeout: 10_000 })
     await h.page.locator('.explorer-entry-name', { hasText: 'README.md' }).click()

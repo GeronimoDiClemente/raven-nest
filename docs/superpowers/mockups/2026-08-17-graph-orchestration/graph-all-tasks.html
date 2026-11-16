@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nest — Orchestration: all tasks graph</title>
+<style>
+  :root{
+    --bg-app:#000; --bg-surface:#0a0a0a; --bg-elevated:#111; --bg-hover:#151515;
+    --border:#1e1e1e; --border-2:#2a2a2a;
+    --text:#e8e8e8; --text-2:#888; --text-3:#555;
+    --blue:#0066FF; --green:#22C55E; --amber:#F59E0B; --red:#EF4444;
+    /* per-role accents (only used in the "accent by role" variant) */
+    --r-arch:#A78BFA; --r-code:#0066FF; --r-rev:#2DD4BF; --r-test:#F59E0B;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg-app);color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
+    font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;display:flex}
+  .mono{font-family:'SFMono-Regular','Consolas',ui-monospace,monospace}
+
+  .rail{width:50px;flex:0 0 50px;background:var(--bg-surface);border-right:1px solid var(--border);
+    display:flex;flex-direction:column;align-items:center;gap:4px;padding:13px 0;min-height:100vh}
+  .rail .d{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--text-3);font-size:14px}
+  .rail .d.on{background:#0066FF18;color:var(--blue)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
+  .top{height:44px;flex:0 0 44px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 18px;gap:8px}
+  .top .crumb{color:var(--text-2);font-size:12.5px}
+  .top .crumb b{color:var(--text);font-weight:600}
+  .top .crumb .sep{color:var(--text-3);margin:0 8px}
+  .top .right{margin-left:auto;display:flex;gap:14px;color:var(--text-2);font-size:11.5px}
+  .top .right .n{color:var(--text)}
+  .wrap{padding:20px 24px;overflow:auto}
+
+  h2{font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:var(--text-3);font-weight:600;margin:0 0 12px}
+  .lead{font-size:14px;font-weight:600;margin:0 0 3px}
+  .lead-sub{color:var(--text-2);font-size:12px;margin:0 0 16px}
+  .k{color:var(--blue)}
+
+  /* ---------- A/B comparison ---------- */
+  .ab{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:26px}
+  .pick{background:var(--bg-surface);border:1px solid var(--border);border-radius:11px;padding:14px 15px 15px;cursor:pointer;transition:border-color .15s}
+  .pick:hover{border-color:var(--border-2)}
+  .pick.sel{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}
+  .pick .tag{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .pick .tag .letter{width:20px;height:20px;border-radius:6px;background:var(--bg-elevated);border:1px solid var(--border-2);
+    display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--text-2)}
+  .pick .tag h3{font-size:12.5px;font-weight:600}
+  .pick .tag .why{margin-left:auto;color:var(--text-3);font-size:11px}
+
+  /* ---------- pipeline (shared) ---------- */
+  .lane{display:grid;grid-template-columns:230px 1fr;gap:14px;align-items:center;
+    background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px;margin-bottom:9px}
+  .lane.mini{grid-template-columns:200px 1fr;background:transparent;border:none;padding:6px 0;margin:0}
+  .lane .meta .id{font-size:10.5px;color:var(--text-3)}
+  .lane .meta .ti{font-size:12.5px;font-weight:600;color:var(--text);margin-top:1px}
+  .lane .meta .ov{margin-top:5px;display:inline-flex;align-items:center;gap:6px;font-size:10.5px;color:var(--text-2)}
+  .lane .meta .ov .s{width:7px;height:7px;border-radius:50%}
+
+  .flow{display:flex;align-items:center;gap:0;flex-wrap:nowrap;overflow-x:auto}
+  .conn{flex:0 0 16px;height:1px;background:var(--border-2)}
+  .conn.on{background:var(--green)}
+  .conn.dash{background:repeating-linear-gradient(90deg,var(--border-2) 0 3px,transparent 3px 7px)}
+  .grp{display:flex;flex-direction:column;gap:5px}
+
+  .chip{flex:0 0 auto;display:flex;align-items:center;gap:7px;background:var(--bg-elevated);
+    border:1px solid var(--border);border-radius:8px;padding:6px 9px;min-width:88px;cursor:pointer;transition:border-color .15s}
+  .chip:hover{border-color:var(--border-2)}
+  .chip .dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;background:var(--text-3)}
+  .chip .rl{font-size:11.5px;font-weight:600;color:var(--text);white-space:nowrap}
+  .chip .rl small{display:block;font-weight:400;font-size:9.5px;color:var(--text-3);margin-top:1px}
+  /* states */
+  .chip.working .dot{background:var(--blue);animation:pulse 1.7s ease-in-out infinite}
+  .chip.working{border-color:#0066FF55}
+  .chip.done .dot{background:var(--green)}
+  .chip.needs .dot{background:var(--amber);animation:pulse 1.7s ease-in-out infinite}
+  .chip.needs{border-color:#F59E0B44}
+  .chip.queued{opacity:.65}
+  @keyframes pulse{50%{opacity:.35}}
+
+  /* accent-by-role variant: a left color bar per role */
+  .byrole .chip{position:relative;padding-left:11px}
+  .byrole .chip::before{content:"";position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:3px;background:var(--rc,var(--border-2))}
+  .byrole .chip.arch{--rc:var(--r-arch)} .byrole .chip.code{--rc:var(--r-code)}
+  .byrole .chip.rev{--rc:var(--r-rev)} .byrole .chip.test{--rc:var(--r-test)}
+
+  .gate{flex:0 0 auto;font-size:10px;color:var(--text-2);border:1px dashed var(--border-2);border-radius:7px;
+    padding:6px 8px;text-align:center;white-space:nowrap}
+  .foot{margin-top:16px;color:var(--text-3);font-size:11px}
+  .foot .kbd{color:var(--text-2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;background:var(--bg-elevated)}
+</style>
+</head>
+<body>
+  <div class="rail">
+    <div class="d">◆</div><div class="d">▤</div><div class="d on" title="Integrations">◇</div>
+    <div class="d">◷</div><div class="d" style="margin-top:auto">⚙</div>
+  </div>
+  <div class="main">
+    <div class="top">
+      <span class="crumb"><b>Integrations</b><span class="sep">›</span>Orchestration<span class="sep">›</span><b>Graph</b></span>
+      <span class="right"><span><span class="n">3</span> working</span><span><span class="n">1</span> needs you</span><span><span class="n">1</span> done</span></span>
+    </div>
+    <div class="wrap">
+
+      <!-- ================= A/B DECISION ================= -->
+      <h2>Pick the node style</h2>
+      <p class="lead">Same graph, two ways to use color</p>
+      <p class="lead-sub">Everything else is the real Nest theme (black, Inter, your semantic colors). Click the one you like.</p>
+
+      <div class="ab">
+        <!-- A: minimal -->
+        <div class="pick sel" data-choice="minimal" onclick="pickIt(this)">
+          <div class="tag"><span class="letter">A</span><h3>Minimal — color = state only</h3><span class="why">reads at a glance</span></div>
+          <div class="lane mini">
+            <div class="meta"><div class="id mono">#4821</div><div class="ti">Rate-limit the public API</div>
+              <div class="ov"><span class="s" style="background:var(--blue)"></span>working</div></div>
+            <div class="flow">
+              <div class="chip done"><span class="dot"></span><span class="rl">Architect</span></div>
+              <div class="conn on"></div>
+              <div class="chip done"><span class="dot"></span><span class="rl">Coder</span></div>
+              <div class="conn on"></div>
+              <div class="grp">
+                <div class="chip working"><span class="dot"></span><span class="rl">Reviewer<small>security</small></span></div>
+                <div class="chip working"><span class="dot"></span><span class="rl">Reviewer<small>types</small></span></div>
+                <div class="chip needs"><span class="dot"></span><span class="rl">Reviewer<small>perf</small></span></div>
+              </div>
+              <div class="conn dash"></div>
+              <div class="gate">Gate<br>0/3</div>
+              <div class="conn dash"></div>
+              <div class="chip queued"><span class="dot"></span><span class="rl">Tester</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- B: accent by role -->
+        <div class="pick" data-choice="byrole" onclick="pickIt(this)">
+          <div class="tag"><span class="letter">B</span><h3>Accent by role</h3><span class="why">spot the role fast</span></div>
+          <div class="lane mini byrole">
+            <div class="meta"><div class="id mono">#4821</div><div class="ti">Rate-limit the public API</div>
+              <div class="ov"><span class="s" style="background:var(--blue)"></span>working</div></div>
+            <div class="flow">
+              <div class="chip arch done"><span class="dot"></span><span class="rl">Architect</span></div>
+              <div class="conn on"></div>
+              <div class="chip code done"><span class="dot"></span><span class="rl">Coder</span></div>
+              <div class="conn on"></div>
+              <div class="grp">
+                <div class="chip rev working"><span class="dot"></span><span class="rl">Reviewer<small>security</small></span></div>
+                <div class="chip rev working"><span class="dot"></span><span class="rl">Reviewer<small>types</small></span></div>
+                <div class="chip rev needs"><span class="dot"></span><span class="rl">Reviewer<small>perf</small></span></div>
+              </div>
+              <div class="conn dash"></div>
+              <div class="gate">Gate<br>0/3</div>
+              <div class="conn dash"></div>
+              <div class="chip test queued"><span class="dot"></span><span class="rl">Tester</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= ALL TASKS GRAPH ================= -->
+      <h2>The graph of all tasks</h2>
+      <p class="lead-sub" style="margin-bottom:14px">Every ticket in flight, each as its own role-graph. This is the home view under Integrations — <span class="k">no terminals shown until you open one</span>.</p>
+
+      <div class="lane">
+        <div class="meta"><div class="id mono">#4821</div><div class="ti">Rate-limit the public API</div>
+          <div class="ov"><span class="s" style="background:var(--blue)"></span>working · 3 reviewers</div></div>
+        <div class="flow">
+          <div class="chip done"><span class="dot"></span><span class="rl">Architect</span></div><div class="conn on"></div>
+          <div class="chip done"><span class="dot"></span><span class="rl">Coder</span></div><div class="conn on"></div>
+          <div class="grp">
+            <div class="chip working"><span class="dot"></span><span class="rl">Reviewer<small>security</small></span></div>
+            <div class="chip working"><span class="dot"></span><span class="rl">Reviewer<small>types</small></span></div>
+            <div class="chip needs"><span class="dot"></span><span class="rl">Reviewer<small>perf</small></span></div>
+          </div>
+          <div class="conn dash"></div><div class="gate">Gate 0/3</div><div class="conn dash"></div>
+          <div class="chip queued"><span class="dot"></span><span class="rl">Tester</span></div>
+        </div>
+      </div>
+
+      <div class="lane">
+        <div class="meta"><div class="id mono">#4816</div><div class="ti">Fix OAuth token refresh</div>
+          <div class="ov"><span class="s" style="background:var(--blue)"></span>working</div></div>
+        <div class="flow">
+          <div class="chip done"><span class="dot"></span><span class="rl">Architect</span></div><div class="conn on"></div>
+          <div class="chip working"><span class="dot"></span><span class="rl">Coder</span></div><div class="conn dash"></div>
+          <div class="chip queued"><span class="dot"></span><span class="rl">Reviewer</span></div><div class="conn dash"></div>
+          <div class="chip queued"><span class="dot"></span><span class="rl">Tester</span></div>
+        </div>
+      </div>
+
+      <div class="lane">
+        <div class="meta"><div class="id mono">#4818</div><div class="ti">Flaky e2e on Windows</div>
+          <div class="ov"><span class="s" style="background:var(--amber)"></span>needs you</div></div>
+        <div class="flow">
+          <div class="chip done"><span class="dot"></span><span class="rl">Architect</span></div><div class="conn on"></div>
+          <div class="chip done"><span class="dot"></span><span class="rl">Coder</span></div><div class="conn on"></div>
+          <div class="chip needs"><span class="dot"></span><span class="rl">Reviewer</span></div><div class="conn dash"></div>
+          <div class="chip queued"><span class="dot"></span><span class="rl">Tester</span></div>
+        </div>
+      </div>
+
+      <div class="lane">
+        <div class="meta"><div class="id mono">#4822</div><div class="ti">Add dark-mode toggle</div>
+          <div class="ov"><span class="s" style="background:var(--blue)"></span>just started</div></div>
+        <div class="flow">
+          <div class="chip working"><span class="dot"></span><span class="rl">Architect</span></div><div class="conn dash"></div>
+          <div class="chip queued"><span class="dot"></span><span class="rl">Coder</span></div><div class="conn dash"></div>
+          <div class="chip queued"><span class="dot"></span><span class="rl">Reviewer</span></div><div class="conn dash"></div>
+          <div class="chip queued"><span class="dot"></span><span class="rl">Tester</span></div>
+        </div>
+      </div>
+
+      <div class="lane">
+        <div class="meta"><div class="id mono">#4809</div><div class="ti">Migrate stats to GraphQL</div>
+          <div class="ov"><span class="s" style="background:var(--green)"></span>done · PR opened</div></div>
+        <div class="flow">
+          <div class="chip done"><span class="dot"></span><span class="rl">Architect</span></div><div class="conn on"></div>
+          <div class="chip done"><span class="dot"></span><span class="rl">Coder</span></div><div class="conn on"></div>
+          <div class="chip done"><span class="dot"></span><span class="rl">Reviewer</span></div><div class="conn on"></div>
+          <div class="chip done"><span class="dot"></span><span class="rl">Tester</span></div>
+        </div>
+      </div>
+
+      <div class="foot"><span class="kbd">click</span> a node → open its terminal &nbsp;·&nbsp; <span class="kbd">click</span> a lane → expand the ticket &nbsp;·&nbsp; every handoff mirrors to Slack</div>
+    </div>
+  </div>
+
+<script>
+  function pickIt(el){
+    document.querySelectorAll('.pick').forEach(p=>p.classList.remove('sel'));
+    el.classList.add('sel');
+    if(window.parent!==window){try{parent.postMessage({type:'choice',choice:el.dataset.choice},'*')}catch(e){}}
+  }
+</script>
+</body>
+</html>

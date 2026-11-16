@@ -30,16 +30,6 @@ export const teamsTour: TourDef = {
       placement: 'bottom',
     },
     {
-      id: 'repos',
-      anchor: '[data-tour-id="teams-nav-repos"]',
-      title: { en: 'Shared repos', es: 'Repos compartidos' },
-      body: {
-        en: 'The team’s repositories — clone them, link a folder, and open terminals.',
-        es: 'Los repositorios del equipo — clonalos, linkeá una carpeta y abrí terminales.',
-      },
-      placement: 'right',
-    },
-    {
       id: 'members',
       anchor: '[data-tour-id="teams-nav-members"]',
       title: { en: 'Members', es: 'Miembros' },
@@ -52,10 +42,22 @@ export const teamsTour: TourDef = {
     {
       id: 'chat',
       anchor: '[data-tour-id="teams-nav-chat"]',
-      title: { en: 'Chat & activity', es: 'Chat y actividad' },
+      title: { en: 'Chat', es: 'Chat' },
       body: {
-        en: 'Team chat plus a live feed of everyone’s GitHub activity. That’s Teams!',
-        es: 'Chat del equipo más un feed en vivo de la actividad de GitHub de todos. ¡Eso es Teams!',
+        en: 'Talk to your team without leaving the terminal.',
+        es: 'Hablá con tu equipo sin salir de la terminal.',
+      },
+      placement: 'right',
+    },
+    // The team's repos live in Personal now (pick the team in the scope
+    // selector), so this last step points at what is still here instead.
+    {
+      id: 'snippets',
+      anchor: '[data-tour-id="teams-nav-snippets"]',
+      title: { en: 'Shared snippets', es: 'Snippets compartidos' },
+      body: {
+        en: 'Snippets, workspaces and MCP configs the whole team can reuse. That’s Teams!',
+        es: 'Snippets, workspaces y configs de MCP que todo el equipo reutiliza. ¡Eso es Teams!',
       },
       placement: 'right',
     },

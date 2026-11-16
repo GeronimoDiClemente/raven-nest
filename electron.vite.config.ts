@@ -1,6 +1,14 @@
 import { resolve } from 'path'
+import { readFileSync } from 'fs'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+
+// La versión del package.json, horneada en el renderer. La usa `src/lib/beta-de-memoria.ts`
+// para saber si este build es una beta (`1.6.0-beta.N`), que es el único lugar del renderer
+// que necesita saberlo. Se lee del package.json y no de `app.getVersion()` porque el gate se
+// decide al pintar, sin esperar un IPC.
+const VERSION = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')).version as string
 
 export default defineConfig({
   main: {
@@ -9,7 +17,20 @@ export default defineConfig({
       outDir: 'dist-electron',
       rollupOptions: {
         input: {
-          main: resolve(__dirname, 'electron/main.ts')
+          main: resolve(__dirname, 'electron/main.ts'),
+          // Standalone stdio MCP shim — run outside Electron's normal window process via
+          // ELECTRON_RUN_AS_NODE=1 (see docs/nest-memory-architecture.md §1.1). Built as
+          // its own entry so it ships as a small, independently invokable script rather
+          // than being bundled into main.js.
+          'memory-mcp': resolve(__dirname, 'electron/memory-mcp/index.ts'),
+          // La TUI de memoria adentro de Nest, con el mismo ELECTRON_RUN_AS_NODE=1. Sólo le
+          // habla al daemon (el Node 20 de Electron no tiene node:sqlite). `ink` queda externo
+          // (está en `dependencies`, externalizeDepsPlugin lo deja afuera) y se carga con el
+          // import() real de tui-del-paquete/ink.ts.
+          'memory-tui': resolve(__dirname, 'electron/tui-de-nest.ts'),
+          // Shim MCP de la orquestación de panes (coordinador/workers). Mismo mecanismo que
+          // memory-mcp: ELECTRON_RUN_AS_NODE=1, sólo le habla al socket de main.
+          'orchestration-mcp': resolve(__dirname, 'electron/orchestration-mcp/index.ts')
         }
       }
     }
@@ -28,15 +49,35 @@ export default defineConfig({
   },
   renderer: {
     root: 'src',
+    define: {
+      'import.meta.env.VITE_NEST_VERSION': JSON.stringify(VERSION),
+    },
+    resolve: {
+      // shadcn genera imports con `@/`. Sin este alias, nada de components/ui resuelve.
+      // `cn` -> @/lib/utils: los componentes stock (src/components/ui/) importan el
+      // paquete "cn" en vez del alias @/lib/utils, y ese paquete no conoce nuestra
+      // escala tipográfica (--fs-*) — ver src/lib/utils.ts. Este alias hace que toda la
+      // app use una sola implementación de merge, la que sí la conoce.
+      alias: { '@': resolve(__dirname, 'src'), cn: resolve(__dirname, 'src/lib/utils.ts') }
+    },
     build: {
       outDir: 'dist',
+      // electron-vite no minifica el renderer por defecto. Minificar reduce a la mitad los
+      // assets del renderer y el chunk que la app carga al ARRANCAR: es la mitad del tiempo
+      // de parseo en el arranque, en una app que ademas corre terminales.
+      //
+      // El riesgo tipico de minificar --codigo que depende de Function.name o
+      // constructor.name-- no aplica aca: los `.name` del repo son todos propiedades de
+      // datos (nombres de tema, de opcion de config, de columna SQLite), que el minificador
+      // no toca.
+      minify: 'esbuild',
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/index.html')
         }
       }
     },
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
     optimizeDeps: {
       include: ['monaco-editor'],
     }

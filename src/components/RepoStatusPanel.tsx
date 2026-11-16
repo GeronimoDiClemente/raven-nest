@@ -29,7 +29,7 @@ function statusColor(s: string): string {
   if (s === 'A') return '#22c55e'
   if (s === 'D') return '#ef4444'
   if (s === '??' || s === '?') return '#888'
-  if (s === 'R') return '#a78bfa'
+  if (s === 'R') return 'var(--primary)'
   return '#e8e8e8'
 }
 

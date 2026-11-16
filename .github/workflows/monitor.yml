@@ -1,0 +1,47 @@
+name: Monitor del servicio de sync
+
+# El monitor de uptime sin una cuenta en otro servicio. Si falla, GitHub le manda un mail a quien
+# modificó por última vez el `cron` de este archivo: ese mail es la alarma. Los workflows
+# programados sólo corren desde la rama por defecto, así que esto vale recién en `main`.
+#
+# - `/health` toca la base: 503 es Postgres caído o colgado.
+# - `/health/backup` da 503 si el último backup bueno tiene más de 26 h. Un 404 es un servidor
+#   anterior a esa ruta: se avisa como warning y no falla, para no mandar un mail cada 15
+#   minutos hasta el próximo deploy.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BASE: https://sync-production-54ba.up.railway.app
+    steps:
+      - name: /health
+        run: |
+          # Tres intentos: un redeploy de Railway deja unos segundos sin servicio y eso no es
+          # una caída.
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$BASE/health" || echo 000)
+            [ "$code" = 200 ] && { echo "ok"; exit 0; }
+            echo "intento $i: HTTP $code"; sleep 20
+          done
+          echo "::error::$BASE/health no responde 200 (último: HTTP $code)"
+          exit 1
+
+      - name: /health/backup
+        run: |
+          body=$(curl -s --max-time 15 -w '\n%{http_code}' "$BASE/health/backup" || printf '\n000')
+          code=$(printf '%s' "$body" | tail -n1)
+          echo "HTTP $code: $(printf '%s' "$body" | sed '$d')"
+          case "$code" in
+            200) ;;
+            404) echo "::warning::el servidor no tiene /health/backup todavía (deploy anterior al 2026-11-09)" ;;
+            *) echo "::error::el último backup bueno del servicio de sync es demasiado viejo, o no hay ninguno"; exit 1 ;;
+          esac

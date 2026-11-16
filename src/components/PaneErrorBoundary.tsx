@@ -1,7 +1,7 @@
 import { Component, Fragment, type ReactNode } from 'react'
 
 // Un throw sincrónico en el render/commit de un pane (ej.: una lib de
-// terceros patcheando globals, como el setTheme de shiki pre-fix) desmonta
+// terceros patcheando globals) desmonta
 // el árbol de React ENTERO en React 18 si nadie lo captura — la app entera
 // muerta por un solo pane. Los error boundaries solo existen como class
 // component: no hay hook equivalente.

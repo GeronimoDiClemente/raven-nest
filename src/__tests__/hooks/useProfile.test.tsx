@@ -102,3 +102,225 @@ describe('useProfile — se entera de un cambio de plan sin reiniciar', () => {
     expect(supabaseMock.from).not.toHaveBeenCalled()
   })
 })
+
+// El corte comercial (Task 1): `cloud` tiene que valer lo mismo que `pro` en todo el
+// camino del plan mientras los dos conviven. Un perfil ya migrado a `cloud` que cayera a
+// `free` le apagaria la nube al que paga.
+describe('useProfile — el plan cloud', () => {
+  const USER = { id: 'u-1' }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: false }
+  })
+
+  it('deja pasar un perfil guardado como cloud en vez de caerlo a free', async () => {
+    supabaseMock.getUser.mockResolvedValue({ data: { user: USER } })
+    supabaseMock.from.mockImplementation(() => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => Promise.resolve({ data: { plan: 'cloud', trial_started_at: null } }),
+        }),
+      }),
+    }))
+
+    const { result } = renderHook(() => useProfile())
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.plan).toBe('cloud')
+    expect(result.current.isTrialActive).toBe(false)
+  })
+
+  it('honra e2ePlan cloud bajo el bypass, como cualquier otro plan conocido', async () => {
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: true, e2ePlan: 'cloud' }
+
+    const { result } = renderHook(() => useProfile())
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.plan).toBe('cloud')
+  })
+})
+
+describe('useProfile — período de facturación', () => {
+  const USER = { id: 'u-1' }
+  const select = vi.fn()
+
+  function mockFila(data: unknown) {
+    supabaseMock.getUser.mockResolvedValue({ data: { user: USER } })
+    supabaseMock.from.mockImplementation(() => ({
+      select: (cols: string) => {
+        select(cols)
+        return { eq: () => ({ maybeSingle: () => Promise.resolve({ data }) }) }
+      },
+    }))
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: false }
+  })
+
+  it('pide y mapea intervalo, fin y cancelación', async () => {
+    mockFila({ plan: 'cloud', trial_started_at: null, billing_interval: 'annual', current_period_end: '2026-11-29T00:00:00Z', cancel_at_period_end: true })
+    const { result } = renderHook(() => useProfile())
+    await waitFor(() => expect(result.current.userId).toBe('u-1'))
+    expect(select).toHaveBeenCalledWith('plan, trial_started_at, billing_interval, current_period_end, cancel_at_period_end')
+    expect(result.current.billingInterval).toBe('annual')
+    expect(result.current.currentPeriodEnd).toBe('2026-11-29T00:00:00Z')
+    expect(result.current.cancelAtPeriodEnd).toBe(true)
+  })
+
+  it('sin fila: null, null, false', async () => {
+    mockFila(null)
+    const { result } = renderHook(() => useProfile())
+    await waitFor(() => expect(result.current.userId).toBe('u-1'))
+    expect(result.current.billingInterval).toBeNull()
+    expect(result.current.currentPeriodEnd).toBeNull()
+    expect(result.current.cancelAtPeriodEnd).toBe(false)
+  })
+
+  it('recargar vuelve a leer, respetando la lectura en vuelo', async () => {
+    mockFila({ plan: 'free', trial_started_at: null })
+    const { result } = renderHook(() => useProfile())
+    await waitFor(() => expect(result.current.userId).toBe('u-1'))
+    expect(supabaseMock.from).toHaveBeenCalledTimes(1)
+    await act(async () => { result.current.recargar(); result.current.recargar() })
+    await waitFor(() => expect(supabaseMock.from).toHaveBeenCalledTimes(2))
+  })
+
+  it('e2eBilling bajo el bypass alimenta el período; JSON inválido se ignora', async () => {
+    const billing = { billingInterval: 'monthly', currentPeriodEnd: '2026-11-29T00:00:00Z', cancelAtPeriodEnd: false }
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: true, e2ePlan: 'cloud', e2eBilling: JSON.stringify(billing) }
+    const a = renderHook(() => useProfile())
+    await waitFor(() => expect(a.result.current.loading).toBe(false))
+    expect(a.result.current.billingInterval).toBe('monthly')
+    expect(a.result.current.currentPeriodEnd).toBe(billing.currentPeriodEnd)
+    a.unmount()
+
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: true, e2ePlan: 'cloud', e2eBilling: '{no es json' }
+    const b = renderHook(() => useProfile())
+    await waitFor(() => expect(b.result.current.loading).toBe(false))
+    expect(b.result.current.billingInterval).toBeNull()
+  })
+
+  it("'nest:e2e-plan' cambia el plan sólo con el bypass", async () => {
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: true, e2ePlan: 'free' }
+    const a = renderHook(() => useProfile())
+    await waitFor(() => expect(a.result.current.plan).toBe('free'))
+    await act(async () => { window.dispatchEvent(new CustomEvent('nest:e2e-plan', { detail: { plan: 'cloud' } })) })
+    expect(a.result.current.plan).toBe('cloud')
+    expect(a.result.current.rawPlan).toBe('cloud')
+    await act(async () => { window.dispatchEvent(new CustomEvent('nest:e2e-plan', { detail: { plan: 'diamante' } })) })
+    expect(a.result.current.plan).toBe('cloud')
+    // el foco (Playwright lo manda solo) no pisa el plan puesto por el evento
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    expect(a.result.current.plan).toBe('cloud')
+    expect(a.result.current.rawPlan).toBe('cloud')
+    a.unmount()
+
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: false }
+    supabaseMock.getUser.mockResolvedValue({ data: { user: null } })
+    const b = renderHook(() => useProfile())
+    await waitFor(() => expect(b.result.current.loading).toBe(false))
+    await act(async () => { window.dispatchEvent(new CustomEvent('nest:e2e-plan', { detail: { plan: 'cloud' } })) })
+    expect(b.result.current.plan).toBe('free')
+  })
+
+  // Sin la migración de 2b-3 en la base, PostgREST rechaza el select entero (columna que no
+  // existe). Ignorar ese error dejaba `data` en null → plan free para TODOS los que pagan.
+  describe('sin las columnas del período en la base', () => {
+    const COMPLETO = 'plan, trial_started_at, billing_interval, current_period_end, cancel_at_period_end'
+    const ERROR = { data: null, error: { code: '42703', message: 'column profiles.billing_interval does not exist' } }
+
+    function mockPorColumnas(respuestas: Record<string, () => unknown>) {
+      supabaseMock.getUser.mockResolvedValue({ data: { user: USER } })
+      supabaseMock.from.mockImplementation(() => ({
+        select: (cols: string) => {
+          select(cols)
+          return { eq: () => ({ maybeSingle: () => Promise.resolve(respuestas[cols]?.() ?? ERROR) }) }
+        },
+      }))
+    }
+
+    it('reintenta sin las columnas nuevas: plan cloud y período vacío', async () => {
+      mockPorColumnas({
+        [COMPLETO]: () => ERROR,
+        'plan, trial_started_at': () => ({ data: { plan: 'cloud', trial_started_at: null }, error: null }),
+      })
+      const { result } = renderHook(() => useProfile())
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(select).toHaveBeenNthCalledWith(1, COMPLETO)
+      expect(select).toHaveBeenNthCalledWith(2, 'plan, trial_started_at')
+      expect(result.current.plan).toBe('cloud')
+      expect(result.current.rawPlan).toBe('cloud')
+      expect(result.current.billingInterval).toBeNull()
+      expect(result.current.currentPeriodEnd).toBeNull()
+      expect(result.current.cancelAtPeriodEnd).toBe(false)
+    })
+
+    it('si los dos fallan conserva el plan anterior, sin bajar a free', async () => {
+      let rota = false
+      mockPorColumnas({
+        [COMPLETO]: () => (rota ? ERROR : { data: { plan: 'cloud', trial_started_at: null, billing_interval: 'monthly', current_period_end: '2026-11-29T00:00:00Z', cancel_at_period_end: false }, error: null }),
+        'plan, trial_started_at': () => ERROR,
+      })
+      const { result } = renderHook(() => useProfile())
+      await waitFor(() => expect(result.current.plan).toBe('cloud'))
+      rota = true
+      await act(async () => { window.dispatchEvent(new Event('focus')) })
+      await waitFor(() => expect(select).toHaveBeenCalledTimes(3))
+      expect(result.current.plan).toBe('cloud')
+      expect(result.current.billingInterval).toBe('monthly')
+      expect(result.current.loading).toBe(false)
+    })
+
+    it('si los dos fallan al montar, deja de cargar', async () => {
+      mockPorColumnas({})
+      const { result } = renderHook(() => useProfile())
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(select).toHaveBeenCalledTimes(2)
+    })
+  })
+})
+
+// Siete componentes llaman a useProfile. Con un estado por instancia, cada vuelta del foco
+// eran siete lecturas idénticas de `profiles`, y cada uno podía ver un plan distinto.
+describe('useProfile — una sola lectura compartida', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(window as unknown as { appFlags: unknown }).appFlags = { e2eBypass: false }
+  })
+
+  it('varias instancias: una lectura por foco y el mismo plan en todas', async () => {
+    let i = 0
+    const planes = ['free', 'cloud']
+    supabaseMock.getUser.mockResolvedValue({ data: { user: { id: 'u-1' } } })
+    supabaseMock.from.mockImplementation(() => ({
+      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({
+        data: { plan: planes[Math.min(i++, planes.length - 1)], trial_started_at: null },
+      }) }) }),
+    }))
+
+    const { result } = renderHook(() => [useProfile(), useProfile(), useProfile()])
+    await waitFor(() => expect(result.current[0].loading).toBe(false))
+    expect(supabaseMock.from).toHaveBeenCalledTimes(1)
+
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    await waitFor(() => expect(result.current.map(p => p.rawPlan)).toEqual(['cloud', 'cloud', 'cloud']))
+    expect(supabaseMock.from).toHaveBeenCalledTimes(2)
+  })
+
+  it('un componente que monta después ve el plan ya leído y pide una lectura fresca', async () => {
+    supabaseMock.getUser.mockResolvedValue({ data: { user: { id: 'u-1' } } })
+    supabaseMock.from.mockImplementation(() => ({
+      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { plan: 'cloud', trial_started_at: null } }) }) }),
+    }))
+    const primero = renderHook(() => useProfile())
+    await waitFor(() => expect(primero.result.current.plan).toBe('cloud'))
+
+    const segundo = renderHook(() => useProfile())
+    expect(segundo.result.current.plan).toBe('cloud')
+    expect(segundo.result.current.loading).toBe(false)
+    await waitFor(() => expect(supabaseMock.from).toHaveBeenCalledTimes(2))
+  })
+})

@@ -17,14 +17,14 @@ interface GitHubEvent {
 }
 
 interface DailyStandupProps {
-  repos: Array<{ repo_full_name: string }>
+  repoNames: string[]
   githubToken: string | null
-  // H6: To correctly attribute GitHub events to team members, callers SHOULD
-  // pass `github_login` per member. The previous code matched `member.user_id`
-  // (a Supabase UUID) against `actor.login` (a GitHub username) — these never
-  // equal, so every member showed "No activity in the last 24h".
+  // To correctly attribute GitHub events to team members, callers SHOULD
+  // pass `github_login` per member. `member.user_id` is a Supabase UUID and
+  // never equals `actor.login` (a GitHub username), so without it every
+  // member shows "No activity in the last 24h".
   //
-  // TODO(H6): TeamsWorkspace currently cannot resolve other members'
+  // TODO: TeamsWorkspace currently cannot resolve other members'
   // `github_login` from the client because `profiles` RLS only allows
   // `auth.uid() = id`. Recommended fix:
   //   (a) Denormalize `github_login` onto `team_members` (write on team join
@@ -131,14 +131,15 @@ function buildStandupText(
 
   for (const member of teamMembers) {
     lines.push(member.email)
-    // H6: Match by github_login (the actual GitHub username) when available.
+    // Match by github_login (the actual GitHub username) when available.
     // Fall back to user_id only for the personal-panel case where the caller
-    // intentionally passes githubLogin as user_id (see MyReposPanel).
+    // intentionally passes githubLogin as user_id.
     const memberLogin = member.github_login ?? member.user_id
     const matched = [...actorMap.values()].find(a =>
       memberLogin ? a.login === memberLogin : false
     )
-    // Fall back to showing all actors not matched if no user_id mapping
+    // A member with no matched activity gets an explicit line; actors that match no member
+    // are listed after the loop.
     if (matched && matched.activities.length > 0) {
       for (const act of matched.activities) {
         lines.push(`  • ${act}`)
@@ -150,7 +151,7 @@ function buildStandupText(
   }
 
   // Actors found in GitHub but not matched to a team member
-  // H6: same matching rule as above — prefer github_login.
+  // Same matching rule as above — prefer github_login.
   const unmatchedLogins = [...actorMap.keys()].filter(
     login => !teamMembers.some(m => (m.github_login ?? m.user_id) === login)
   )
@@ -190,7 +191,7 @@ function SkeletonStandup() {
   )
 }
 
-export default function DailyStandup({ repos, githubToken, teamMembers }: DailyStandupProps) {
+export default function DailyStandup({ repoNames, githubToken, teamMembers }: DailyStandupProps) {
   const [actorMap, setActorMap] = useState<Map<string, ActorSummary>>(new Map())
   const [pendingPRs, setPendingPRs] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -200,7 +201,7 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
   const dateLabel = formatDateEn(new Date())
 
   useEffect(() => {
-    if (!githubToken || repos.length === 0) return
+    if (!githubToken || repoNames.length === 0) return
 
     let alive = true
     setLoading(true)
@@ -209,8 +210,8 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
     const load = async () => {
       try {
         const results = await Promise.allSettled(
-          repos.map(r =>
-            fetch(`https://api.github.com/repos/${r.repo_full_name}/events?per_page=30`, {
+          repoNames.map(name =>
+            fetch(`https://api.github.com/repos/${name}/events?per_page=30`, {
               headers: {
                 Authorization: `Bearer ${githubToken}`,
                 Accept: 'application/vnd.github.v3+json',
@@ -252,7 +253,7 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
 
     load()
     return () => { alive = false }
-  }, [repos, githubToken])
+  }, [repoNames, githubToken])
 
   const standupText = buildStandupText(actorMap, teamMembers, pendingPRs, dateLabel)
 
@@ -273,10 +274,10 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
     )
   }
 
-  if (repos.length === 0) {
+  if (repoNames.length === 0) {
     return (
       <div className="feed-empty-state">
-        <p className="feed-empty-text">Add repos to the team</p>
+        <p className="feed-empty-text">Add repos to see the standup</p>
       </div>
     )
   }
@@ -297,7 +298,7 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
       <div className="standup-divider" />
 
       {teamMembers.map(member => {
-        // H6: Prefer github_login; fall back to user_id (personal-panel case).
+        // Prefer github_login; fall back to user_id (personal-panel case).
         const memberLogin = member.github_login ?? member.user_id
         const matched = [...actorMap.values()].find(a =>
           memberLogin ? a.login === memberLogin : false
@@ -322,7 +323,6 @@ export default function DailyStandup({ repos, githubToken, teamMembers }: DailyS
 
       {/* Unmatched GitHub actors */}
       {[...actorMap.entries()]
-        // H6: Prefer github_login when matching.
         .filter(([login]) => !teamMembers.some(m => (m.github_login ?? m.user_id) === login))
         .filter(([, summary]) => summary.activities.length > 0)
         .map(([login, summary]) => (

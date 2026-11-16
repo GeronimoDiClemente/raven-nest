@@ -1,0 +1,181 @@
+/* La capa nueva del rediseño. Separada de global.css a propósito: esto es lo
+   que se queda, y global.css es lo que se va a ir borrando componente por
+   componente (spec §4.2).
+
+   SIN preflight, y no es una preferencia: preflight normaliza márgenes,
+   bordes y tipografía de todos los elementos, y las 12.104 líneas de
+   global.css están escritas contra el default del navegador. Importarlo
+   rompe la app entera de una. Por eso se importan a mano sólo las dos capas
+   que SUMAN — el tema y las utilidades — en vez del `@import "tailwindcss"`
+   que las trae todas. */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+
+/* `rounded-md` no la usa ningun componente todavia, pero el gate de
+   e2e/05-tailwind-vivo.spec.ts la necesita para verificar que --radius
+   llega hasta lo pintado. Se fuerza su generacion desde aca en vez de
+   ensuciar el markup de la app: un test no cambia el producto para poder
+   observarse. */
+@source inline("rounded-md");
+
+/* `dark:` de shadcn. Nest no tiene tema claro: los tokens viven directo en
+   `:root`. Pero los componentes que escupe el CLI usan `dark:` en algunos
+   lugares, así que la variante tiene que existir y resolver — el shell lleva
+   `class="dark"` (Task 4). */
+@custom-variant dark (&:is(.dark *));
+
+/* Los tokens de Nest, expuestos al motor de Tailwind.
+   `inline` importa: hace que `--color-card` RESUELVA `var(--card)` en vez de
+   copiar su valor. Así `bg-card` y el `background: var(--bg-surface)` del CSS
+   viejo pintan literalmente el mismo color, y el día que se toque el token
+   se mueven los dos. Sin `inline` habría dos fuentes de verdad. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-xs: calc(var(--radius) - 3px);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  /* xl en adelante NO siguen creciendo. Tailwind por default los escala
+     hasta 2rem (`4xl`), y ESO es como Badge terminó pintando una píldora
+     de 32px con `rounded-4xl` mientras el resto de la app vive entre 4px y
+     8px (I1 de la review final): un primitivo stock elige un nombre de
+     escalón más grande y se escapa del token en silencio. Puentear los
+     cuatro al mismo valor que `--radius-lg` cierra ese agujero para
+     siempre — ya no hay un escalón sin puentear al que algo pueda caer. */
+  --radius-xl: calc(var(--radius) + 2px);
+  --radius-2xl: calc(var(--radius) + 2px);
+  --radius-3xl: calc(var(--radius) + 2px);
+  --radius-4xl: calc(var(--radius) + 2px);
+
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-mono);
+
+  /* La escala nativa de Tailwind (`text-sm`, `text-xs`, ...) que los
+     primitivos stock siguen usando por default cuando nadie les pisa la
+     clase — `buttonVariants` (ui/button.tsx) es el caso medido: su base usa
+     `text-sm` y su tamaño `xs` usa `text-xs`. Sin este puente, esos dos
+     resuelven al rem fijo de Tailwind (14px y 12px respectivamente) en vez
+     de a la escala de Nest, y 14px no existe en ninguno de los 7 escalones
+     (I2 de la review final).
+
+     `--text-sm: var(--fs)` da 13px, no 12: 13px es el tamaño de
+     `.sidebar-label`, el texto que vive justo al lado de estos botones
+     (ej. "Personal"/"Settings" en el Sidebar, "Link a repo" en la Card de
+     Memories) — 12 los dejaría más chicos que su vecino inmediato. El
+     nombre queda raro (`text-sm` valiendo 13px) pero es el nombre de
+     Tailwind, no el nuestro.
+
+     `--text-xs: var(--fs-sm)` da 12px, que es exactamente lo que Tailwind
+     ya le daba (0.75rem == 12px == --fs-sm): no cambia nada visualmente,
+     sólo saca ese escalón de la mano de Tailwind y lo ancla en el nuestro,
+     para que el día que --fs-sm se retoque, Badge/Tooltip/Button(xs) — los
+     tres primitivos que lo usan hoy — se muevan con el resto de la app en
+     vez de quedarse en un rem que nadie controla.
+
+     `--text-base: var(--fs-lg)` (15px) cierra el mismo hueco en `CardTitle`
+     (ui/card.tsx): su variante default es `text-base` (16px de Tailwind,
+     tampoco existe en la escala) para cuando nadie pisa la clase. El único
+     lugar que hoy monta un `<CardTitle>` SÍ la pisa, a mano, con
+     `text-fs-lg` (`MemoriesWorkspace.tsx:117`) — 15px, "títulos de sección"
+     en la escala (ver el comentario de `--fs-lg` más abajo), que es
+     exactamente el rol de un CardTitle. Puentear el default al mismo valor
+     que ese único caso ya eligió a mano, en vez de inventar uno nuevo. */
+  --text-sm: var(--fs);
+  --text-xs: var(--fs-sm);
+  --text-base: var(--fs-lg);
+
+  /* La escala tipográfica del rediseño, disponible como `text-fs-sm` etc. */
+  --text-fs-2xs: var(--fs-2xs);
+  --text-fs-xs: var(--fs-xs);
+  --text-fs-sm: var(--fs-sm);
+  --text-fs: var(--fs);
+  --text-fs-lg: var(--fs-lg);
+  --text-fs-xl: var(--fs-xl);
+  --text-fs-2xl: var(--fs-2xl);
+}
+
+/* Los tres pedazos de preflight que shadcn da por hecho, de la regla real:
+
+     button, input, optgroup, select, textarea {
+       font: inherit; color: inherit; background-color: transparent;
+     }
+
+   `font: inherit`, `color: inherit` y `background-color: transparent`.
+   Preflight normalmente los pone los tres, en los cinco tipos de elemento;
+   `variant="ghost"` y `variant="link"` de shadcn no declaran ninguno
+   propio, así que sin esto un botón cae al fondo gris nativo del
+   navegador, al texto negro de `buttontext` (los form controls no heredan
+   color por default) Y a la tipografía por default del user-agent (Arial
+   en macOS) en vez de heredar Geist.
+
+   Task 13 (item 1): el selector estuvo angosto a `button` solo desde que
+   esto se escribió, dos veces (5b/7b y otra vez al cerrar C1) — las dos por
+   armar el conjunto persiguiendo bugs observados en vez de copiar la regla
+   completa. Con el selector angosto, los form controls del renderer caían a
+   la fuente del sistema — Arial en macOS, otra en Windows. Los números,
+   medidos (recontados en el fix de Task 13 que corrige este mismo párrafo,
+   porque la primera versión sólo grepeaba `font-family: inherit` y se
+   saltaba el shorthand): 87 controles fuera de los tests (56 `<input>` + 20
+   `<select>` + 11 `<textarea>`). `global.css` tiene 47 reglas que heredan la
+   fuente (36 con `font-family: inherit` + 11 con el shorthand `font:
+   inherit`). De esas 47, 14 nombran al menos un form control: `.search-input`,
+   `.cmd-input`, `.chat-composer-input`, `.sp-select`,
+   `.snippet-input`/`.snippet-textarea`, `.pane-note-input`,
+   `.conv-item-rename-input`, `.global-search-input`, `.integrations-search`,
+   `.integration-apikey-input`, `.auto-input`/`.auto-select`/`.auto-textarea`
+   (dos reglas) y `.rb-toggle` — que pese al nombre es un `<select>`
+   (`ResourceBarPopover.tsx:114`), no uno de los botones. Las últimas cuatro
+   (`.integrations-search`, `.integration-apikey-input`, el bloque
+   `.auto-*` y `.rb-toggle`) son justamente las que el grep angosto se
+   saltaba. Cruzando cada regla contra los 87 controles reales: 65 ya tenían
+   su propio `font`/`font-family` declarado — `inherit` o un valor explícito,
+   por ejemplo `.field-input`/`.qw-input`/`.mcp-textarea` usan
+   `var(--font-mono)` — antes de este cambio, y 22 estaban desnudos: la
+   minoría, no la mayoría (la primera versión de este comentario decía lo
+   contrario). NO angostar este selector otra vez: si algún control queda mal
+   por heredar `background-color: transparent`/`color: inherit` sin tener
+   regla propia en `global.css`, la salida es declararle su propio
+   `background`/`color` ahí — no reducir el conjunto de acá.
+
+   preflight entero rompería las 12k líneas de `global.css` (por eso no se
+   importa); estas tres reglas solas no rompen nada relevante, porque todo
+   control estilado del proyecto declara su propio background y su propio
+   color, y el CSS sin capa de `global.css` le gana igual a cualquier
+   `@layer`. `font` es shorthand: también resetea
+   font-size/weight/style/line-height a lo heredado del body — medido
+   deliberadamente antes de este cambio, ver
+   `.superpowers/sdd/2026-09-09-migracion-tailwind-shadcn/task-final-fix-report.md`. */
+@layer base {
+  button,
+  input,
+  optgroup,
+  select,
+  textarea {
+    font: inherit;
+    background-color: transparent;
+    color: inherit;
+  }
+}

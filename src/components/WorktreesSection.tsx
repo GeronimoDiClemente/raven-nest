@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
-import type { WorktreeMeta } from '../types'
+import type { AIType, WorktreeMeta } from '../types'
 import { useBridge } from '../lib/bridge'
 import { WORKTREE_DRAG_MIME } from '../lib/dragTypes'
 import { IDEPickerMenu } from './IDEPickerMenu'
+import CIStatusBadge from './CIStatusBadge'
+import { AILogoStack } from './AILogoStack'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
+import { useWorktreeSignals } from '../hooks/useWorktreeSignals'
 
 interface Props {
   repoPath: string | null
@@ -14,6 +17,12 @@ interface Props {
   refreshKey?: number
   /** When provided, the header shows a "?" button that launches the worktrees tutorial. */
   onStartTutorial?: () => void
+  /** "Fix the red": baja el log del run fallido y lo inyecta al pane del worktree. */
+  onFixCi: (repoPath: string) => void
+  /** workspace-shell-design §3: aiType de los panes abiertos, agrupados por repoPath
+   *  (groupAITypesByRepoPath en App.tsx, sobre TODOS los tabs — no solo el activo,
+   *  porque un worktree puede tener panes abiertos en un tab que hoy no es el foco). */
+  paneAITypesByPath?: Map<string, AIType[]>
 }
 
 interface DiffStat { additions: number; deletions: number }
@@ -42,10 +51,10 @@ interface ContextMenuState {
   isRoot: boolean
 }
 
-export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey, onStartTutorial }: Props) {
+export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClick, refreshKey, onStartTutorial, onFixCi, paneAITypesByPath }: Props) {
   const bridge = useBridge()
+  const signals = useWorktreeSignals()
   const [worktrees, setWorktrees] = useState<WorktreeMeta[]>([])
-  const [expanded, setExpanded] = useState(true)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [spotlightPath, setSpotlightPath] = useState<string | null>(null)
   const [idePickerAt, setIdePickerAt] = useState<{ x: number; y: number; worktreePath: string } | null>(null)
@@ -62,10 +71,10 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
       if (s.active && s.worktreePath) setSpotlightPath(s.worktreePath)
       else setSpotlightPath(null)
     })
-    bridge.spotlight.onStatus((s) => {
+    // Su propia baja, no `removeListeners()`: ésa saca a cualquier otro oyente del canal.
+    return bridge.spotlight.onStatus((s) => {
       setSpotlightPath(s.active && s.worktreePath ? s.worktreePath : null)
     })
-    return () => bridge.spotlight.removeListeners()
   }, [bridge])
 
   useEffect(() => {
@@ -93,8 +102,7 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
         )
       )
     }
-    bridge.preset.onSetupState(onState)
-    return () => bridge.preset.removeListeners()
+    return bridge.preset.onSetupState(onState)
   }, [repoPath, bridge])
 
   // Fetch diff stats for all non-root worktrees in parallel. Each result drops
@@ -198,8 +206,8 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
 
   return (
     <div className="worktrees-section">
-      <div className="wt-section-header" data-tour-id="wt-header" onClick={() => setExpanded(!expanded)}>
-        <span>{expanded ? '▾' : '▸'} Worktrees</span>
+      <div className="wt-section-header" data-tour-id="wt-header">
+        <span>Worktrees</span>
         <span className="wt-header-actions">
           {onStartTutorial && (
             <button
@@ -231,12 +239,12 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
       )
       return (
       <>
-      {expanded && (
         <div className="wt-list" data-tour-id="wt-list">
           {worktrees.map((wt, index) => {
             const isRoot = wt.repoPath === wt.rootRepoPath
             const stat = diffStats[wt.repoPath]
             const pr = prChips[wt.repoPath]
+            const sig = signals[wt.repoPath]
             const slug = basenameOf(wt.repoPath)
             return (
               <div
@@ -263,6 +271,10 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                 <div className="wt-item-main">
                   <span className={`wt-dot ${STATUS_DOT_CLASS[wt.setupState]}`} />
                   <span className="wt-branch">{wt.branch}</span>
+                  {(() => {
+                    const aiTypes = paneAITypesByPath?.get(wt.repoPath)
+                    return aiTypes ? <AILogoStack aiTypes={aiTypes} size={12} /> : null
+                  })()}
                   {!isRoot && stat && (stat.additions > 0 || stat.deletions > 0) && (
                     <span className="wt-diff-chip" {...(index === firstDiffChipIdx ? { 'data-tour-id': 'wt-diff-chip' } : {})} title="Lines changed vs base">
                       {stat.additions > 0 && (
@@ -287,6 +299,15 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
                       #{pr.number}
                     </button>
                   )}
+                  {!isRoot && sig && sig.ci !== 'unknown' && (
+                    <CIStatusBadge
+                      status={sig.ci}
+                      onClick={sig.ci === 'failure' ? () => onFixCi(wt.repoPath) : undefined}
+                    />
+                  )}
+                  {!isRoot && sig?.changesRequested && (
+                    <span className="wt-changes-chip" title="Changes requested">⤺</span>
+                  )}
                   {spotlightPath === wt.repoPath && <span className="wt-spotlight" title="Spotlight active">⚡</span>}
                   <span className="wt-meta">{isRoot ? 'root' : ''}</span>
                 </div>
@@ -298,7 +319,6 @@ export function WorktreesSection({ repoPath, activeRepoPath, onSelect, onNewClic
             <div className="wt-empty">No worktrees</div>
           )}
         </div>
-      )}
       </>
       )
       })()}

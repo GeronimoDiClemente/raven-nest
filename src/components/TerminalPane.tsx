@@ -7,12 +7,18 @@ import BlocksView from './BlocksView'
 import FileStagingBar, { StagedFile } from './FileStagingBar'
 import TerminalSharePanel from './TerminalSharePanel'
 import { useTerminalShare } from '../hooks/useTerminalShare'
+import { resolverColorDePane, type TemaDeTerminal } from '../lib/terminal-themes'
+import { estadoDePane } from '../lib/pane-state'
 import { terminalShareService } from '../lib/terminalShareService'
 import { registerPane, unregisterPane } from '../pty-events'
 import { registerTerminalFocus, unregisterTerminalFocus } from '../terminal-registry'
 import { safeWriteText } from '../lib/clipboard'
 import { useSortable } from '@dnd-kit/sortable'
 import { stripAnsi, PROMPT_RE, UI_CHROME_RE, filterChrome } from '../lib/terminal-chrome'
+import { crearEscrituraDiferida, type EscrituraDiferida } from '../lib/escritura-diferida'
+import { useOrchestration } from '../orchestration/useOrchestration'
+import WorkerPaneBadge from './orchestration/WorkerPaneBadge'
+import WorkerAutoCloseBanner from './orchestration/WorkerAutoCloseBanner'
 
 const BUSY_THRESHOLD_MS = 2000
 const MAX_CONV_BUFFER = 500_000 // ~500KB
@@ -38,18 +44,28 @@ interface Props {
   onInput: (data: string) => void
   onBusyChange: (paneId: string, busy: boolean) => void
   onFocus: () => void
+  /** Si este pane es el que tiene el foco. Decide si algo cuenta como "sin leer". */
+  enfocado?: boolean
   onActivity?: (paneId: string, active: boolean) => void
   onJoinRequest?: (paneId: string) => void
   onPtyStarted?: (paneId: string, runningRepoPath: string | undefined) => void
   ports?: number[]
   fontSize: number
+  /** Id del tema de terminal (catálogo en `lib/terminal-themes.ts`). Global, no por pane. */
+  temaDeTerminal?: string | null
+  /** Subir al piso de 3:1 los colores del tema que no lo alcancen. */
+  ajustarContrasteDelTema?: boolean
+  /** Los temas que el usuario importó de Ghostty o Warp. */
+  temasImportados?: TemaDeTerminal[]
   style?: React.CSSProperties
-  allowSharing?: boolean
-  onRequireUpgrade?: () => void
+  /** True when this pane's worktree is running a multi-step worker and a next
+   *  step exists — arms the "Hand off →" action in the header. */
+  hasNextStep?: boolean
+  onHandoff?: () => void
   onRename?: (label: string) => void  // rename the pane (sets customLabel)
 }
 
-export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, style, allowSharing = true, onRequireUpgrade, onRename }: Props) {
+export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZoom, onClose, onColorChange, onNoteChange, onInput, onBusyChange, onFocus, enfocado = false, onActivity, onJoinRequest, onPtyStarted, ports = [], fontSize, temaDeTerminal, ajustarContrasteDelTema, temasImportados, style, hasNextStep, onHandoff, onRename }: Props) {
   const cmdBufferRef = useRef('')
   const wrappedOnInput = useCallback((data: string) => {
     for (const ch of data) {
@@ -65,11 +81,14 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     }
     onInput(data)
   }, [onInput])
-  const { containerRef, write, focus, resize, findNext, findPrev, clearSearch } = useXterm(
+  const { containerRef, write, focus, resize, findNext, findPrev, clearSearch, temaActivo } = useXterm(
     pane.id, wrappedOnInput, fontSize,
     useCallback((cols: number, rows: number) => {
       terminalShareService.broadcastSize(pane.id, cols, rows)
-    }, [pane.id])
+    }, [pane.id]),
+    temaDeTerminal, temasImportados, ajustarContrasteDelTema,
+    // Un worker de orquestación no roba el foco al aparecer (Gero escribe en el coordinador).
+    { autofocus: !pane.orchestration },
   )
   const { setNodeRef, attributes, listeners, isOver } = useSortable({ id: pane.id })
   const outputBuf = useRef('')       // notification buffer (last 2000 chars)
@@ -80,6 +99,13 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
   const responseAccumRef = useRef('')
   const onFocusRef = useRef(onFocus)
   onFocusRef.current = onFocus
+  // El `enfocado` vigente, para leerlo desde el callback del PTY sin re-suscribirse.
+  const enfocadoRef = useRef(enfocado)
+  enfocadoRef.current = enfocado
+  // Todo lo que va a xterm pasa por acá: sin foco, la salida llega a ~10 Hz en vez de a la
+  // velocidad del agente. Ver `lib/escritura-diferida.ts`.
+  const escrituraRef = useRef<EscrituraDiferida | null>(null)
+  useEffect(() => { escrituraRef.current?.setInmediato(enfocado) }, [enfocado])
   const onBusyChangeRef = useRef(onBusyChange)
   onBusyChangeRef.current = onBusyChange
   const onActivityRef = useRef(onActivity)
@@ -94,7 +120,19 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
   const [blocks, setBlocks] = useState<ResponseBlock[]>([])
   const [showBlocks, setShowBlocks] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
+  /**
+   * Hubo salida que todavia no miraste.
+   *
+   * Se prende cuando termina una tanda de salida con el pane SIN foco, y se apaga apenas lo
+   * enfocas. Es el estado que Orca llama "completed-but-unread" y el unico de los cuatro que
+   * sabe algo sobre el usuario y no sobre el proceso.
+   */
+  const [sinLeer, setSinLeer] = useState(false)
+  useEffect(() => { if (enfocado) setSinLeer(false) }, [enfocado])
   const isBusyRef = useRef(false)
+  // One-shot: inyecta pane.initialInput al PTY la primera vez que produce output
+  // (señal de que el REPL del agente arrancó).
+  const injectedRef = useRef(false)
   const [showShare, setShowShare] = useState(false)
   const { shareCode, isSharing, startSharing, stopSharing } = useTerminalShare(
     pane.id,
@@ -141,10 +179,29 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
   useEffect(() => {
     let alive = true
     let activityDebounce: ReturnType<typeof setTimeout> | null = null
+    const escritura = crearEscrituraDiferida({
+      escribir: write,
+      setTimer: (cb, ms) => window.setTimeout(cb, ms),
+      clearTimer: (id) => window.clearTimeout(id),
+    }, enfocadoRef.current)
+    escrituraRef.current = escritura
 
     registerPane(pane.id, (data) => {
       if (!alive) return
-      write(data)
+      // Primera data del pane → inyectar el prompt pendiente una sola vez. El
+      // delay le da aire al REPL del agente para montar su input antes de escribir.
+      // El texto y el Enter se escriben en writes SEPARADOS (con otro delay entre
+      // medio): un \r pegado al texto llega antes de que el REPL termine de
+      // renderizar un input multilínea y no llega a submitear.
+      if (pane.initialInput && !injectedRef.current) {
+        injectedRef.current = true
+        const text = pane.initialInput!
+        setTimeout(() => {
+          window.pty.write(pane.id, text)
+          setTimeout(() => window.pty.write(pane.id, '\r'), 350)
+        }, 400)
+      }
+      escritura.escribir(data)
       if (!activityDebounce) {
         onActivityRef.current?.(pane.id, true)
         activityDebounce = setTimeout(() => { activityDebounce = null }, 500)
@@ -158,9 +215,14 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         responseAccumRef.current = ''
       }
       responseAccumRef.current += data
-      isBusyRef.current = true
-      setIsBusy(true)
-      onBusyChangeRef.current(pane.id, true)
+      // Sólo en el FLANCO: pasar de quieto a ocupado. Avisarlo en cada chunk —~20 veces por
+      // segundo con un agente escribiendo— re-renderizaría `App` entera por nada. Ver
+      // `lib/pane-activity-state.ts`, que ademas lo frena del otro lado.
+      if (!isBusyRef.current) {
+        isBusyRef.current = true
+        setIsBusy(true)
+        onBusyChangeRef.current(pane.id, true)
+      }
       if (busyTimer.current) clearTimeout(busyTimer.current)
       busyTimer.current = setTimeout(() => {
         busyStartRef.current = null
@@ -170,6 +232,8 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         isBusyRef.current = false
         setIsBusy(false)
         onBusyChangeRef.current(pane.id, false)
+        // Si no lo estabas mirando cuando termino, queda algo para leer.
+        if (!enfocadoRef.current) setSinLeer(true)
         if (stripped.length > 0) {
           const block: ResponseBlock = {
             id: crypto.randomUUID(),
@@ -188,8 +252,11 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     }, () => {
       if (!alive) return
       setProcessEnded(true)
+      // El ref tambien, no solo el estado: si queda en `true` y el pane vuelve a hablar, el
+      // flanco de arriba no dispara nunca y el pane se queda ocupado para siempre.
+      isBusyRef.current = false
       setIsBusy(false)
-      write('\r\n\x1b[2m── process ended ──\x1b[0m\r\n')
+      escritura.escribir('\r\n\x1b[2m── process ended ──\x1b[0m\r\n')
       onBusyChangeRef.current(pane.id, false)
     })
 
@@ -201,11 +268,11 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       if (alreadyRunning) {
         // Reconnect: replay scroll-back buffer into xterm
         const buffer = await window.pty.getBuffer(pane.id)
-        if (buffer) write(buffer)
+        if (buffer) escritura.escribir(buffer)
       } else {
         const res = await window.pty.create(pane.id, pane.cmd, pane.accountDir, pane.repoPath, pane.shellId)
         if (!res.ok) {
-          write(`\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`)
+          escritura.escribir(`\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`)
           setProcessEnded(true)
         } else {
           onPtyStarted?.(pane.id, pane.repoPath)
@@ -218,6 +285,8 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     return () => {
       alive = false
       clearTimeout(t)
+      escritura.stop()
+      if (escrituraRef.current === escritura) escrituraRef.current = null
       if (activityDebounce) clearTimeout(activityDebounce)
       unregisterPane(pane.id)
       // Do NOT kill the PTY — it must survive tab switches and window hide
@@ -250,7 +319,9 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     outputBuf.current = ''
     const res = await window.pty.create(pane.id, pane.cmd, pane.accountDir, pane.repoPath, pane.shellId)
     if (!res.ok) {
-      write(`\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`)
+      const aviso = `\r\n\x1b[31m── failed to start terminal: ${res.error} ──\x1b[0m\r\n`
+      if (escrituraRef.current) escrituraRef.current.escribir(aviso)
+      else write(aviso)
       setProcessEnded(true)
     } else {
       onPtyStarted?.(pane.id, pane.repoPath)
@@ -372,10 +443,31 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
     ...style,
     // Sin transform de dnd-kit: el reorder en vivo (onDragOver) mueve los panes.
     opacity: isDragging ? 0.3 : 1,
-    outline: isOver && !isDragging ? '2px solid #0066FF66' : undefined,
+    outline: isOver && !isDragging ? '2px solid color-mix(in srgb, var(--primary) 40%, transparent)' : undefined,
     outlineOffset: isOver && !isDragging ? '-2px' : undefined,
-    '--pane-color': pane.borderColor,
+    // Resuelto contra el tema activo: un `ansi:N` guardado sigue al tema, un hex se respeta
+    // tal cual. Ver `resolverColorDePane`.
+    '--pane-color': resolverColorDePane(pane.borderColor, temaActivo),
   } as React.CSSProperties
+
+  /**
+   * El estado que ve el usuario. `outputBuf` guarda los ultimos 2000 caracteres crudos: se
+   * limpian de ANSI antes de mirarlos, porque un `[?25h` pegado al final haria que ningun
+   * patron anclado en el fin de linea matchee.
+   */
+  // Pane de un worker de orquestación: su estado sale del snapshot de main (sólo los panes
+  // worker se suscriben).
+  const workers = useOrchestration(!!pane.orchestration)
+  const worker = pane.orchestration
+    ? workers.find((w) => w.workerId === pane.orchestration!.workerId)
+    : undefined
+
+  const estado = estadoDePane({
+    ocupado: isBusy,
+    colaDeSalida: stripAnsi(outputBuf.current),
+    enfocado,
+    sinLeer,
+  })
 
   const combinedRef = useCallback((el: HTMLDivElement | null) => {
     setNodeRef(el)
@@ -391,6 +483,8 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       onDrop={handleDrop}
     >
       <PaneHeader
+        temaDeTerminal={temaActivo}
+        estado={estado}
         pane={pane}
         ports={ports}
         zoomed={zoomed}
@@ -408,14 +502,19 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
         blockCount={blocks.length}
         onToggleBlocks={handleToggleBlocks}
         onShare={() => {
-          if (!allowSharing) { onRequireUpgrade?.(); return }
           setShowShare(v => !v)
         }}
         isSharing={isSharing}
         repoPathDiverged={repoPathDiverged}
         onSyncCwd={handleSyncCwd}
+        hasNextStep={hasNextStep}
+        onHandoff={onHandoff}
         onRename={onRename}
+        workerBadge={worker && (
+          <WorkerPaneBadge status={worker.status} colorIndex={worker.colorIndex} ansi={temaActivo.ansi} label={worker.label} />
+        )}
       />
+      {worker && <WorkerAutoCloseBanner worker={worker} busy={isBusy} />}
       {searchOpen && (
         <div className="search-bar">
           <input
@@ -443,7 +542,16 @@ export default function TerminalPane({ pane, isDragging, zoomed, zoomingOut, onZ
       <div
         ref={containerRef}
         className="terminal-container"
-        style={{ display: showBlocks ? 'none' : undefined }}
+        /**
+         * El fondo del TEMA, acá.
+         *
+         * `.xterm-viewport` está forzado a `transparent !important` (para poder esconder su
+         * scrollbar) y `.terminal-pane` pinta `--bg-app`: sin esto el fondo que declara un
+         * tema no se vería NUNCA, y Dracula se dibujaría sobre el fondo de Nest y no sobre el
+         * suyo — ningún tema se vería como el usuario lo conoce, que es lo único que se le
+         * pide a un tema importado.
+         */
+        style={{ display: showBlocks ? 'none' : undefined, background: temaActivo.background }}
         onMouseDown={() => onFocusRef.current()}
       />
       {showBlocks && <BlocksView blocks={blocks} pane={pane} />}

@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NestMux · Mockups deck — orchestration → review → decide</title>
+<style>
+  :root{
+    --bg:#080a09;--bg-2:#0e120f;--panel:#11150f;--panel-2:#151a13;--surface:#0c0f0d;
+    --border:#20281f;--border-2:#2b3529;--text:#e7efe6;--muted:#8fa08c;--muted-2:#61705f;
+    --green:#33c185;--green: oklch(66% 0.13 157);
+    --green-dim: color-mix(in oklab, var(--green) 22%, transparent);
+    --green-glow: color-mix(in oklab, var(--green) 14%, transparent);
+    --block:#ff6a5a;--warn:#e2ab4e;
+    --add: color-mix(in oklab, var(--green) 16%, transparent);
+    --add-line: color-mix(in oklab, var(--green) 60%, transparent);
+    --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --ui: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--ui);-webkit-font-smoothing:antialiased}
+  body{display:flex;min-height:100vh}
+  code{font-family:var(--mono);font-size:.92em}
+
+  /* ---------- sidebar ---------- */
+  .side{position:sticky;top:0;align-self:flex-start;height:100vh;width:236px;flex:0 0 236px;background:linear-gradient(180deg,#0b0f0c,#080a09);border-right:1px solid var(--border);padding:20px 0;overflow:auto}
+  .side .brand{display:flex;align-items:center;gap:9px;font-weight:650;padding:0 18px 16px;letter-spacing:.2px}
+  .side .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 14px var(--green)}
+  .side .grp{font-size:10px;letter-spacing:.7px;text-transform:uppercase;color:var(--muted-2);padding:14px 18px 6px}
+  .side a{display:flex;align-items:center;gap:10px;padding:8px 18px;color:var(--muted);font-size:13px;font-weight:550;cursor:pointer;text-decoration:none;border-left:2px solid transparent}
+  .side a .n{font-family:var(--mono);font-size:11px;color:var(--muted-2);width:16px}
+  .side a:hover{color:var(--text);background:#0f140f}
+  .side a.active{color:var(--text);background:var(--green-glow);border-left-color:var(--green)}
+  .side a.active .n{color:var(--green)}
+
+  /* ---------- main ---------- */
+  main{flex:1;min-width:0;padding:26px clamp(16px,3vw,44px) 70px;
+    background:radial-gradient(1100px 480px at 85% -8%,var(--green-glow),transparent 60%),var(--bg)}
+  .screen{display:none;animation:fade .22s ease}
+  .screen.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .shead{margin-bottom:16px}
+  .shead h1{font-size:19px;margin:0 0 6px;font-weight:660}
+  .shead .tag{font-family:var(--mono);font-size:11px;color:var(--green);border:1px solid var(--green-dim);padding:3px 9px;border-radius:999px;vertical-align:2px;margin-left:8px}
+  .note{font-size:12.5px;color:var(--muted);line-height:1.55;border-left:2px solid var(--green-dim);padding:3px 0 3px 12px;max-width:82ch;margin-top:14px}
+  .note b{color:var(--text)}.note .win{color:var(--green)}.note .bad{color:var(--block)}
+
+  /* ---------- shared bits ---------- */
+  .app{background:linear-gradient(180deg,var(--bg-2),var(--surface));border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 24px 60px -30px #000}
+  .wtitle{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);background:#0b0e0c}
+  .traffic{display:flex;gap:7px}.traffic i{width:11px;height:11px;border-radius:50%;background:#2a332a}
+  .wtitle .path{font-family:var(--mono);font-size:12px;color:var(--muted)}.wtitle .path b{color:var(--text)}
+  .spacer{margin-left:auto}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px}
+  .pill .d{width:7px;height:7px;border-radius:50%}
+  .pill.gate{background:color-mix(in oklab,var(--warn) 15%,transparent);color:var(--warn)}.pill.gate .d{background:var(--warn)}
+  .pill.run{background:var(--green-dim);color:var(--green)}.pill.run .d{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .pill.auto{background:#141a13;color:var(--muted)}.pill.auto .d{background:var(--muted-2)}
+  .badge{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:2px 7px;border-radius:5px}
+  .badge.block{background:color-mix(in oklab,var(--block) 20%,transparent);color:var(--block)}
+  .badge.pass{background:var(--green-dim);color:var(--green)}
+  .badge.warn{background:color-mix(in oklab,var(--warn) 18%,transparent);color:var(--warn)}
+  .btn{appearance:none;font-family:var(--ui);font-weight:650;font-size:12.5px;border-radius:999px;padding:9px 18px;cursor:pointer;border:1px solid transparent;transition:.15s}
+  .btn.ghost{background:transparent;border-color:var(--border-2);color:var(--muted)}
+  .btn.ghost:hover{color:var(--text);border-color:var(--muted-2)}
+  .btn.changes{background:color-mix(in oklab,var(--warn) 16%,transparent);color:var(--warn);border-color:color-mix(in oklab,var(--warn) 30%,transparent)}
+  .btn.approve{background:var(--green);color:#04160d;box-shadow:0 6px 20px -8px var(--green)}
+  .btn.approve:hover{filter:brightness(1.06)}
+  .btn.open{background:var(--panel-2);border-color:var(--border-2);color:var(--text)}
+  .btn.big{padding:12px 22px;font-size:13px}
+
+  /* code / diff */
+  .code{font-family:var(--mono);font-size:12.5px;line-height:1.75;background:var(--surface)}
+  .code .row{display:flex;white-space:pre;position:relative}
+  .code .ln{width:44px;flex:0 0 44px;text-align:right;padding-right:12px;color:#3f4a3e;user-select:none}
+  .code .tx{padding-right:16px;flex:1}
+  .code .row.add{background:var(--add)}.code .row.add .ln{color:var(--add-line)}
+  .code .row.gutter-block .ln{color:var(--block);position:relative}
+  .code .row.gutter-block .ln::before{content:"●";position:absolute;left:6px}
+  .code .row.mark .tx{text-decoration:wavy underline var(--block);text-decoration-thickness:1px;text-underline-offset:4px}
+  .code .row.mark-warn .tx{text-decoration:wavy underline var(--warn);text-decoration-thickness:1px;text-underline-offset:4px}
+  .kw{color:#d98adf}.fn{color:#6cc6ff}.str{color:#9be08a}.num{color:#e2ab4e}.cm{color:#5a6a58}.ty{color:#57d3b0}
+  .concern-inline{margin:2px 0 8px 44px;max-width:560px;background:#170f0e;border:1px solid color-mix(in oklab,var(--block) 40%,transparent);border-left:3px solid var(--block);border-radius:8px;padding:9px 12px}
+  .concern-inline .ch{display:flex;align-items:center;gap:8px;font-size:11.5px;margin-bottom:3px}
+  .concern-inline .ch .who{font-weight:700;color:var(--block)}
+  .concern-inline p{margin:0;font-size:12px;color:#e9d9d7;line-height:1.45}
+  .actionbar{display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--border);background:#0b0e0c}
+  .actionbar .summ{font-size:12px;color:var(--muted)}.actionbar .summ b{color:var(--block)}
+
+  /* nodes / dag */
+  .node{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:74px}
+  .node .b{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:16px;border:1px solid var(--border-2);background:var(--panel-2)}
+  .node.done .b{border-color:var(--green-dim);background:var(--green-glow);color:var(--green)}
+  .node.block .b{border-color:color-mix(in oklab,var(--block) 50%,transparent);background:color-mix(in oklab,var(--block) 12%,transparent);color:var(--block)}
+  .node.warn .b{border-color:color-mix(in oklab,var(--warn) 45%,transparent);background:color-mix(in oklab,var(--warn) 12%,transparent);color:var(--warn)}
+  .node.run .b{border-color:var(--green);color:var(--green);animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 var(--green-dim)}50%{box-shadow:0 0 0 6px transparent}}
+  .node small{font-size:10.5px;color:var(--muted)}
+  .edge{width:26px;height:1px;background:var(--border-2);position:relative;top:-9px}
+  .edge.ok{background:var(--green-dim)}
+  .fan{display:flex;flex-direction:column;gap:8px}
+
+  /* ============ MAP ============ */
+  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+  .stage{flex:1;min-width:150px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px}
+  .stage h4{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:8px}
+  .stage h4 .i{width:24px;height:24px;border-radius:7px;background:var(--green-glow);color:var(--green);display:grid;place-items:center;font-size:13px}
+  .stage p{margin:0;font-size:11.5px;color:var(--muted);line-height:1.5}
+  .arrow{flex:0 0 30px;display:grid;place-items:center;color:var(--muted-2);font-size:18px}
+  .bypass{margin-top:14px;background:#0e130f;border:1px dashed var(--border-2);border-radius:10px;padding:11px 14px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:10px}
+  .bypass b{color:var(--green)}
+
+  /* ============ BOARD ============ */
+  .toolbar{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);background:#0b0e0c}
+  .search{flex:1;max-width:260px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 11px;font-size:12px;color:var(--muted);font-family:var(--mono)}
+  table.runs{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.runs th{text-align:left;color:var(--muted-2);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;padding:10px 14px;border-bottom:1px solid var(--border)}
+  table.runs td{padding:13px 14px;border-bottom:1px solid var(--border)}
+  table.runs tr:hover td{background:#0f140f}
+  table.runs tr.sel td{background:var(--green-glow)}
+  .tkid{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .ttl{font-weight:600}
+  .dots{display:flex;gap:4px;align-items:center}
+  .dots i{width:9px;height:9px;border-radius:3px;background:#2a332a;display:block}
+  .dots i.ok{background:var(--green)}.dots i.blk{background:var(--block)}.dots i.wn{background:var(--warn)}.dots i.rn{background:var(--green);animation:pulse 1.4s infinite}
+
+  /* ============ MODE ============ */
+  .seg{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:5px;gap:4px}
+  .seg button{appearance:none;border:0;background:transparent;color:var(--muted);font-family:var(--ui);font-weight:600;font-size:13px;padding:12px 18px;border-radius:9px;cursor:pointer;text-align:left;transition:.15s}
+  .seg button .st{display:block;font-size:11px;font-weight:500;color:var(--muted-2);margin-top:3px}
+  .seg button.on{background:var(--green);color:#04160d}.seg button.on .st{color:#04160db3}
+  .modegrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}
+  .mcard{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:15px}
+  .mcard h4{margin:0 0 6px;font-size:13px}
+  .mcard p{margin:0;font-size:11.5px;color:var(--muted);line-height:1.5}
+  .mcard.on{border-color:var(--green-dim);box-shadow:0 0 0 1px var(--green-dim)}
+
+  /* ============ tabs (variant A) ============ */
+  .tabs{display:flex;gap:2px;padding:0 10px;border-bottom:1px solid var(--border);background:#0b0e0c}
+  .tabs button{appearance:none;border:0;background:transparent;color:var(--muted);font-family:var(--ui);font-size:12.5px;font-weight:600;padding:12px 14px 11px;cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;gap:7px}
+  .tabs button .c{font-family:var(--mono);font-size:10px;background:#1b221a;color:var(--muted);border-radius:5px;padding:1px 6px}
+  .tabs button.active{color:var(--text);border-bottom-color:var(--green)}.tabs button.active .c{background:var(--green-dim);color:var(--green)}
+  .tabpane{display:none}.tabpane.active{display:block}
+  .editbadge{display:flex;align-items:center;gap:9px;padding:8px 16px;background:var(--green-glow);border-bottom:1px solid var(--green-dim);font-size:11.5px;color:var(--green)}.editbadge b{color:var(--text)}
+  .caret{width:2px;height:15px;background:var(--green);display:inline-block;vertical-align:-3px;animation:blink 1.1s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  /* ============ IDE (variant B) ============ */
+  .ide{display:grid;grid-template-columns:200px 1fr 250px;min-height:420px}
+  .tree{border-right:1px solid var(--border);background:#0a0d0b;padding:10px 0}
+  .tree .grp2{font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted-2);padding:6px 14px}
+  .tree .f{display:flex;align-items:center;gap:8px;padding:5px 14px;font-size:12.5px;color:var(--muted);cursor:pointer;font-family:var(--mono)}
+  .tree .f:hover{background:#111611}
+  .tree .f.active{background:var(--green-glow);color:var(--text);box-shadow:inset 2px 0 0 var(--green)}
+  .tree .f .cnt{margin-left:auto;font-size:10px;font-weight:700;color:var(--block);background:color-mix(in oklab,var(--block) 15%,transparent);border-radius:999px;padding:0 6px}
+  .tree .f .m{margin-left:auto;font-size:10px;font-weight:700;color:var(--warn)}
+  .editorcol{position:relative;overflow:hidden}
+  .hovercard{position:absolute;left:70px;top:118px;width:320px;background:#160f0e;border:1px solid color-mix(in oklab,var(--block) 45%,transparent);border-radius:10px;box-shadow:0 18px 40px -18px #000;padding:11px 13px;z-index:5}
+  .hovercard::before{content:"";position:absolute;top:-7px;left:40px;width:12px;height:12px;background:#160f0e;border-left:1px solid color-mix(in oklab,var(--block) 45%,transparent);border-top:1px solid color-mix(in oklab,var(--block) 45%,transparent);transform:rotate(45deg)}
+  .hovercard .h{display:flex;align-items:center;gap:8px;font-size:11.5px;margin-bottom:5px}.hovercard .h b{color:var(--block)}
+  .hovercard p{margin:0 0 8px;font-size:12px;color:#e9d9d7;line-height:1.45}
+  .hovercard .acts{display:flex;gap:7px}
+  .mini{font-size:11px;font-weight:650;border-radius:7px;padding:5px 10px;border:1px solid var(--border-2);background:transparent;color:var(--muted);cursor:pointer}.mini.g{border-color:var(--green-dim);color:var(--green)}
+  .reviews{border-left:1px solid var(--border);background:#0a0d0b;display:flex;flex-direction:column}
+  .reviews .rh{padding:12px 14px;border-bottom:1px solid var(--border);font-size:12px;font-weight:650;display:flex;align-items:center;gap:8px}
+  .reviews .rh .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .rev{padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer}.rev:hover{background:#111611}
+  .rev .t{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;margin-bottom:4px}
+  .rev .t .ico{width:18px;height:18px;border-radius:6px;display:grid;place-items:center;font-size:11px}
+  .rev p{margin:0;font-size:11.5px;color:var(--muted);line-height:1.45}
+
+  /* ============ board card (variant C) ============ */
+  .board{display:flex;gap:12px;padding:14px;overflow:auto;background:#0a0d0b;border-bottom:1px solid var(--border)}
+  .rcard{flex:0 0 190px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:12px}
+  .rcard.sel{border-color:var(--green);box-shadow:0 0 0 1px var(--green)}
+  .rcard .tk{font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .rcard .ti{font-weight:600;margin:5px 0 9px;line-height:1.3}
+  .detail{padding:20px}
+  .dag{display:flex;align-items:center;flex-wrap:wrap;margin:6px 0 22px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 22px}
+  .chip{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 11px;font-size:12px}
+  .chip .dot{width:8px;height:8px;border-radius:50%}
+  .chip.block{border-color:color-mix(in oklab,var(--block) 40%,transparent)}.chip.block .dot{background:var(--block)}
+  .chip.pass .dot{background:var(--green)}.chip .who{font-weight:650}.chip .msg{color:var(--muted)}
+  .cta{display:flex;gap:12px;flex-wrap:wrap}
+
+  /* ============ LOOP ============ */
+  .loopwrap{display:flex;gap:16px;align-items:stretch;flex-wrap:wrap}
+  .lcenter{flex:1;min-width:230px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .lbranch{flex:1;min-width:230px;display:flex;flex-direction:column;gap:14px}
+  .lb{border-radius:12px;padding:15px;border:1px solid var(--border)}
+  .lb.approve{background:var(--green-glow);border-color:var(--green-dim)}
+  .lb.reject{background:color-mix(in oklab,var(--warn) 8%,transparent);border-color:color-mix(in oklab,var(--warn) 25%,transparent)}
+  .lb h4{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:8px}
+  .lb ol{margin:0;padding-left:18px;font-size:12px;color:var(--muted);line-height:1.7}
+  .lb ol b{color:var(--text)}
+  .verdict{font-family:var(--mono);font-size:11.5px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:10px;line-height:1.6}
+  .verdict .k{color:#6cc6ff}.verdict .v{color:var(--block)}
+</style>
+</head>
+<body>
+  <nav class="side">
+    <div class="brand"><span class="dot"></span> NestMux</div>
+    <div class="grp">Overview</div>
+    <a data-s="map" class="active"><span class="n">00</span> Flow map</a>
+    <div class="grp">Orchestration</div>
+    <a data-s="board"><span class="n">01</span> Runs board</a>
+    <a data-s="mode"><span class="n">02</span> Auto vs Review</a>
+    <a data-s="dag"><span class="n">03</span> Run · DAG live</a>
+    <div class="grp">Review in editor</div>
+    <a data-s="a"><span class="n">A</span> Tabs · Slack-Code</a>
+    <a data-s="b"><span class="n">B</span> Editor-first</a>
+    <a data-s="c"><span class="n">C</span> Board card</a>
+    <div class="grp">Decide</div>
+    <a data-s="loop"><span class="n">04</span> The eval loop</a>
+  </nav>
+
+  <main>
+    <!-- ===================== MAP ===================== -->
+    <section class="screen active" data-s="map">
+      <div class="shead"><h1>How it flows <span class="tag">the whole story on one screen</span></h1></div>
+      <div class="flow">
+        <div class="stage"><h4><span class="i">🎫</span> Source</h4><p>A ticket lands (Jira / Linear / GitHub / @Nest). You pick a graph template and hit run.</p></div>
+        <div class="arrow">→</div>
+        <div class="stage"><h4><span class="i">🕸️</span> Graph orchestrates</h4><p>architect → coder → N reviewers → gate → tester, each a real CLI in a shared worktree. Handoff by artifacts.</p></div>
+        <div class="arrow">→</div>
+        <div class="stage"><h4><span class="i">👁️</span> You evaluate <span class="badge pass" style="margin-left:4px">optional</span></h4><p>Open the run in the editor: diff + reviewer concerns inline. Or let it run full-auto.</p></div>
+        <div class="arrow">→</div>
+        <div class="stage"><h4><span class="i">✓</span> Decide</h4><p>Approve → open PR. Request changes → feedback re-injected, the graph re-runs.</p></div>
+      </div>
+      <div class="bypass">↻ <span><b>Full-auto path:</b> if you leave the run autonomous, the gate resolves on the reviewers' verdicts and it goes straight to Decide — no human stop. Visualizing is opt-in, per your call.</span></div>
+      <p class="note"><b>La idea macro:</b> orquestás agentes en grafo, y el <span class="win">review-en-el-editor</span> es la capa que cierra el círculo. Es lo que Slack Code hace en el chat (pero solo mirar) y vos hacés en un IDE real (mirar + editar + orquestar).</p>
+    </section>
+
+    <!-- ===================== BOARD ===================== -->
+    <section class="screen" data-s="board">
+      <div class="shead"><h1>Runs board <span class="tag">entry point</span></h1></div>
+      <div class="app">
+        <div class="toolbar">
+          <span class="path" style="font-family:var(--mono);color:var(--muted)">graph · runs</span>
+          <input class="search" value="filter runs…" readonly>
+          <span class="spacer"></span>
+          <button class="btn approve">+ New run</button>
+        </div>
+        <table class="runs">
+          <thead><tr><th>Ticket</th><th>Branch</th><th>Graph</th><th>Progress</th><th>Mode</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><span class="tkid">#479</span><div class="ttl">Add CSV export to reports</div></td><td class="tkid">feat/479-csv</td><td>Quick fix</td>
+              <td><div class="dots"><i class="ok"></i><i class="rn"></i><i></i></div></td><td><span class="pill auto"><span class="d"></span> auto</span></td><td><span class="pill run"><span class="d"></span> coder</span></td><td><button class="btn ghost">Open</button></td></tr>
+            <tr class="sel"><td><span class="tkid">#482</span><div class="ttl">rate-limit retries drop requests</div></td><td class="tkid">feat/482-rate-limit</td><td>Full pipeline</td>
+              <td><div class="dots"><i class="ok"></i><i class="ok"></i><i class="blk"></i><i class="wn"></i><i class="ok"></i><i class="wn"></i><i></i></div></td><td><span class="pill run"><span class="d"></span> review</span></td><td><span class="pill gate"><span class="d"></span> gate · needs you</span></td><td><button class="btn approve">Review →</button></td></tr>
+            <tr><td><span class="tkid">#485</span><div class="ttl">Dark-mode token audit</div></td><td class="tkid">feat/485-tokens</td><td>Review only</td>
+              <td><div class="dots"><i class="rn"></i><i class="rn"></i><i></i></div></td><td><span class="pill auto"><span class="d"></span> auto</span></td><td><span class="pill run"><span class="d"></span> reviewers</span></td><td><button class="btn ghost">Open</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note"><b>El board</b> es el hogar de la orquestación: cada fila es un run. La columna <b>Mode</b> muestra si va <b>auto</b> o con <b>review</b> checkpoint. El run <b>#482</b> llegó al gate y te pide a vos → botón <span class="win">Review →</span> abre la pantalla del review (A/B/C).</p>
+    </section>
+
+    <!-- ===================== MODE ===================== -->
+    <section class="screen" data-s="mode">
+      <div class="shead"><h1>Autonomous vs Review <span class="tag">opcional del programador</span></h1></div>
+      <div class="app"><div class="detail">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Run mode · <b style="color:var(--text)">#482 rate-limit retries</b></div>
+        <div class="seg">
+          <button>Full auto<span class="st">ships without stopping</span></button>
+          <button class="on">Review at gate<span class="st">stop for you before merge</span></button>
+          <button>Review every node<span class="st">step through the graph</span></button>
+        </div>
+        <div class="modegrid">
+          <div class="mcard"><h4>🤖 Full auto</h4><p>The graph runs end-to-end. The gate resolves on the reviewers' verdicts; a clean run opens a PR by itself. You get a notification, not a stop.</p></div>
+          <div class="mcard on"><h4>👁️ Review at gate <span class="badge pass">selected</span></h4><p>Runs autonomously until the gate. Then it waits for you to evaluate the diff + concerns and decide. Best of both: hands-off until it matters.</p></div>
+          <div class="mcard"><h4>🔎 Review every node</h4><p>You approve each stage's handoff before the next agent starts. Maximum control, for high-stakes changes.</p></div>
+          <div class="mcard"><h4>⚙️ Default</h4><p>Set a per-repo default so new runs inherit it. Override per run from here or the board.</p></div>
+        </div>
+      </div></div>
+      <p class="note"><b>Esto responde tu "opcional":</b> el programador elige <span class="win">dejar full orquestado</span> o <span class="win">visualizar/intervenir</span>. Por run o como default por repo. El "Review at gate" es el punto medio que cierra el eval-loop sin frenar todo.</p>
+    </section>
+
+    <!-- ===================== DAG ===================== -->
+    <section class="screen" data-s="dag">
+      <div class="shead"><h1>Run · DAG live <span class="tag">the differentiator vs Slack Code</span></h1></div>
+      <div class="app">
+        <div class="wtitle"><div class="traffic"><i></i><i></i><i></i></div><span class="path"><b>#482</b> rate-limit retries · Full pipeline</span><span class="spacer"></span><span class="pill gate"><span class="d"></span> gate · waiting for you</span></div>
+        <div class="detail">
+          <div class="dag">
+            <div class="node done"><div class="b">✓</div><small>architect</small></div><div class="edge ok"></div>
+            <div class="node done"><div class="b">✓</div><small>coder</small></div><div class="edge ok"></div>
+            <div class="fan">
+              <div class="node block"><div class="b">🔒</div><small>security</small></div>
+              <div class="node warn"><div class="b">⚡</div><small>perf</small></div>
+              <div class="node done"><div class="b">◇</div><small>types</small></div>
+            </div>
+            <div class="edge"></div>
+            <div class="node warn"><div class="b">⏸</div><small>gate</small></div><div class="edge"></div>
+            <div class="node"><div class="b" style="opacity:.45">🧪</div><small style="color:var(--muted-2)">tester</small></div>
+          </div>
+          <div style="background:var(--green-glow);border:1px solid var(--green-dim);border-radius:11px;padding:14px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <div style="font-size:13px"><b>This run is waiting for you.</b> <span style="color:var(--muted)">3 reviewers finished · 1 blocking concern · shared worktree ready.</span></div>
+            <span class="spacer"></span>
+            <button class="btn open">Attach a terminal to any node</button>
+            <button class="btn approve">Open review →</button>
+          </div>
+          <div style="margin-top:16px;font-size:11.5px;color:var(--muted-2);font-family:var(--mono)">click a node → its live terminal + handoff artifact (plan.md / review-security.json)</div>
+        </div>
+      </div>
+      <p class="note"><b>Ver la orquestación pasar</b> es lo que Slack Code no muestra (ahí tagueás UN agente). Acá ves el <span class="win">grafo entero en vivo</span>: fan-out de reviewers, gate de barrera, y podés attachear una terminal a cualquier nodo. Ésta es la pantalla que grita "orquestador", no "chatbot".</p>
+    </section>
+
+    <!-- ===================== A · tabs ===================== -->
+    <section class="screen" data-s="a">
+      <div class="shead"><h1>Review A · tabs <span class="tag">one-ups Slack Code</span></h1></div>
+      <div class="app">
+        <div class="wtitle"><div class="traffic"><i></i><i></i><i></i></div><span class="path">Review · <b>#482</b> · claude+codex</span><span class="spacer"></span><span class="pill gate"><span class="d"></span> Gate · needs human</span></div>
+        <div class="tabs" id="tabsA">
+          <button data-t="conv">Conversation</button><button data-t="plan">Plan</button>
+          <button data-t="diff" class="active">Diff <span class="c">3</span></button>
+          <button data-t="code">Code <span class="c">edit</span></button><button data-t="prev">Preview</button>
+        </div>
+        <div class="tabpane active" data-t="diff">
+          <div class="code">
+            <div class="row"><span class="ln">18</span><span class="tx"><span class="kw">export async function</span> <span class="fn">withRetry</span>(fn, opts) {</span></div>
+            <div class="row add"><span class="ln">19</span><span class="tx">  <span class="kw">const</span> key = opts.idempotencyKey</span></div>
+            <div class="row add mark gutter-block"><span class="ln">20</span><span class="tx">  <span class="kw">for</span> (<span class="kw">let</span> attempt = <span class="num">0</span>; ; attempt++) {</span></div>
+            <div class="concern-inline"><div class="ch"><span class="who">🔒 security</span><span class="badge block" style="margin-left:auto">blocking</span></div><p>Same <code>idempotencyKey</code> reused across every retry — a 429 retry can double-charge. Derive a per-attempt key.</p></div>
+            <div class="row add"><span class="ln">21</span><span class="tx">    <span class="kw">try</span> { <span class="kw">return await</span> <span class="fn">fn</span>(key) }</span></div>
+            <div class="row add mark-warn"><span class="ln">22</span><span class="tx">    <span class="kw">catch</span> (e) { <span class="kw">await</span> <span class="fn">sleep</span>(<span class="fn">backoff</span>(opts)) }</span></div>
+            <div class="concern-inline" style="border-color:color-mix(in oklab,var(--warn) 40%,transparent);border-left-color:var(--warn);background:#141007"><div class="ch"><span class="who" style="color:var(--warn)">⚡ performance</span><span class="badge warn" style="margin-left:auto">non-blocking</span></div><p>Backoff has no jitter → thundering herd on recovery. Add ±20% randomization.</p></div>
+          </div>
+        </div>
+        <div class="tabpane" data-t="code">
+          <div class="editbadge">✎ Editable Monaco buffer. <b>Fix it here, save, and the coder node re-runs from your edit.</b> Slack Code can only show the diff.</div>
+          <div class="code">
+            <div class="row"><span class="ln">19</span><span class="tx">  <span class="kw">const</span> key = opts.idempotencyKey</span></div>
+            <div class="row"><span class="ln">20</span><span class="tx">  <span class="kw">for</span> (<span class="kw">let</span> attempt = <span class="num">0</span>; ; attempt++) {</span></div>
+            <div class="row"><span class="ln">21</span><span class="tx">    <span class="kw">const</span> attemptKey = <span class="str">`${key}:${attempt}`</span> <span class="cm">// ← your fix</span><span class="caret"></span></span></div>
+            <div class="row"><span class="ln">22</span><span class="tx">    <span class="kw">try</span> { <span class="kw">return await</span> <span class="fn">fn</span>(attemptKey) }</span></div>
+          </div>
+        </div>
+        <div class="tabpane" data-t="plan"><div class="code" style="padding:16px;color:var(--muted)"><div class="row"><span class="tx"><span class="cm"># architect handoff — plan.md</span></span></div><div class="row"><span class="tx">1. withRetry() with capped exponential backoff</span></div><div class="row"><span class="tx">2. preserve idempotency across attempts</span></div><div class="row"><span class="tx">3. cover 429 / 503 / drop in retry.test.ts</span></div></div></div>
+        <div class="tabpane" data-t="conv"><div style="padding:16px;color:var(--muted);font-size:12.5px;line-height:1.7">💬 <b style="color:var(--text)">Conversation</b> — the full thread the graph worked from. Same idea as Slack Code's channel, but next to the editor.</div></div>
+        <div class="tabpane" data-t="prev"><div style="padding:16px;color:var(--muted);font-size:12.5px">▶ <b style="color:var(--text)">Preview</b> — test output for logic changes, HTML preview for web work.</div></div>
+        <div class="actionbar"><span class="summ">Gate blocked by <b>1 security concern</b> · 2 non-blocking</span><span class="spacer"></span><button class="btn changes">Request changes → re-run</button><button class="btn approve">Approve → open PR</button></div>
+      </div>
+      <p class="note"><b>A:</b> tabs <b>Conversation / Plan / Diff / Code / Preview</b> — mismo lenguaje que Slack Code, pero la tab <b>Code</b> es <span class="win">Monaco editable</span>. El más familiar y el que más directo los supera.</p>
+    </section>
+
+    <!-- ===================== B · editor-first ===================== -->
+    <section class="screen" data-s="b">
+      <div class="shead"><h1>Review B · editor-first <span class="tag">feels like an IDE</span></h1></div>
+      <div class="app">
+        <div class="wtitle"><div class="traffic"><i></i><i></i><i></i></div><span class="path"><b>retry.ts</b> — feat/482 · worktree</span><span class="spacer"></span><span class="pill run"><span class="d"></span> run live</span></div>
+        <div class="ide">
+          <div class="tree">
+            <div class="grp2">Changed · run #482</div>
+            <div class="f active">retry.ts <span class="cnt">2</span></div>
+            <div class="f">retry.test.ts <span class="m">M</span></div>
+            <div class="f">backoff.ts <span class="cnt">1</span></div>
+            <div class="grp2">Worktree</div>
+            <div class="f" style="color:var(--muted-2)">src/</div>
+            <div class="f" style="color:var(--muted-2)">.nest/graph/</div>
+          </div>
+          <div class="editorcol">
+            <div class="code" style="padding-top:10px">
+              <div class="row"><span class="ln">18</span><span class="tx"><span class="kw">export async function</span> <span class="fn">withRetry</span>(fn, opts) {</span></div>
+              <div class="row mark gutter-block"><span class="ln">19</span><span class="tx">  <span class="kw">const</span> key = opts.idempotencyKey</span></div>
+              <div class="row"><span class="ln">20</span><span class="tx">  <span class="kw">for</span> (<span class="kw">let</span> attempt = <span class="num">0</span>; ; attempt++) {</span></div>
+              <div class="row"><span class="ln">21</span><span class="tx">    <span class="kw">try</span> { <span class="kw">return await</span> <span class="fn">fn</span>(key) }</span></div>
+              <div class="row mark-warn"><span class="ln">22</span><span class="tx">    <span class="kw">catch</span> (e) { <span class="kw">await</span> <span class="fn">sleep</span>(<span class="fn">backoff</span>(opts)) }</span></div>
+              <div class="row"><span class="ln">23</span><span class="tx">  }</span></div>
+            </div>
+            <div class="hovercard">
+              <div class="h">🔒 <b>security</b> <span class="badge block" style="margin-left:auto">blocking</span></div>
+              <p>Idempotency key reused across attempts — a 429 retry can double-charge. Scope it per-attempt.</p>
+              <div class="acts"><button class="mini g">Ask coder to fix</button><button class="mini">Edit inline</button><button class="mini">Dismiss</button></div>
+            </div>
+          </div>
+          <div class="reviews">
+            <div class="rh">Reviews <span class="n">3 · 1 blocking</span></div>
+            <div class="rev"><div class="t"><span class="ico" style="background:color-mix(in oklab,var(--block) 18%,transparent)">🔒</span> security <span class="badge block" style="margin-left:auto">block</span></div><p>Idempotency key reused → double-charge risk.</p></div>
+            <div class="rev"><div class="t"><span class="ico" style="background:color-mix(in oklab,var(--warn) 18%,transparent)">⚡</span> performance <span class="badge warn" style="margin-left:auto">warn</span></div><p>Backoff without jitter → thundering herd.</p></div>
+            <div class="rev"><div class="t"><span class="ico" style="background:var(--green-dim)">◇</span> types <span class="badge warn" style="margin-left:auto">warn</span></div><p><code>maxDelay</code> optional but read as required.</p></div>
+            <div style="margin-top:auto;padding:12px 14px;border-top:1px solid var(--border);display:flex;gap:8px"><button class="btn changes" style="flex:1;padding:9px 0">Request changes</button><button class="btn approve" style="flex:1;padding:9px 0">Approve</button></div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>B:</b> Monaco protagonista + árbol de archivos. Concerns <span class="win">sobre la línea</span> (subrayado + hover con acciones) y en panel lateral. El más "IDE de verdad" para editar.</p>
+    </section>
+
+    <!-- ===================== C · board card ===================== -->
+    <section class="screen" data-s="c">
+      <div class="shead"><h1>Review C · board card <span class="tag">entry point first</span></h1></div>
+      <div class="app">
+        <div class="wtitle"><div class="traffic"><i></i><i></i><i></i></div><span class="path">Graph board · <b>3 runs</b></span><span class="spacer"></span><span class="pill run"><span class="d"></span> 2 running · 1 at gate</span></div>
+        <div class="board">
+          <div class="rcard"><div class="tk">#479</div><div class="ti">Add CSV export</div><span class="pill run" style="padding:2px 8px"><span class="d"></span> coder</span></div>
+          <div class="rcard sel"><div class="tk">#482 · selected</div><div class="ti">rate-limit retries</div><span class="pill gate" style="padding:2px 8px"><span class="d"></span> gate · needs you</span></div>
+          <div class="rcard"><div class="tk">#485</div><div class="ti">Dark-mode audit</div><span class="pill run" style="padding:2px 8px"><span class="d"></span> reviewers</span></div>
+        </div>
+        <div class="detail">
+          <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:16px"><div><h3 style="margin:0;font-size:17px">#482 — rate-limit retries</h3><div style="font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:5px">feat/482 · claude+codex · Full pipeline · 4m 12s</div></div><span class="spacer"></span><span class="pill gate"><span class="d"></span> gate blocked · 1 concern</span></div>
+          <div class="dag">
+            <div class="node done"><div class="b">✓</div><small>architect</small></div><div class="edge ok"></div>
+            <div class="node done"><div class="b">✓</div><small>coder</small></div><div class="edge ok"></div>
+            <div class="fan"><div class="node block"><div class="b">🔒</div><small>security</small></div><div class="node warn"><div class="b">⚡</div><small>perf</small></div><div class="node done"><div class="b">◇</div><small>types</small></div></div>
+            <div class="edge"></div><div class="node warn"><div class="b">⏸</div><small>gate</small></div>
+          </div>
+          <div class="chips">
+            <div class="chip block"><span class="dot"></span><span class="who">security</span><span class="msg">idempotency key reused → double-charge</span><span class="badge block">block</span></div>
+            <div class="chip"><span class="dot" style="background:var(--warn)"></span><span class="who">performance</span><span class="msg">backoff without jitter</span></div>
+            <div class="chip pass"><span class="dot"></span><span class="who">types</span><span class="msg">maxDelay optional/required</span></div>
+          </div>
+          <div class="cta"><button class="btn open big">Open diff in editor →</button><button class="btn changes big">Request changes → re-run</button><button class="btn approve big">Approve → open PR</button></div>
+        </div>
+      </div>
+      <p class="note"><b>C:</b> desde el board, cada run abre una <span class="win">card grande</span> (mini-DAG + reviewers como chips + resumen). El mejor para <b>triage</b> y para mostrar la orquestación; el editar real pasa a segunda pantalla.</p>
+    </section>
+
+    <!-- ===================== LOOP ===================== -->
+    <section class="screen" data-s="loop">
+      <div class="shead"><h1>The eval loop <span class="tag">closes the gap the market asks for</span></h1></div>
+      <div class="loopwrap">
+        <div class="lcenter">
+          <h4 style="margin:0 0 10px;font-size:13px">At the gate</h4>
+          <p style="margin:0 0 8px;font-size:12px;color:var(--muted);line-height:1.55">Each reviewer wrote a verdict artifact. Nest reads it to set the gate — this is what turns "the graph just runs" into "the graph <b style="color:var(--text)">verifies</b>".</p>
+          <div class="verdict">.nest/graph/review-security.json<br><span class="k">"blocking"</span>: <span class="v">true</span>,<br><span class="k">"concerns"</span>: [ "idempotency key reused…" ]</div>
+          <div style="margin-top:12px;font-size:12px;color:var(--muted)">→ gate = <span class="badge block">blocked</span> → waits for your call ↓</div>
+        </div>
+        <div class="lbranch">
+          <div class="lb approve">
+            <h4>✓ Approve</h4>
+            <ol><li><b>Open PR</b> (or merge) from the run's branch</li><li>gate marked <b>passed</b> → tester node runs</li><li>run archived, team notified in Slack</li></ol>
+          </div>
+          <div class="lb reject">
+            <h4>↻ Request changes</h4>
+            <ol><li>your feedback re-injected into the <b>coder</b> node</li><li>the graph <b>re-runs</b> that branch in the same worktree</li><li>back to the gate with a fresh diff</li></ol>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Esto es "evaluation frameworks"</b> — la 4ª palabra del aviso que hoy tenés escrita pero sin cerrar. El humano (o el verdict de los reviewers en full-auto) <span class="win">lee el veredicto → bloquea o pasa el gate</span>. Aprobar abre PR; pedir cambios re-corre el graph. El círculo entero: orquestar → producir → revisar → <b>evaluar</b> → decidir.</p>
+    </section>
+
+  </main>
+
+<script>
+  const side=document.querySelector('.side');
+  side.addEventListener('click',e=>{const a=e.target.closest('a');if(!a)return;e.preventDefault();
+    const s=a.dataset.s;
+    side.querySelectorAll('a').forEach(x=>x.classList.toggle('active',x===a));
+    document.querySelectorAll('.screen').forEach(sc=>sc.classList.toggle('active',sc.dataset.s===s));
+    document.querySelector('main').scrollTo({top:0});window.scrollTo({top:0,behavior:'smooth'});
+  });
+  const tabsA=document.getElementById('tabsA');
+  tabsA&&tabsA.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const t=b.dataset.t;
+    tabsA.querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));
+    document.querySelectorAll('[data-s="a"] .tabpane').forEach(p=>p.classList.toggle('active',p.dataset.t===t));
+  });
+</script>
+</body>
+</html>

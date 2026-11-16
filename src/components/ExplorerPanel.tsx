@@ -130,10 +130,10 @@ export function ExplorerPanel({ worktreePath, onFileOpen, treeOnly = false }: Ex
       // sameWorktree y no ===: el registry deduplica dos formas del mismo
       // worktree (C:/ vs C:\) en un chokidar que emite UNA forma, y el Hub monta
       // este Explorer con tab.repoPath (otra forma en Windows). Con === el árbol
-      // y los badges quedaban stale ante cambios externos.
+      // y los badges quedarían stale ante cambios externos.
       if (!sameWorktree(wt, worktreePath)) return
-      // El watcher reporta el relPath de la CARPETA watcheada (ver Task 2);
-      // si la tenemos cargada, se re-lista.
+      // El watcher reporta el relPath de la CARPETA watcheada; si la tenemos
+      // cargada, se re-lista.
       if (entriesByDirRef.current[relPath] !== undefined) loadDir(relPath)
       refreshDiff()
     })

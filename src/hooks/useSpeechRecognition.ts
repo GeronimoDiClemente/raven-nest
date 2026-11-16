@@ -10,13 +10,6 @@ interface SpeechRecognitionHook {
   toggle: () => void
 }
 
-// Module-level mount counter. `window.speech.removeStatusListener()` clears ALL
-// status listeners in the preload, so under StrictMode (double-mount) or HMR
-// (overlapping mounts) the second mount's cleanup would otherwise nuke the
-// listener the still-mounted instance depends on. Only run cleanup when no
-// active mount remains.
-let speechStatusMountCount = 0
-
 function encodeWAV(samples: Float32Array, sampleRate: number): ArrayBuffer {
   const buf = new ArrayBuffer(44 + samples.length * 2)
   const view = new DataView(buf)
@@ -48,19 +41,10 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void, 
   const statusCbRef = useRef<(status: 'loading' | 'ready') => void>(() => {})
   statusCbRef.current = (status) => setIsModelLoading(status === 'loading')
 
-  React.useEffect(() => {
-    speechStatusMountCount++
-    // Indirect through the ref so the registered fn always points at the
-    // current setState even after re-renders.
-    window.speech?.onStatus?.((status) => statusCbRef.current(status))
-    return () => {
-      speechStatusMountCount--
-      if (speechStatusMountCount <= 0) {
-        speechStatusMountCount = 0
-        window.speech?.removeStatusListener?.()
-      }
-    }
-  }, [])
+  // Indirect through the ref so the registered fn always points at the current
+  // setState. Each mount removes only its own listener, so overlapping mounts
+  // (StrictMode, HMR) don't silence each other.
+  React.useEffect(() => window.speech?.onStatus?.((status) => statusCbRef.current(status)), [])
 
   const stop = useCallback(() => {
     const recorder = mediaRecorderRef.current

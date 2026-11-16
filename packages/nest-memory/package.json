@@ -1,0 +1,42 @@
+{
+  "name": "@nestmux/memory",
+  "version": "0.1.0",
+  "description": "Your memory, on any machine. The portable half of Nest Memory.",
+  "license": "UNLICENSED",
+  "homepage": "https://nestmux.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GeronimoDiClemente/raven-nest.git",
+    "directory": "packages/nest-memory"
+  },
+  "keywords": [
+    "mcp",
+    "memory",
+    "claude-code",
+    "codex",
+    "cursor",
+    "gemini-cli",
+    "ai-agents"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "nestmux-memory": "./dist/cli-del-paquete.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "ink": "5.2.1",
+    "jsonc-parser": "^3.3.1",
+    "react": "^18.3.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  }
+}

@@ -24,7 +24,7 @@ export function loadSession(): unknown | null {
  * Atomic save: serialize first (so a stringify error can't touch the file),
  * write to a tmp sibling, then rename over session.json. A crash mid-write
  * leaves the previous session intact instead of a truncated JSON that
- * loadSession() can't parse — that was unrecoverable data loss.
+ * loadSession() can't parse, which would be unrecoverable data loss.
  */
 export function saveSession(data: unknown): void {
   const serialized = JSON.stringify(data)

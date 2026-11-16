@@ -1,13 +1,17 @@
-import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { useState } from 'react'
+import logoUrl from '../assets/logo.svg'
 import {
-  STRIPE_PRICES,
-  PLAN_PRICING,
-  ANNUAL_DISCOUNT_PERCENT,
+  CLOUD_MONTHLY_PRICE,
+  CLOUD_ANNUAL_MONTHLY_PRICE,
+  CLOUD_ANNUAL_PRICE,
   BOOK_DEMO_URL,
   TEAM_MIN_SEATS,
+  tieneSuscripcionPropia,
+  type BillingInterval,
   type Plan,
 } from '../lib/stripe'
+import { abrirCheckout, abrirPortal, COPY_CHECKOUT_SIN_RED } from '../lib/checkout'
+import { Button } from '@/components/ui/button'
 
 interface Props {
   currentPlan: Plan
@@ -28,90 +32,68 @@ const PLAN_LIST: PlanInfo[] = [
   {
     id: 'free',
     name: 'Free',
-    tagline: 'Feel the multi-agent flow — free forever, no card',
-    highlight: 'Run Claude, Codex & Gemini in 3 panes at once',
+    tagline: 'Everything on your machine — free forever, no card',
+    highlight: 'Unlimited local memory, all the CLIs, the editor, worktrees',
     features: [
-      'All 7 AIs — Claude, Codex, Gemini, Copilot, OpenCode, Terminal + your own',
+      'All the AIs — Claude, Codex, Gemini, Copilot, OpenCode, Terminal + your own',
       'Bring your own keys — we never meter usage · local-first, no telemetry',
-      'Preview localhost in an in-app browser, ports auto-detected',
-      'Sessions survive restarts — pick up where you left off',
-      'Command palette + global search across every pane',
-      'Browse worktrees & MCP servers (read-only)',
+      'Unlimited panes, worktrees, snippets, workspaces and MCP servers',
+      'Voice-to-prompt, broadcast, diff viewer, Spotlight and the editor',
+      'One project synced to the cloud',
     ],
   },
   {
-    id: 'pro',
-    name: 'Pro',
-    tagline: 'Everything in Free — built out for one developer',
+    id: 'cloud',
+    name: 'Cloud',
+    tagline: 'Your memory, on every machine you use',
     popular: true,
-    highlight: 'Up to 12 isolated worktrees side by side — a branch per pane, no stashing',
+    highlight: 'Every project synced, backed up, and yours if the disk dies',
     features: [
-      'Review, merge & open PRs without leaving Nest',
-      'Branch straight from an issue, CI runs inline',
-      'GitHub + GitLab · per-pane port detection',
-      'Voice-to-prompt (local Whisper) + broadcast to every pane',
-      'Diff viewer + open in any IDE (VS Code, Cursor, JetBrains, Zed…)',
-      'Jump anywhere instantly (Spotlight) + benchmark across models',
-      'Unlimited snippets, workspaces & auto standup',
-      'Full read/write MCP + isolated HOME per account',
+      'Every project replicated, not just one',
+      'Pick up on another machine mid-thought — same context, same memories',
+      'Your memory survives the laptop',
+      'Everything in Free, which is everything that runs locally',
     ],
   },
   {
     id: 'team',
-    name: 'Team',
-    tagline: 'Everything in Pro — for a team that ships together',
-    highlight: 'See where every teammate is working in real time, and jump in',
+    name: 'Teams',
+    tagline: 'Shared memory for the whole team',
+    highlight: 'What one teammate learned, the next one already knows',
     features: [
-      'Team chat with reactions + shared activity feed (GitHub/GitLab)',
+      'Promote a memory to the team and everyone sees it',
       'Shared repos, snippets, workspaces & MCP servers',
-      "Per-user local paths — one repo, everyone's machine",
-      'Clone private repos over HTTPS with OAuth, one click',
-      'Multi-leader roles + join by 8-char code',
-      'Shared team standup',
+      'SSO and a dedicated instance if you need one',
       `Priority support (24h) · min ${TEAM_MIN_SEATS} seats`,
     ],
   },
 ]
 
-function priceFor(planId: Plan, billing: 'monthly' | 'annual'): { amount: string; annualTotal?: string } {
-  if (planId !== 'pro' && planId !== 'team') return { amount: '$0' }
-  const pricing = PLAN_PRICING[planId]
-  const monthlyEquiv = billing === 'monthly' ? pricing.monthly : pricing.annual
-  const annualTotal = billing === 'annual' ? `$${pricing.annual * 12}/year` : undefined
-  return { amount: `$${monthlyEquiv}`, annualTotal }
-}
-
 export default function UpgradeModal({ currentPlan, onClose }: Props) {
-  const [userId, setUserId] = useState<string | null>(null)
-  const [userEmail, setUserEmail] = useState<string | null>(null)
-  const [billing, setBilling] = useState<'monthly' | 'annual'>('monthly')
-  const [loading, setLoading] = useState<string | null>(null)
+  // `setIntervalo` y no `setInterval`: no tapar el global del navegador.
+  const [interval, setIntervalo] = useState<BillingInterval>('monthly')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setUserId(data.user?.id ?? null)
-      setUserEmail(data.user?.email ?? null)
-    })
-  }, [])
-
-  const handleUpgrade = async (plan: 'pro' | 'team') => {
-    if (!userId) return
-    setLoading(plan)
+  // La identidad sale del JWT de la sesión (supabase-js lo manda solo) y el
+  // precio lo elige la función según el intervalo. Los errores se ven en el modal.
+  const cobrar = async (accion: () => ReturnType<typeof abrirCheckout>) => {
+    if (loading) return
+    setLoading(true)
+    setError(null)
+    // try/finally: si `openExternal` lanza, el botón no puede quedar deshabilitado para siempre.
     try {
-      const priceKey = `${plan}_${billing}` as keyof typeof STRIPE_PRICES
-      const priceId = STRIPE_PRICES[priceKey]
-      const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-        body: { priceId, userId, email: userEmail ?? undefined },
-      })
-      if (error || !data?.url) throw new Error(error?.message ?? 'No checkout URL')
-      window.electronShell.openExternal(data.url)
-      onClose()
-    } catch (err) {
-      console.error('Stripe checkout error:', err)
+      const r = await accion()
+      if (r.ok) onClose()
+      else setError(r.error)
+    } catch {
+      setError(COPY_CHECKOUT_SIN_RED)
     } finally {
-      setLoading(null)
+      setLoading(false)
     }
   }
+  const handleUpgrade = () => cobrar(() => abrirCheckout(interval))
+  const handleManage = () => cobrar(abrirPortal)
 
   const handleBookDemo = () => {
     window.electronShell.openExternal(BOOK_DEMO_URL)
@@ -124,10 +106,7 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
 
         <div className="upgrade-hero">
           <div className="upgrade-hero-icon">
-            <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
-              <path d="M2 11.5L4 5l2.5 4L8 4l1.5 5L12 5l2 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M2.5 13.5h11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
+            <img src={logoUrl} alt="Nest" width={22} height={22} />
           </div>
           <h2 className="upgrade-hero-title">Choose your plan</h2>
           <p className="upgrade-hero-subtitle">
@@ -135,26 +114,12 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
           </p>
         </div>
 
-        <div className="upgrade-billing-toggle">
-          <button
-            className={`upgrade-billing-btn${billing === 'monthly' ? ' active' : ''}`}
-            onClick={() => setBilling('monthly')}
-          >Monthly</button>
-          <button
-            className={`upgrade-billing-btn${billing === 'annual' ? ' active' : ''}`}
-            onClick={() => setBilling('annual')}
-          >
-            Annual
-            <span className="upgrade-save-badge">Save {ANNUAL_DISCOUNT_PERCENT}%</span>
-          </button>
-        </div>
-
         <div className="upgrade-plans">
           {PLAN_LIST.map(plan => {
-            const isCurrent = currentPlan === plan.id
-            const { amount, annualTotal } = priceFor(plan.id, billing)
-            const isPaid = plan.id === 'pro' || plan.id === 'team'
-            const showSeatLabel = plan.id === 'team'
+            // `pro` es el alias heredado de `cloud` mientras haya perfiles sin migrar:
+            // un usuario en `pro` tiene que ver su card marcada como actual.
+            const isCurrent = currentPlan === plan.id || (plan.id === 'cloud' && currentPlan === 'pro')
+            const gestiona = plan.id === 'cloud' && tieneSuscripcionPropia(currentPlan)
             return (
               <div
                 key={plan.id}
@@ -170,12 +135,32 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                 </div>
 
                 <div className="upgrade-plan-pricing">
-                  <span className="upgrade-plan-price">{amount}</span>
-                  {isPaid && <span className="upgrade-plan-period">/{showSeatLabel ? 'seat/mo' : 'mo'}</span>}
+                  {plan.id === 'team' ? (
+                    // Teams es venta asistida: sin precio de lista, el CTA es la demo.
+                    <span className="upgrade-plan-price">Custom</span>
+                  ) : plan.id === 'cloud' ? (
+                    // Un solo ítem del flex de .upgrade-plan-pricing: toggle arriba, precio, nota anual.
+                    <div className="flex w-full flex-col items-start gap-1">
+                      <div role="group" aria-label="Billing" className="inline-flex gap-1 rounded-lg border border-border p-0.5">
+                        {(['monthly', 'annual'] as const).map((i) => (
+                          <Button key={i} type="button" size="xs" variant={interval === i ? 'secondary' : 'ghost'}
+                            aria-pressed={interval === i} onClick={() => setIntervalo(i)}>
+                            {i === 'monthly' ? 'Monthly' : 'Annual'}
+                          </Button>
+                        ))}
+                      </div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="upgrade-plan-price">{`$${interval === 'annual' ? CLOUD_ANNUAL_MONTHLY_PRICE : CLOUD_MONTHLY_PRICE}`}</span>
+                        <span className="upgrade-plan-period">/mo</span>
+                      </div>
+                      {interval === 'annual' && (
+                        <span className="text-fs-sm text-muted-foreground">billed ${CLOUD_ANNUAL_PRICE} yearly</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="upgrade-plan-price">$0</span>
+                  )}
                 </div>
-                {billing === 'annual' && annualTotal && (
-                  <div className="upgrade-plan-annual">{annualTotal}{showSeatLabel ? ' / seat' : ''}</div>
-                )}
 
                 <div className="upgrade-plan-feature-list">
                   <div className="upgrade-plan-highlight">
@@ -193,17 +178,23 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
                 </div>
 
                 <div className="upgrade-plan-cta">
-                  {isCurrent ? (
+                  {gestiona ? (
+                    <button className="upgrade-plan-btn" onClick={handleManage} disabled={loading}>
+                      {loading ? '…' : 'Manage subscription'}
+                    </button>
+                  ) : isCurrent ? (
                     <span className="upgrade-plan-badge">Current plan</span>
                   ) : plan.id === 'free' ? (
                     <button className="upgrade-plan-btn ghost" disabled>Free forever</button>
+                  ) : plan.id === 'team' ? (
+                    <button className="upgrade-plan-btn" onClick={handleBookDemo}>Book a demo</button>
                   ) : (
                     <button
                       className={`upgrade-plan-btn${plan.popular ? ' primary' : ''}`}
-                      onClick={() => handleUpgrade(plan.id as 'pro' | 'team')}
-                      disabled={!userId || loading === plan.id}
+                      onClick={handleUpgrade}
+                      disabled={loading}
                     >
-                      {loading === plan.id ? '…' : `Upgrade to ${plan.name}`}
+                      {loading ? '…' : `Upgrade to ${plan.name}`}
                     </button>
                   )}
                 </div>
@@ -211,13 +202,7 @@ export default function UpgradeModal({ currentPlan, onClose }: Props) {
             )
           })}
         </div>
-
-        <button className="upgrade-enterprise-link" onClick={handleBookDemo}>
-          <span className="upgrade-enterprise-link-text">
-            Need SSO, audit logs or org-wide rollout?
-          </span>
-          <span className="upgrade-enterprise-link-cta">Book a demo →</span>
-        </button>
+        {error && <p role="alert" className="m-0 mt-3 text-center text-fs-sm text-destructive">{error}</p>}
       </div>
     </div>
   )

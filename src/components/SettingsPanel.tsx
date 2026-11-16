@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import { useSettings } from '../hooks/useSettings'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitlab } from '../hooks/useGitlab'
+import { useMemory } from '../hooks/useMemory'
 import type { UserPreferencesApi } from '../hooks/useUserPreferences'
 import { formatBinding, eventToBinding, Keybindings } from '../lib/keybindings'
 import type { EditorPreferences, EditorTheme } from '../lib/ide-config-mappings'
@@ -12,8 +13,20 @@ import { matchThemeName } from '../lib/theme-registry'
 import type { InstalledThemeInfo, ScannedThemeInfo, OpenVSXThemeResult } from '../types'
 import { PresetEditor } from './PresetEditor'
 import { BenchmarkDashboard } from './BenchmarkDashboard'
+import MemoryAdoptionDialog from './MemoryAdoptionDialog'
+import AccountPlanSection from './account/AccountPlanSection'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  X, User, Keyboard, Mic, FileCode, Terminal as TerminalIcon, RefreshCw, GraduationCap,
+  ChartColumn, ChevronLeft, Plug, Zap, type LucideIcon,
+} from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
+import WorkspaceNavButton from './WorkspaceNavButton'
+import { TEMAS, TEMA_NEST, temaPorId, ajustarContraste, peorContraste, CONTRASTE_MINIMO, type TemaDeTerminal } from '../lib/terminal-themes'
+import { importarTema } from '../lib/terminal-theme-import'
+import type { SeccionDeSettings } from '../lib/memory-tabs'
 
-type Tab = 'keybinds' | 'presets' | 'benchmarks' | 'updates' | 'account' | 'tutorial' | 'editor'
 
 interface KeybindRowProps {
   label: string
@@ -86,14 +99,233 @@ interface Props {
   // Lifted from App.tsx (the single shared instance) — see UserPreferencesApi's
   // doc comment for why this must not be a local useUserPreferences() call.
   userPrefs: UserPreferencesApi
+  // Same path the file explorer uses to open a file in the editor (App.tsx's
+  // openFileInEditor, threaded down through Sidebar's onFileOpen). Optional so callers/tests
+  // that don't care about the team thread panel compile unchanged.
+  onFileOpen?: (relPath: string) => void
+  /**
+   * La memoria no vive en Settings: acá queda sólo la puerta.
+   *
+   * El botón de Account abre la vista de Memories ya posicionada en `'settings'` — la
+   * pestaña que trae CloudMemoryCard —, no la de `'memorias'` (el default). El argumento es
+   * opcional para el llamador que sólo quiera abrir la vista por default.
+   */
+  onOpenMemories?: (vista?: 'memorias' | 'settings', seccion?: SeccionDeSettings) => void
+  /** Sube cada vez que algo de afuera pide abrir Account (Plan & billing); cada subida, una vez. */
+  pedidoDeCuenta?: number
 }
 
-export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs }: Props) {
+/**
+ * Las secciones, en orden. De acá sale el rail de la izquierda, y el contenido de abajo está
+ * apilado en ESTE mismo orden — si no coincidieran, el índice mentiría sobre lo que vas a
+ * encontrar al bajar.
+ *
+ * El orden es por uso, no alfabético ni histórico: Account y los atajos son lo que la gente
+ * viene a tocar; Benchmarks y Tutorial se visitan una vez.
+ */
+const SECCIONES: Array<{ id: string; titulo: string; icono: LucideIcon }> = [
+  { id: 'account', titulo: 'Account', icono: User },
+  { id: 'connections', titulo: 'Connections', icono: Plug },
+  { id: 'keybinds', titulo: 'Keyboard shortcuts', icono: Keyboard },
+  { id: 'voice', titulo: 'Voice', icono: Mic },
+  { id: 'editor', titulo: 'Editor', icono: FileCode },
+  { id: 'terminal', titulo: 'Terminal', icono: TerminalIcon },
+  /**
+   * `Zap` y no `TerminalIcon`: el `>_` lo usa la sección Terminal, y dos filas con el mismo
+   * ícono en la misma lista son dos filas que hay que LEER para distinguir — que es
+   * exactamente lo que un ícono existe para evitar.
+   *
+   * Y es más preciso: un preset no es una terminal, es un comando que disparás sin volver a
+   * tipearlo.
+   */
+  { id: 'presets', titulo: 'Command presets', icono: Zap },
+  { id: 'updates', titulo: 'Updates', icono: RefreshCw },
+  { id: 'tutorial', titulo: 'Tutorial', icono: GraduationCap },
+  { id: 'benchmarks', titulo: 'Benchmarks', icono: ChartColumn },
+]
+
+/**
+ * La vista previa del tema: los dieciseis colores sobre su propio fondo.
+ *
+ * Existe porque un NOMBRE no dice nada. "Everforest Dark Hard" no se parece a nada hasta que
+ * lo ves, y elegir a ciegas entre trece nombres es peor que no poder elegir.
+ *
+ * Muestra el peor contraste de la paleta al lado, que es el numero que decide si un tema es
+ * legible de verdad o solo bonito en una captura — y que cambia en vivo al prender el ajuste,
+ * para que se vea QUE hace en vez de tener que creerle a la etiqueta.
+ */
+function VistaPreviaDelTema(
+  { temaId, importados, ajustar }:
+  { temaId: string; importados: TemaDeTerminal[]; ajustar: boolean },
+) {
+  const base = temaPorId(temaId, importados)
+  const tema = ajustar ? ajustarContraste(base) : base
+  const peor = peorContraste(tema)
+  const [, red, green, yellow, blue, magenta, cyan] = tema.ansi
+  const gris = tema.ansi[8]
+
+  return (
+    <div className="my-2 overflow-hidden rounded-md border border-border">
+      <div
+        className="p-3 font-mono text-fs-sm leading-relaxed"
+        style={{ background: tema.background, color: tema.foreground }}
+      >
+        <div><span style={{ color: gris }}>$</span> git status</div>
+        <div style={{ color: green }}>  modified:  src/auth/session.ts</div>
+        <div style={{ color: red }}>  deleted:   src/auth/legacy.ts</div>
+        <div style={{ color: gris }}>// the refresh token rotated too early</div>
+        <div style={{ color: yellow }}>⚠ 1 MCP server needs authentication</div>
+        <div>
+          <span style={{ color: blue }}>→</span>{' '}
+          <span style={{ color: cyan }}>memory_search</span>
+          (<span style={{ color: magenta }}>&quot;auth&quot;</span>)
+        </div>
+      </div>
+      <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+        <div className="flex flex-1 gap-0.5">
+          {tema.ansi.map((c, i) => (
+            <span key={i} className="h-2 flex-1 rounded-[1px]" style={{ background: c }} />
+          ))}
+        </div>
+        <span
+          className="font-mono text-fs-xs"
+          style={{ color: peor >= CONTRASTE_MINIMO ? 'var(--ok)' : 'var(--warn)' }}
+          title="Worst contrast in this palette against its own background"
+        >
+          {peor.toFixed(2)}:1
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Una sección del panel: título, una línea que dice para qué sirve, y el contenido.
+ *
+ * El filtro del buscador vive acá y es deliberadamente GRUESO — matchea contra el título, la
+ * descripción y el texto que la sección renderiza. Filtrar fila por fila daría un resultado
+ * más fino pero dejaría controles sueltos sin su contexto, que es justo lo que este panel
+ * tenía de más: un `<select>` de idioma flotando bajo el título "Keybinds".
+ */
+function Seccion({
+  id, titulo, descripcion, busqueda, activa, children,
+}: {
+  id: string
+  titulo: string
+  descripcion: string
+  busqueda: string
+  /**
+   * Si es la seccion elegida en el rail. Sin busqueda, es la UNICA que se dibuja.
+   *
+   * Con busqueda se ignora: ahi mandan las coincidencias, cruzando el limite de la seccion
+   * activa. Si no, buscar "theme" estando en Account no encontraria nada.
+   */
+  activa: boolean
+  children: React.ReactNode
+}) {
+  const ref = useRef<HTMLElement | null>(null)
+  /**
+   * El contenido se monta cuando la sección ENTRA en pantalla, no al abrir el panel.
+   *
+   * Con una sola página, todas las secciones montan a la vez — y algunas no son inertes:
+   * `BenchmarkDashboard` arranca un `setInterval` de 2s contra el proceso principal. Sin
+   * esto, abrir Settings para cambiar un atajo dejaría corriendo un polling que nadie mira.
+   * El encabezado y la descripción SÍ se dibujan siempre, que es lo que hace que
+   * saltar desde el rail y buscar por título sigan funcionando.
+   */
+  // Arranca en `true` donde no hay IntersectionObserver (jsdom, y cualquier entorno que no
+  // lo traiga): sin el observador no hay forma de saber cuándo entra en pantalla, y ante la
+  // duda es mejor montar todo que no montar nada.
+  const [vista, setVista] = useState(() => typeof IntersectionObserver === 'undefined')
+  useEffect(() => {
+    const el = ref.current
+    if (!el || vista || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) setVista(true)
+    }, { rootMargin: '200px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [vista])
+
+  const q = busqueda.trim().toLowerCase()
+  // El texto propio de la sección alcanza para el título y la descripción; para el contenido
+  // se lee del DOM ya renderizado, que es la única forma de buscar adentro de subcomponentes
+  // (PresetEditor, BenchmarkDashboard) sin obligarlos a declarar sus propias palabras clave.
+  const propio = `${titulo} ${descripcion}`.toLowerCase()
+  const contenido = ref.current?.textContent?.toLowerCase() ?? ''
+  const coincide = !q || propio.includes(q) || contenido.includes(q)
+  // Sin busqueda manda el rail; con busqueda mandan las coincidencias.
+  const matchea = q ? coincide : activa
+
+  return (
+    <section
+      ref={ref}
+      id={`settings-${id}`}
+      className="sp-seccion"
+      hidden={!matchea}
+      aria-hidden={!matchea}
+    >
+      <h3 className="sp-seccion-titulo">{titulo}</h3>
+      <p className="sp-seccion-desc">{descripcion}</p>
+      {vista && children}
+    </section>
+  )
+}
+
+export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, activeRepoPath, onOpenTutorial, userPrefs, onFileOpen, onOpenMemories, pedidoDeCuenta = 0 }: Props) {
   const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState<Tab>('keybinds')
+  const [busqueda, setBusqueda] = useState('')
+  /**
+   * Una seccion por vez, en vez de las nueve en un scroll.
+   *
+   * `Account` sola es más larga que las últimas cinco juntas: apiladas, para llegar a
+   * `Terminal` habría que pasar por todo eso.
+   *
+   * **El buscador es la excepcion, y es la razon por la que esto no pierde nada.** Mientras
+   * hay algo escrito se muestran TODAS las secciones que matchean, cruzando el limite de la
+   * seccion activa: si no, buscar "theme" estando en Account no encontraria nada y el
+   * buscador pasaria a servir sólo adentro de lo que ya estas mirando, que es justo cuando no
+   * lo necesitas.
+   */
+  const [seccionActiva, setSeccionActiva] = useState<string>(SECCIONES[0].id)
+  // Sólo un valor MÁS ALTO que el último visto abre: el inicial (aunque no sea 0) no cuenta.
+  const cuentaVista = useRef(pedidoDeCuenta)
+  useEffect(() => {
+    if (pedidoDeCuenta <= cuentaVista.current) return
+    cuentaVista.current = pedidoDeCuenta
+    setOpen(true)
+    setSeccionActiva('account')
+    setBusqueda('')
+  }, [pedidoDeCuenta])
+  const [errorDeTema, setErrorDeTema] = useState<string | null>(null)
+
+  const importados = userPrefs.prefs.ui_settings.terminalThemesImportados ?? []
+  const temaElegido = userPrefs.prefs.ui_settings.terminalTheme ?? TEMA_NEST.id
+  const esImportado = importados.some((t) => t.id === temaElegido)
+
+  /**
+   * Traer un tema de Ghostty o de Warp.
+   *
+   * El main devuelve el TEXTO crudo y el parseo pasa aca, que es donde vive probado contra
+   * archivos reales de los dos formatos. Un error se muestra tal cual lo escribio el parser:
+   * dice que le falta al archivo, no "no se pudo importar".
+   */
+  const importarTemaDeArchivo = useCallback(async () => {
+    setErrorDeTema(null)
+    const res = await window.themes?.readTerminalThemeFile?.()
+    if (res === null || res === undefined) return   // cancelado
+    if (!res.ok) { setErrorDeTema(res.error); return }
+    const parseado = importarTema(res.texto, res.nombre)
+    if (!parseado.ok) { setErrorDeTema(parseado.error); return }
+    userPrefs.addTerminalTheme(parseado.tema)
+  }, [userPrefs])
   const { settings, updateKeybinding, updateVoiceLanguage } = useSettings()
   const { isConnected: githubConnected, githubLogin, connectGitHub, disconnectGitHub } = useGitHub()
   const { isConnected: gitlabConnected, gitlabLogin, connectGitlab, disconnectGitlab } = useGitlab()
+  // La nube de memoria (conectar/desconectar, cuota, upgrade) vive en CloudMemoryCard. Lo
+  // único que se queda acá es `useMemory()` para MemoryAdoptionDialog, que no depende de
+  // `open` y tiene que verse aunque Settings esté cerrado.
+  const memory = useMemory()
   const [importPreview, setImportPreview] = useState<{ source: 'vscode' | 'intellij'; options: EditorPreferences; theme?: EditorTheme; unmappedTheme?: string } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const kb = settings.keybindings
@@ -117,8 +349,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   }, [])
 
   useEffect(() => {
-    if (open && tab === 'editor') void refreshInstalledThemes()
-  }, [open, tab, refreshInstalledThemes])
+    // Se carga al abrir el panel, no al llegar a la sección Editor.
+    if (open) void refreshInstalledThemes()
+  }, [open, refreshInstalledThemes])
 
   const handleScanVSCodeThemes = useCallback(async () => {
     setThemeError(null)
@@ -182,11 +415,10 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
   const confirmImportEditorConfig = useCallback(() => {
     if (!importPreview) return
     // unmappedTheme (workbench.colorTheme que no era vs/vs-dark): si matchea
-    // un tema bundled o instalado, se aplica directo — cierra el loop que el
-    // import de config dejaba abierto.
+    // un tema bundled o instalado, se aplica directo.
     // Match EXACTO primero (bundled/instalados); el heurístico vs/vs-dark de
-    // parseVSCodeSettings es solo el fallback — al revés degradaba temas que
-    // SÍ existen ("One Dark Pro" terminaba en vs-dark genérico).
+    // parseVSCodeSettings es solo el fallback — al revés degradaría temas que
+    // SÍ existen ("One Dark Pro" terminaría en vs-dark genérico).
     const exact = importPreview.unmappedTheme
       ? matchThemeName(importPreview.unmappedTheme, [...BUNDLED_THEMES, ...installedThemes])
       : undefined
@@ -227,98 +459,103 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
     <>
       <button className="titlebar-btn" onClick={() => setOpen(v => !v)} title="Settings" />
 
+      {/* No depende de `open`: el login que lo dispara puede pasar con el panel de
+          Settings cerrado, y el usuario tiene que verlo igual. */}
+      {memory.pendingAdoption && createPortal(
+        <MemoryAdoptionDialog
+          count={memory.pendingAdoption.count}
+          projects={memory.pendingAdoption.projects}
+          onAdopt={() => memory.resolveAdoption(true)}
+          onDecline={() => memory.resolveAdoption(false)}
+        />,
+        document.body
+      )}
+
       {open && createPortal(
         <>
-          <div className="team-modal-overlay" onClick={() => setOpen(false)} />
-
-          <div className="sp-modal">
-            {/* Header */}
-            <div className="sp-header">
-              <div className="sp-header-left">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.7 }}>
-                  <path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.58-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64L4.57 11c-.04.32-.07.65-.07.99s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65a.5.5 0 0 0 .49.43h4a.5.5 0 0 0 .49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z" fill="currentColor"/>
-                </svg>
-                <span className="sp-title">Settings</span>
+          {/* La MISMA cáscara que Personal, Teams y Memories, no un modal aparte. Con
+              `.teams-workspace` se lleva gratis la animación de entrada y el z-index de
+              las otras. */}
+          <div className="teams-workspace settings-workspace">
+            <div className="teams-workspace-header">
+              <button className="tw-back-btn" onClick={() => setOpen(false)}>
+                <ChevronLeft size={ICON_SIZE.lg} aria-hidden />
+                Back
+              </button>
+              <div className="tw-header-center">
+                <span>Settings</span>
               </div>
-              <button className="sp-close" onClick={() => setOpen(false)}>×</button>
             </div>
 
-            {/* Tabs */}
-            <div className="sp-tabs">
-              {(['keybinds', 'presets', 'benchmarks', 'updates', 'account', 'tutorial', 'editor'] as Tab[]).map(t => (
-                <button
-                  key={t}
-                  className={`sp-tab${tab === t ? ' active' : ''}`}
-                  onClick={() => setTab(t)}
-                >
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </button>
-              ))}
+            <div className="teams-workspace-body">
+              {/* El rail usa el mismo componente de fila que Personal, no una lista propia.
+                  Es NAVEGACION, no un indice: cada seccion es su propia pantalla. */}
+              <nav className="teams-workspace-nav">
+                {SECCIONES.map((sec) => (
+                  <WorkspaceNavButton
+                    key={sec.id}
+                    icon={<sec.icono size={ICON_SIZE.lg} aria-hidden />}
+                    label={sec.titulo}
+                    active={!busqueda && seccionActiva === sec.id}
+                    onClick={() => {
+                      setSeccionActiva(sec.id)
+                      // Al cambiar de seccion, el buscador deja de aplicar: lo que tenias
+                      // escrito filtraba OTRA cosa, y dejarlo puesto mostraria la seccion nueva
+                      // vacia sin decir por que.
+                      setBusqueda('')
+                    }}
+                  />
+                ))}
+              </nav>
+
+              <div className="teams-workspace-content settings-content">
+            <div className="sp-search-row">
+              <Input
+                type="search"
+                value={busqueda}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBusqueda(e.target.value)}
+                placeholder="Search settings…"
+                aria-label="Search settings"
+                autoFocus
+              />
             </div>
 
-            {/* Body */}
-            <div className="sp-body">
-
-              {tab === 'keybinds' && (
-                <div className="sp-section">
-                  <div className="sp-row">
-                    <span className="sp-row-label">Voice language</span>
-                    <select
-                      className="sp-select"
-                      value={settings.voiceLanguage ?? 'es'}
-                      onChange={e => updateVoiceLanguage(e.target.value)}
-                    >
-                      <option value="es">Español</option>
-                      <option value="en">English</option>
-                      <option value="pt">Português</option>
-                      <option value="fr">Français</option>
-                      <option value="de">Deutsch</option>
-                      <option value="it">Italiano</option>
-                      <option value="zh">中文</option>
-                      <option value="ja">日本語</option>
-                    </select>
-                  </div>
-                  <div className="sp-divider" />
-                  {keybindRows.map(row => (
-                    <KeybindRow
-                      key={row.action}
-                      label={row.label}
-                      action={row.action}
-                      binding={kb[row.action]}
-                      onUpdate={updateKeybinding}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {tab === 'presets' && (
-                <div className="sp-section">
-                  <PresetEditor repoPath={activeRepoPath ?? null} />
-                </div>
-              )}
-
-              {tab === 'benchmarks' && (
-                <div className="sp-section">
-                  <BenchmarkDashboard />
-                </div>
-              )}
-
-              {tab === 'updates' && (
-                <div className="sp-section">
-                  <button
-                    className="sp-action-btn"
-                    onClick={onCheckUpdates}
-                    disabled={updateState === 'checking' || updateState === 'update-found'}
-                  >
-                    {updateLabel}
-                  </button>
-                </div>
-              )}
-
-              {tab === 'account' && (
+              <Seccion
+                id="account"
+                titulo="Account"
+                descripcion="Who you&apos;re signed in as."
+                busqueda={busqueda}
+                activa={seccionActiva === 'account'}
+              >
                 <div className="sp-section">
                   <p className="sp-email">{userEmail || '—'}</p>
 
+                  <AccountPlanSection memory={memory} onOpenMemorySync={() => onOpenMemories?.('settings', 'sync')} />
+
+
+                  {/* La memoria no vive en Settings: su configuración es la pestaña
+                      Settings del workspace de Memories. Esto abre Memories con esa
+                      pestaña activa. */}
+                  {onOpenMemories && (
+                    <Button variant="outline" size="sm" onClick={() => onOpenMemories('settings')}>
+                      Memory settings
+                    </Button>
+                  )}
+
+                  <Button variant="outline" size="sm" onClick={() => supabase.auth.signOut()}>
+                    Sign out
+                  </Button>
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="connections"
+                titulo="Connections"
+                descripcion="The services signed in alongside your account."
+                busqueda={busqueda}
+                activa={seccionActiva === 'connections'}
+              >
+                <div className="sp-section">
                   <div className="sp-card">
                     <div className="sp-card-row">
                       <div className="sp-card-left">
@@ -333,9 +570,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         )}
                       </div>
                       {githubConnected ? (
-                        <button className="sp-btn-danger" onClick={disconnectGitHub}>Disconnect</button>
+                        <Button variant="destructive" size="sm" onClick={disconnectGitHub}>Disconnect</Button>
                       ) : (
-                        <button className="sp-btn-purple" onClick={connectGitHub}>Connect</button>
+                        <Button size="sm" onClick={connectGitHub}>Connect</Button>
                       )}
                     </div>
                   </div>
@@ -359,31 +596,70 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                         )}
                       </div>
                       {gitlabConnected ? (
-                        <button className="sp-btn-danger" onClick={disconnectGitlab}>Disconnect</button>
+                        <Button variant="destructive" size="sm" onClick={disconnectGitlab}>Disconnect</Button>
                       ) : (
-                        <button className="sp-btn-purple" onClick={connectGitlab}>Connect</button>
+                        <Button size="sm" onClick={connectGitlab}>Connect</Button>
                       )}
                     </div>
                   </div>
-
-                  <button className="sp-action-btn" onClick={() => supabase.auth.signOut()}>
-                    Sign out
-                  </button>
                 </div>
-              )}
+              </Seccion>
 
-              {tab === 'tutorial' && (
+              <Seccion
+                id="keybinds"
+                titulo="Keyboard shortcuts"
+                descripcion="Click a shortcut to record a new one."
+                busqueda={busqueda}
+                activa={seccionActiva === 'keybinds'}
+              >
                 <div className="sp-section">
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
-                    Recorré las secciones de Nest con datos de demostración, sin tocar tus repos.
-                  </p>
-                  <button className="sp-action-btn" onClick={() => onOpenTutorial?.('worktrees')}>
-                    Tutorial: Worktrees
-                  </button>
+                  {keybindRows.map(row => (
+                    <KeybindRow
+                      key={row.action}
+                      label={row.label}
+                      action={row.action}
+                      binding={kb[row.action]}
+                      onUpdate={updateKeybinding}
+                    />
+                  ))}
                 </div>
-              )}
+              </Seccion>
 
-              {tab === 'editor' && (
+              <Seccion
+                id="voice"
+                titulo="Voice"
+                descripcion="Dictation into the prompt. Needs openai-whisper installed; without it the mic button simply doesn't transcribe."
+                busqueda={busqueda}
+                activa={seccionActiva === 'voice'}
+              >
+                <div className="sp-section">
+                  <div className="sp-row">
+                    <span className="sp-row-label">Voice language</span>
+                    <select
+                      className="sp-select"
+                      value={settings.voiceLanguage ?? 'es'}
+                      onChange={e => updateVoiceLanguage(e.target.value)}
+                    >
+                      <option value="es">Español</option>
+                      <option value="en">English</option>
+                      <option value="pt">Português</option>
+                      <option value="fr">Français</option>
+                      <option value="de">Deutsch</option>
+                      <option value="it">Italiano</option>
+                      <option value="zh">中文</option>
+                      <option value="ja">日本語</option>
+                    </select>
+                  </div>
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="editor"
+                titulo="Editor"
+                descripcion="Theme and behaviour of the built-in editor."
+                busqueda={busqueda}
+                activa={seccionActiva === 'editor'}
+              >
                 <div className="sp-section">
                   <div className="sp-row">
                     <span className="sp-row-label">Theme</span>
@@ -410,9 +686,9 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     </select>
                   </div>
                   <div style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
-                    <button className="sp-action-btn" onClick={handleScanVSCodeThemes}>Import themes from VS Code</button>
-                    <button className="sp-action-btn" onClick={handleLoadThemeFile}>Load theme file…</button>
-                    <button className="sp-action-btn" onClick={() => setVsxOpen(v => !v)}>Browse Open VSX…</button>
+                    <Button variant="outline" size="sm" onClick={handleScanVSCodeThemes}>Import themes from VS Code</Button>
+                    <Button variant="outline" size="sm" onClick={handleLoadThemeFile}>Load theme file…</Button>
+                    <Button variant="outline" size="sm" onClick={() => setVsxOpen(v => !v)}>Browse Open VSX…</Button>
                   </div>
                   {themeError && <p style={{ color: '#ef4444', fontSize: 12 }}>{themeError}</p>}
                   {scannedThemes && (
@@ -423,7 +699,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       {scannedThemes.map(t => (
                         <div key={t.path} className="sp-row">
                           <span className="sp-row-label">{t.label}</span>
-                          <button className="sp-action-btn" onClick={() => handleInstallScanned(t.path)}>Install</button>
+                          <Button variant="outline" size="sm" onClick={() => handleInstallScanned(t.path)}>Install</Button>
                         </div>
                       ))}
                     </div>
@@ -439,7 +715,7 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                           onChange={e => setVsxQuery(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') void handleVsxSearch() }}
                         />
-                        <button className="sp-action-btn" onClick={handleVsxSearch} disabled={vsxBusy}>Search</button>
+                        <Button variant="outline" size="sm" onClick={handleVsxSearch} disabled={vsxBusy}>Search</Button>
                       </div>
                       {vsxError && <p style={{ color: '#ef4444', fontSize: 12 }}>{vsxError}</p>}
                       {vsxResults && vsxResults.length === 0 && (
@@ -448,11 +724,11 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                       {vsxResults?.map(r => (
                         <div key={`${r.namespace}.${r.name}`} className="sp-row">
                           <span className="sp-row-label" title={r.description}>{r.displayName}</span>
-                          <button
-                            className="sp-action-btn"
+                          <Button
+                            variant="outline" size="sm"
                             disabled={vsxBusy}
                             onClick={() => handleVsxInstall(r.namespace, r.name)}
-                          >Install</button>
+                          >Install</Button>
                         </div>
                       ))}
                     </div>
@@ -462,8 +738,8 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                     Import your editor preferences from VS Code or IntelliJ.
                   </p>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                    <button className="sp-action-btn" onClick={() => handleImportEditorConfig('vscode')}>Import from VS Code</button>
-                    <button className="sp-action-btn" onClick={() => handleImportEditorConfig('intellij')}>Import from IntelliJ</button>
+                    <Button variant="outline" size="sm" onClick={() => handleImportEditorConfig('vscode')}>Import from VS Code</Button>
+                    <Button variant="outline" size="sm" onClick={() => handleImportEditorConfig('intellij')}>Import from IntelliJ</Button>
                   </div>
                   {importError && <p style={{ color: '#ef4444', fontSize: 12 }}>{importError}</p>}
                   {importPreview && (
@@ -473,13 +749,150 @@ export default function SettingsPanel({ updateState, onCheckUpdates, userEmail, 
                           <li key={key}>{key}: {JSON.stringify(value)}</li>
                         ))}
                       </ul>
-                      <button className="sp-action-btn" onClick={confirmImportEditorConfig}>Apply</button>
-                      <button className="sp-btn-danger" onClick={() => setImportPreview(null)}>Cancel</button>
+                      <Button variant="outline" size="sm" onClick={confirmImportEditorConfig}>Apply</Button>
+                      <Button variant="destructive" size="sm" onClick={() => setImportPreview(null)}>Cancel</Button>
                     </div>
                   )}
                 </div>
-              )}
+              </Seccion>
 
+              <Seccion
+                id="terminal"
+                titulo="Terminal"
+                descripcion="Colours of the terminal itself — the sixteen your shell and your agents paint with."
+                busqueda={busqueda}
+                activa={seccionActiva === 'terminal'}
+              >
+                <div className="sp-section">
+                  <div className="sp-row">
+                    <span className="sp-row-label">Theme</span>
+                    <select
+                      className="sp-select"
+                      data-testid="terminal-theme-select"
+                      value={userPrefs.prefs.ui_settings.terminalTheme ?? TEMA_NEST.id}
+                      onChange={(e) => userPrefs.setTerminalTheme(e.target.value)}
+                    >
+                      {/* Los del catalogo y los tuyos, separados. Un tema importado no es una
+                          version peor de uno nuestro: es EL que ya tenias configurado, y
+                          mezclarlos en una lista plana lo esconde entre trece nombres. */}
+                      <optgroup label="Built in">
+                        {TEMAS.map((t) => (
+                          <option key={t.id} value={t.id}>{t.nombre}</option>
+                        ))}
+                      </optgroup>
+                      {importados.length > 0 && (
+                        <optgroup label="Imported">
+                          {importados.map((t) => (
+                            <option key={t.id} value={t.id}>{t.nombre}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+
+                  <VistaPreviaDelTema
+                    temaId={temaElegido}
+                    importados={importados}
+                    ajustar={userPrefs.prefs.ui_settings.terminalThemeAutoContrast ?? false}
+                  />
+
+                  <div className="sp-row">
+                    <span className="sp-row-label">Lift low-contrast colours</span>
+                    <input
+                      type="checkbox"
+                      data-testid="terminal-theme-contrast"
+                      checked={userPrefs.prefs.ui_settings.terminalThemeAutoContrast ?? false}
+                      onChange={(e) => userPrefs.setTerminalThemeAutoContrast(e.target.checked)}
+                    />
+                  </div>
+                  <p className="text-fs-sm text-muted-foreground">
+                    Some themes dim comments so far they stop being readable — eight of these
+                    thirteen have a colour below 3:1 against their own background. This lifts
+                    only those, and only to the floor, keeping each colour&apos;s hue.
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={importarTemaDeArchivo}>
+                      Import a Ghostty or Warp theme…
+                    </Button>
+                    {esImportado && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => userPrefs.removeTerminalTheme(temaElegido)}
+                      >
+                        Remove this theme
+                      </Button>
+                    )}
+                  </div>
+                  {errorDeTema && <p className="text-fs-sm text-warn">{errorDeTema}</p>}
+                  <p className="text-fs-sm text-muted-foreground">
+                    Already have a theme set up? Bring the file you use in Ghostty or Warp —
+                    Nest reads both, and keeps a copy so it works even if you move or uninstall
+                    them.
+                  </p>
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="presets"
+                titulo="Command presets"
+                descripcion="Commands you can fire at a pane without retyping them."
+                busqueda={busqueda}
+                activa={seccionActiva === 'presets'}
+              >
+                <div className="sp-section">
+                  <PresetEditor repoPath={activeRepoPath ?? null} />
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="updates"
+                titulo="Updates"
+                descripcion="Which version you are on, and whether there is a newer one."
+                busqueda={busqueda}
+                activa={seccionActiva === 'updates'}
+              >
+                <div className="sp-section">
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={onCheckUpdates}
+                    disabled={updateState === 'checking' || updateState === 'update-found'}
+                  >
+                    {updateLabel}
+                  </Button>
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="tutorial"
+                titulo="Tutorial"
+                descripcion="Walk through Nest with demo data, without touching your repos."
+                busqueda={busqueda}
+                activa={seccionActiva === 'tutorial'}
+              >
+                <div className="sp-section">
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                    Recorré las secciones de Nest con datos de demostración, sin tocar tus repos.
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => onOpenTutorial?.('worktrees')}>
+                    Tutorial: Worktrees
+                  </Button>
+                </div>
+              </Seccion>
+
+              <Seccion
+                id="benchmarks"
+                titulo="Benchmarks"
+                descripcion="How long your agents take, measured across runs."
+                busqueda={busqueda}
+                activa={seccionActiva === 'benchmarks'}
+              >
+                <div className="sp-section">
+                  <BenchmarkDashboard />
+                </div>
+              </Seccion>
+              </div>
             </div>
           </div>
         </>,

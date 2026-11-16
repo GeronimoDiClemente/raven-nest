@@ -1,0 +1,251 @@
+<!DOCTYPE html><html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600&display=swap');
+
+    :root {
+      --background: #0a0a0a;
+      --card: #141414;
+      --popover: #1f1f1f;
+      --foreground: #f2f2f2;
+      --muted-foreground: #9b9b9b;
+      --ok: #4ade80;
+      --warn: #e3b341;
+      --destructive: #ff6568;
+      --border: rgb(255 255 255 / 0.08);
+      --sidebar-width: 200px;
+      --rail-width: 44px;
+      --header-height: 40px;
+      --font-sans: 'Geist', sans-serif;
+      --font-mono: 'Geist Mono', monospace;
+    }
+
+    body {
+      background-color: var(--background);
+      color: var(--foreground);
+      font-family: var(--font-sans);
+      margin: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .sidebar-row {
+      height: 32px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+      font-size: 13px;
+    }
+
+    .sidebar-row:hover {
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .sidebar-row.active {
+      background-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .mono-data {
+      font-family: var(--font-mono);
+      letter-spacing: -0.02em;
+    }
+
+    .state-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .badge-count {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-weight: 600;
+      line-height: 1;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+    }
+
+    .rail-icon {
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted-foreground);
+    }
+    .rail-icon.active {
+      color: var(--foreground);
+      border-left: 2px solid var(--foreground);
+    }
+  </style>
+</head>
+<body>
+  <div class="flex h-screen overflow-hidden" data-sd-id="1">
+    <!-- Collapsed Rail (44px) -->
+    <aside class="w-[44px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--background)] flex flex-col items-center py-4 z-50" data-sd-id="2">
+      <div class="rail-icon mb-6" data-sd-id="3">
+        <iconify-icon icon="lucide:layout-grid" class="text-xl"></iconify-icon>
+      </div>
+      <div class="rail-icon active" data-sd-id="4">
+        <iconify-icon icon="lucide:terminal" class="text-xl"></iconify-icon>
+      </div>
+      <div class="rail-icon" data-sd-id="5">
+        <iconify-icon icon="lucide:folder-git-2" class="text-xl"></iconify-icon>
+      </div>
+      <div class="rail-icon" data-sd-id="6">
+        <iconify-icon icon="lucide:box" class="text-xl"></iconify-icon>
+      </div>
+      <div class="mt-auto flex flex-col gap-4 pb-2" data-sd-id="7">
+        <div class="rail-icon" data-sd-id="8">
+          <iconify-icon icon="lucide:settings" class="text-xl"></iconify-icon>
+        </div>
+        <div class="w-6 h-6 rounded-full bg-gradient-to-tr from-orange-500 to-red-500 mx-auto" data-sd-id="9"></div>
+      </div>
+    </aside>
+
+    <!-- Expanded Sidebar (200px) -->
+    <aside class="w-[200px] flex-shrink-0 bg-[var(--card)] border-r border-[var(--border)] flex flex-col z-40" data-sd-id="10">
+      <!-- Pinned Repo/Worktree Section -->
+      <div class="p-3 border-b border-[var(--border)]" data-sd-id="11">
+        <div class="flex items-center justify-between mb-1" data-sd-id="12">
+          <span class="text-[10px] uppercase tracking-wider font-semibold text-[var(--muted-foreground)]" data-sd-id="13">Current Worktree</span>
+          <iconify-icon icon="lucide:chevron-down" class="text-xs text-[var(--muted-foreground)]"></iconify-icon>
+        </div>
+        <div class="flex items-center gap-2 group cursor-pointer" data-sd-id="14">
+          <iconify-icon icon="lucide:git-branch" class="text-sm text-[var(--ok)]"></iconify-icon>
+          <span class="text-sm font-medium truncate" data-sd-id="15">feat/nest-sidebar</span>
+        </div>
+        <div class="mt-1 text-[11px] text-[var(--muted-foreground)] truncate mono-data" data-sd-id="16">raven-nest / core-engine</div>
+      </div>
+
+      <!-- Scrollable Navigation Groups -->
+      <div class="flex-1 overflow-y-auto custom-scrollbar pt-2" data-sd-id="17">
+        
+        <!-- Needs You (Waiting) -->
+        <div class="mb-4" data-sd-id="18">
+          <div class="sidebar-row group" data-sd-id="19">
+            <iconify-icon icon="lucide:alert-circle" class="mr-2 text-[var(--warn)]"></iconify-icon>
+            <span class="flex-1 font-semibold text-[var(--warn)]" data-sd-id="20">Needs You</span>
+            <span class="badge-count bg-[var(--warn)] text-black" data-sd-id="21">2</span>
+          </div>
+          <div class="sidebar-row" data-sd-id="22">
+            <div class="w-1 h-full bg-[#3B82F6] ml-[-10px] mr-2 flex-shrink-0" data-sd-id="23"></div>
+            <span class="truncate text-[var(--foreground)]" data-sd-id="24">refactor: api-types</span>
+            <span class="ml-auto mono-data text-[10px] text-[var(--muted-foreground)]" data-sd-id="25">P1</span>
+          </div>
+          <div class="sidebar-row" data-sd-id="26">
+            <div class="w-1 h-full bg-[#8B5CF6] ml-[-10px] mr-2 flex-shrink-0" data-sd-id="27"></div>
+            <span class="truncate text-[var(--foreground)]" data-sd-id="28">docs: update-readme</span>
+            <span class="ml-auto mono-data text-[10px] text-[var(--muted-foreground)]" data-sd-id="29">P4</span>
+          </div>
+        </div>
+
+        <!-- Unread Activity -->
+        <div class="mb-4" data-sd-id="30">
+          <div class="sidebar-row" data-sd-id="31">
+            <iconify-icon icon="lucide:message-square" class="mr-2 text-[var(--foreground)]"></iconify-icon>
+            <span class="flex-1 font-semibold" data-sd-id="32">Unread</span>
+            <span class="badge-count bg-[var(--foreground)] text-black" data-sd-id="33">1</span>
+          </div>
+          <div class="sidebar-row text-[var(--muted-foreground)] hover:text-[var(--foreground)]" data-sd-id="34">
+            <div class="w-1 h-full bg-[#10B981] ml-[-10px] mr-2 flex-shrink-0" data-sd-id="35"></div>
+            <span class="truncate" data-sd-id="36">test: unit-suite</span>
+            <div class="ml-auto state-dot bg-[var(--ok)]" data-sd-id="37"></div>
+          </div>
+        </div>
+
+        <!-- Working (Active) -->
+        <div class="mb-4" data-sd-id="38">
+          <div class="sidebar-row" data-sd-id="39">
+            <iconify-icon icon="lucide:activity" class="mr-2 text-[var(--muted-foreground)]"></iconify-icon>
+            <span class="flex-1 font-semibold text-[var(--muted-foreground)] uppercase text-[10px] tracking-widest" data-sd-id="40">Working</span>
+            <span class="badge-count bg-[var(--border)] text-[var(--muted-foreground)]" data-sd-id="41">3</span>
+          </div>
+          <div class="sidebar-row active" data-sd-id="42">
+            <div class="w-1 h-full bg-[#F59E0B] ml-[-10px] mr-2 flex-shrink-0" data-sd-id="43"></div>
+            <span class="truncate" data-sd-id="44">fix: memory-leak</span>
+            <iconify-icon icon="lucide:loader-2" class="ml-auto text-[10px] animate-spin"></iconify-icon>
+          </div>
+          <div class="sidebar-row text-[var(--muted-foreground)] hover:text-[var(--foreground)]" data-sd-id="45">
+            <div class="w-1 h-full bg-[#EF4444] ml-[-10px] mr-2 flex-shrink-0" data-sd-id="46"></div>
+            <span class="truncate" data-sd-id="47">ci: github-actions</span>
+            <iconify-icon icon="lucide:loader-2" class="ml-auto text-[10px] animate-spin"></iconify-icon>
+          </div>
+          <div class="sidebar-row text-[var(--muted-foreground)] hover:text-[var(--foreground)]" data-sd-id="48">
+            <div class="w-1 h-full bg-[#6366F1] ml-[-10px] mr-2 flex-shrink-0" data-sd-id="49"></div>
+            <span class="truncate" data-sd-id="50">feat: ui-tokens</span>
+            <iconify-icon icon="lucide:loader-2" class="ml-auto text-[10px] animate-spin"></iconify-icon>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Bottom User Context / Quick Access -->
+      <div class="mt-auto border-t border-[var(--border)] p-2 bg-[var(--background)]" data-sd-id="51">
+        <div class="sidebar-row rounded-md" data-sd-id="52">
+          <iconify-icon icon="lucide:search" class="mr-2 opacity-50"></iconify-icon>
+          <span class="text-[var(--muted-foreground)]" data-sd-id="53">Quick Jump</span>
+          <span class="ml-auto mono-data text-[10px] border border-[var(--border)] px-1 rounded opacity-50" data-sd-id="54">⌘K</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area (Terminal/Pane View) -->
+    <main class="flex-1 bg-[var(--background)] relative flex flex-col" data-sd-id="55">
+      <header class="h-[var(--header-height)] border-b border-[var(--border)] flex items-center px-4 justify-between" data-sd-id="56">
+         <div class="flex items-center gap-2" data-sd-id="57">
+            <div class="w-2 h-2 rounded-full bg-[#F59E0B]" data-sd-id="58"></div>
+            <span class="text-sm font-medium" data-sd-id="59">fix: memory-leak</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-[var(--warn)]/10 text-[var(--warn)] border border-[var(--warn)]/20 uppercase" data-sd-id="60">Waiting</span>
+         </div>
+         <div class="flex items-center gap-3" data-sd-id="61">
+            <div class="flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 border border-white/5" data-sd-id="62">
+              <iconify-icon icon="simple-icons:anthropic" class="text-xs text-[#D97757]"></iconify-icon>
+              <span class="text-[11px] mono-data" data-sd-id="63">CLAUDE-3.5-SONNET</span>
+            </div>
+            <div class="flex gap-2 text-[var(--muted-foreground)]" data-sd-id="64">
+               <iconify-icon icon="lucide:maximize-2" class="hover:text-white cursor-pointer"></iconify-icon>
+               <iconify-icon icon="lucide:x" class="hover:text-white cursor-pointer"></iconify-icon>
+            </div>
+         </div>
+      </header>
+      
+      <!-- Terminal Mockup -->
+      <div class="flex-1 p-6 font-mono text-sm overflow-hidden" data-sd-id="65">
+        <div class="flex gap-2 mb-2 opacity-50" data-sd-id="66">
+          <span class="text-[var(--ok)]" data-sd-id="67">$</span>
+          <span data-sd-id="68">pnpm dev --filter core-engine</span>
+        </div>
+        <div class="text-[var(--muted-foreground)]" data-sd-id="69">
+          <p data-sd-id="70">&gt; core-engine@1.0.0 dev</p>
+          <p data-sd-id="71">&gt; tsx watch src/index.ts</p>
+          <br>
+          <p class="text-white" data-sd-id="72">[14:22:01] <span class="text-[var(--ok)]" data-sd-id="73">INFO</span> Agent initialized</p>
+          <p class="text-white" data-sd-id="74">[14:22:02] <span class="text-[var(--warn)]" data-sd-id="75">WARN</span> Memory pressure detected: 85%</p>
+          <p class="text-white" data-sd-id="76">[14:22:02] <span class="text-[#3B82F6]" data-sd-id="77">DEBUG</span> GC candidate found for index.ts</p>
+          <p class="animate-pulse border-l-2 border-white pl-1 ml-0.5 mt-2 h-4 w-1 bg-white" data-sd-id="78"></p>
+        </div>
+      </div>
+
+      <!-- Grid Overlay Hint (Visualizing the Nest Concept) -->
+      <div class="absolute inset-0 pointer-events-none border border-[var(--border)] m-4 rounded-lg flex items-center justify-center opacity-5" data-sd-id="79">
+         <iconify-icon icon="lucide:grid-3x3" class="text-9xl"></iconify-icon>
+      </div>
+    </main>
+  </div>
+
+</body></html>

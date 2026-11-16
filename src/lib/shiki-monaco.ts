@@ -210,7 +210,7 @@ async function syncToMonaco(highlighter: HighlighterCore, monaco: MonacoLike): P
   // sincrónico y varios callers lo hacen dentro de un commit de React (el
   // wrapper de @monaco-editor/react re-aplica su prop `theme` al re-crear el
   // widget; los catch de applyTheme caen a 'vs-dark'): sin guarda, un tema
-  // built-in post-patch desmontaba el árbol entero de React (pantalla negra).
+  // built-in post-patch desmontaría el árbol entero de React (pantalla negra).
   const patched = monaco.editor.setTheme
   const original = nativeSetTheme.get(monaco.editor)!
   monaco.editor.setTheme = (name: string) => {
@@ -282,7 +282,7 @@ export async function applyTheme(
     // El chequeo de "ya cargado" va ANTES de resolver la fuente: para temas
     // instalados, resolver implica listInstalled() (main lee y parsea TODOS
     // los json y los shippea por IPC) — hacerlo en cada mount de editor y
-    // cada re-apply era puro desperdicio.
+    // cada re-apply es puro desperdicio.
     if (!highlighter.getLoadedThemes().includes(themeName)) {
       let theme: VSCodeThemeJson | null = null
       const bundledLoader = BUNDLED_THEME_LOADERS[themeName]

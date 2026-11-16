@@ -45,6 +45,10 @@ export function useGitlab() {
 
   const connectGitlab = useCallback(async () => {
     setState(s => ({ ...s, error: null }))
+    // Un solo flujo OAuth pendiente a la vez, igual que useGitHub: `onOAuthCode` apila
+    // handlers, y un Connect abandonado seguido de otro canjeaba el mismo código dos
+    // veces (el segundo canje falla y pisa el estado con un error).
+    window.gitlab.removeOAuthListener()
     window.gitlab.onOAuthCode(async (code) => {
       window.gitlab.removeOAuthListener()
       try {

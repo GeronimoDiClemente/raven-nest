@@ -4,7 +4,7 @@
 // the previous inline TerminalPane definitions — do not diverge them.
 
 // CSI sequences, charset selects, keypad modes, BEL, and carriage returns.
-export const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-Z0-9]|\x1b[=>]|\x07|\r/g
+const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-Z0-9]|\x1b[=>]|\x07|\r/g
 export const stripAnsi = (s: string): string => s.replace(ANSI_RE, '')
 
 export const PROMPT_RE = /^\s*[\$\#\>❯➜]\s*$|^\s*$|^[0-9]+\s*$|\(base\)/

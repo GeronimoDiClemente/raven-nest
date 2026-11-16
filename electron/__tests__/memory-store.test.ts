@@ -1,0 +1,2083 @@
+// NOTE ON EXECUTION: these tests require the better-sqlite3 native binding, which could
+// not be built or fetched as a prebuilt binary in the sandbox this branch was developed
+// in (no Visual Studio Build Tools, and no published better-sqlite3 prebuild for the
+// sandbox's Node version — see the implementation report for details; this is exactly
+// risk R-5 in docs/nest-memory-architecture.md §10). They are believed correct against
+// the store's implementation and are written to run unmodified on any machine with a
+// working `npm run postinstall` (electron-rebuild) or a compatible better-sqlite3
+// prebuild. Run `npx vitest run electron/__tests__/memory-store.test.ts` to verify.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { join } from 'path'
+import { makeTmpDir, cleanupTmp } from './setup'
+import { MemoryStore, SCHEMA_VERSION, deriveImportSyncId, computeContentIdentity, resolveStorePath } from '../memory-store'
+import { swapMemoryStore, type SwapContext } from '../memory-account-switch'
+
+describe('MemoryStore — constructor pragmas', () => {
+  it('el store corre en synchronous FULL: sobrevive a un corte de luz (spec Layer 2 §8.3)', () => {
+    const dir = makeTmpDir('ms-constructor-test-')
+    const store = new MemoryStore(join(dir, 'memory.db'))
+    const db = (store as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } }).db
+
+    // 2 = FULL en SQLite. 1 = NORMAL, que es lo que habia antes.
+    expect(db.pragma('synchronous', { simple: true })).toBe(2)
+    expect(db.pragma('journal_mode', { simple: true })).toBe('wal')
+    store.close()
+    cleanupTmp(dir)
+  })
+})
+
+describe('MemoryStore — write path resolution (§3.1)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-store-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('inserts a new observation and appends one mutation_log row', () => {
+    const result = store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title: 'Use TanStack Query',
+      content: 'Decided to use TanStack Query for all server state.',
+      source: 'mcp',
+    })
+    expect(result.outcome).toBe('inserted')
+    expect(store.count()).toBe(1)
+    expect(store.pendingMutations()).toHaveLength(1)
+    expect(store.pendingMutations()[0].op).toBe('upsert')
+  })
+
+  it('topic_key upsert rewrites the row in place, keeping the same sync_id', () => {
+    const first = store.save({
+      projectKey: 'proj-a',
+      topicKey: 'architecture/auth-model',
+      type: 'architecture',
+      title: 'Auth model v1',
+      content: 'JWT-based auth with refresh tokens.',
+      source: 'mcp',
+    })
+    const second = store.save({
+      projectKey: 'proj-a',
+      topicKey: 'architecture/auth-model',
+      type: 'architecture',
+      title: 'Auth model v2',
+      content: 'Switched to session cookies.',
+      source: 'mcp',
+    })
+    expect(second.syncId).toBe(first.syncId)
+    expect(second.outcome).toBe('topic_updated')
+    expect(store.count()).toBe(1) // still one active row, not two
+    const row = store.get(first.syncId)
+    expect(row?.title).toBe('Auth model v2')
+    expect(row?.revision_count).toBe(1)
+  })
+
+  // Misma regla que el Task 13 para los caminos del import: re-guardar un tema con el mismo
+  // titulo, contenido y tags no es una escritura. Antes subia revision_count, updated_at y
+  // lamport, y logueaba una mutacion que re-pusheaba la fila a la nube sin que nada cambiara.
+  it('re-guardar un tema identico no escribe ni loguea una mutacion', () => {
+    const input = {
+      projectKey: 'proj-a',
+      topicKey: 'architecture/auth-model',
+      type: 'architecture' as const,
+      title: 'Auth model v1',
+      content: 'JWT-based auth with refresh tokens.',
+      tags: ['auth'],
+      source: 'mcp' as const,
+    }
+    const first = store.save(input)
+    const antes = store.get(first.syncId)!
+    const pendientes = store.pendingMutations().length
+
+    const second = store.save(input)
+
+    expect(second.syncId).toBe(first.syncId)
+    expect(second.outcome).toBe('topic_updated')
+    const despues = store.get(first.syncId)!
+    expect(despues.revision_count).toBe(antes.revision_count)
+    expect(despues.updated_at).toBe(antes.updated_at)
+    expect(despues.lamport).toBe(antes.lamport)
+    expect(store.pendingMutations()).toHaveLength(pendientes)
+  })
+
+  it('re-guardar un tema con tags distintos si cuenta como cambio', () => {
+    const base = {
+      projectKey: 'proj-a', topicKey: 't', type: 'pattern' as const,
+      title: 'T', content: 'Mismo contenido.', source: 'mcp' as const,
+    }
+    const first = store.save({ ...base, tags: ['a'] })
+    const pendientes = store.pendingMutations().length
+
+    store.save({ ...base, tags: ['b'] })
+
+    expect(store.get(first.syncId)!.revision_count).toBe(1)
+    expect(store.pendingMutations()).toHaveLength(pendientes + 1)
+  })
+
+  /**
+   * Cuarta revisión (2026-10-08): el arreglo del reloj de Lamport (leerlo de la BASE, adentro
+   * de la transacción IMMEDIATE) cubría `save()` y no `update()` ni `deleteObservation()`.
+   * Fuera de la transacción, otro proceso puede escribir entre la lectura del máximo y la
+   * escritura, y los dos salen con el mismo lamport.
+   */
+  describe('el lamport se lee adentro de la transacción', () => {
+    /** SQLite rechaza un BEGIN adentro de una transacción abierta: así se sabe si hay una. */
+    const espiarLamport = () => {
+      const db = (store as unknown as { db: { exec(s: string): void } }).db
+      const enTransaccion: boolean[] = []
+      const original = (store as unknown as { nextLamport: () => number }).nextLamport.bind(store)
+      vi.spyOn(store as unknown as { nextLamport: () => number }, 'nextLamport').mockImplementation(() => {
+        try { db.exec('BEGIN'); db.exec('ROLLBACK'); enTransaccion.push(false) } catch { enTransaccion.push(true) }
+        return original()
+      })
+      return enTransaccion
+    }
+    const guardar = () => store.save({ projectKey: 'p', type: 'decision', source: 'mcp', title: 'T', content: 'C' }).syncId
+
+    it('en update()', () => {
+      const id = guardar()
+      const enTransaccion = espiarLamport()
+      store.update({ syncId: id, content: 'otro contenido' })
+      expect(enTransaccion).toEqual([true])
+    })
+
+    it('en deleteObservation()', () => {
+      const id = guardar()
+      const enTransaccion = espiarLamport()
+      store.deleteObservation(id)
+      expect(enTransaccion).toEqual([true])
+    })
+  })
+
+  // Sin transacción, un fallo entre la fila y la mutación dejaba la fila borrada en local y
+  // el borrado sin replicar nunca: las otras máquinas la seguían viendo para siempre.
+  it('deleteObservation es atómico: si no se puede loguear la mutación, la fila no se borra', () => {
+    const id = store.save({ projectKey: 'p', type: 'decision', source: 'mcp', title: 'T', content: 'C' }).syncId
+    vi.spyOn(store as unknown as { appendMutation: () => void }, 'appendMutation').mockImplementation(() => {
+      throw new Error('disco lleno')
+    })
+    expect(() => store.deleteObservation(id)).toThrow('disco lleno')
+    vi.restoreAllMocks()
+    expect(store.get(id)?.deleted).toBe(0)
+  })
+
+  it('content dedupe window absorbs an identical save instead of inserting a duplicate', () => {
+    const first = store.save({
+      projectKey: 'proj-a',
+      type: 'bugfix',
+      title: 'Fixed N+1 query',
+      content: 'Root cause: missing eager load in UserList.',
+      source: 'mcp',
+    })
+    const second = store.save({
+      projectKey: 'proj-a',
+      type: 'bugfix',
+      title: 'Fixed N+1 query',
+      content: 'Root cause: missing eager load in UserList.',
+      source: 'mcp',
+    })
+    expect(second.syncId).toBe(first.syncId)
+    expect(second.outcome).toBe('duplicate')
+    expect(store.count()).toBe(1)
+    const row = store.get(first.syncId)
+    expect(row?.duplicate_count).toBe(1)
+  })
+
+  it('a different topic_key or different content produces separate rows', () => {
+    store.save({ projectKey: 'proj-a', topicKey: 'a', type: 'pattern', title: 'A', content: 'Content A here.', source: 'mcp' })
+    store.save({ projectKey: 'proj-a', topicKey: 'b', type: 'pattern', title: 'B', content: 'Content B here.', source: 'mcp' })
+    expect(store.count()).toBe(2)
+  })
+
+  it('scope isolation: a save with scope=personal never contaminates another project_key', () => {
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'A decision', content: 'Content for project A.', source: 'mcp' })
+    const results = store.context('proj-b')
+    expect(results).toHaveLength(0)
+  })
+
+  it('redacts secrets before persisting', () => {
+    const result = store.save({
+      projectKey: 'proj-a',
+      type: 'config',
+      title: 'API setup',
+      content: 'Set api_key=sk-abcdefghijklmnop123 in the .env file.',
+      source: 'mcp',
+    })
+    expect(result.redacted).toBe(true)
+    const row = store.get(result.syncId)
+    expect(row?.content).not.toContain('sk-abcdefghijklmnop123')
+  })
+})
+
+describe('MemoryStore — search & context', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-store-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('search finds a saved observation by content via FTS5', () => {
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'Weird bug', content: 'The websocket reconnect loop was the culprit.', source: 'mcp' })
+    const results = store.search('proj-a', 'websocket')
+    expect(results).toHaveLength(1)
+    expect(results[0].title).toBe('Weird bug')
+  })
+
+  // Hasta el 2026-10-19 la query entera iba entre comillas, o sea frase exacta: "Smoke paquete"
+  // no encontraba "Smoke del paquete". Un agente busca por palabras clave, no por la frase
+  // literal que usó quien la guardó.
+  it('search matches loose terms, not the exact phrase', () => {
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'Package smoke test', content: 'The smoke run of the package passed.', source: 'mcp' })
+    expect(store.search('proj-a', 'smoke package').map((r) => r.title)).toEqual(['Package smoke test'])
+    expect(store.search('proj-a', 'package   smoke').map((r) => r.title)).toEqual(['Package smoke test'])
+  })
+
+  it('search requires every term (AND), not any of them', () => {
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'Only smoke', content: 'Smoke without the other word.', source: 'mcp' })
+    expect(store.search('proj-a', 'smoke package')).toEqual([])
+  })
+
+  it('search treats FTS5 operators and punctuation in the query as plain text', () => {
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'Ops', content: 'Fixed memory-reads.ts NOT broken anymore.', source: 'mcp' })
+    expect(() => store.search('proj-a', 'NOT OR AND ( ) * ^ : - "')).not.toThrow()
+    expect(store.search('proj-a', 'memory-reads.ts NOT').map((r) => r.title)).toEqual(['Ops'])
+    expect(store.search('proj-a', '- * "')).toEqual([])
+  })
+
+  it('context returns recent observations ordered by updated_at desc', () => {
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'First', content: 'First decision made here.', source: 'mcp' })
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'Second', content: 'Second decision made here.', source: 'mcp' })
+    const results = store.context('proj-a', 5)
+    expect(results[0].title).toBe('Second')
+    expect(results[1].title).toBe('First')
+  })
+
+  it('context includes __global__ project-less memories alongside project-scoped ones', () => {
+    store.save({ projectKey: '__global__', type: 'preference', title: 'Global pref', content: 'User prefers dark mode everywhere.', source: 'mcp' })
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'Local decision', content: 'Only relevant to proj-a.', source: 'mcp' })
+    const results = store.context('proj-a', 10)
+    expect(results.map((r) => r.title).sort()).toEqual(['Global pref', 'Local decision'])
+  })
+})
+
+describe('MemoryStore — mutation log / offline queue (§4.5)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-store-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('markPushed clears pending mutations', () => {
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'X', content: 'Content X here for testing.', source: 'mcp' })
+    const pending = store.pendingMutations()
+    expect(pending).toHaveLength(1)
+    store.markPushed(pending.map((p) => p.seq))
+    expect(store.pendingMutations()).toHaveLength(0)
+  })
+
+  it('a topic_key update after the original save appends a SECOND mutation for the SAME sync_id', () => {
+    const first = store.save({ projectKey: 'proj-a', topicKey: 't', type: 'decision', title: 'v1', content: 'Version one content here.', source: 'mcp' })
+    store.save({ projectKey: 'proj-a', topicKey: 't', type: 'decision', title: 'v2', content: 'Version two content here.', source: 'mcp' })
+    const pending = store.pendingMutations()
+    expect(pending).toHaveLength(2)
+    expect(pending.every((p) => p.sync_id === first.syncId)).toBe(true)
+  })
+
+  // Task 8 (smoke/memory-bridge): a REVERSIBLE server rejection (project_limit_reached,
+  // quota_exceeded) must not be discarded the way markPushed() discards a terminal one —
+  // the user can lift these by paying or freeing space, so the mutation has to survive
+  // somewhere the daemon can find it again, without also being retried every single cycle.
+  describe('blockMutations / blockedMutations / unblockMutations', () => {
+    it('a blocked mutation disappears from pendingMutations but not from the log', () => {
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'X', content: 'x', source: 'mcp' })
+      const [row] = store.pendingMutations()
+
+      store.blockMutations([{ seq: row.seq, reason: 'project_limit_reached' }])
+
+      expect(store.pendingMutations().map((m) => m.seq)).not.toContain(row.seq)
+      expect(store.blockedMutations().map((m) => m.seq)).toContain(row.seq)
+    })
+
+    it('a blocked mutation is not counted as pending either', () => {
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'X', content: 'x', source: 'mcp' })
+      const [row] = store.pendingMutations()
+      store.blockMutations([{ seq: row.seq, reason: 'quota_exceeded' }])
+
+      expect(store.pendingMutationCount()).toBe(0)
+    })
+
+    it('blockMutations records the reason as last_error too, for visibility', () => {
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'X', content: 'x', source: 'mcp' })
+      const [row] = store.pendingMutations()
+      store.blockMutations([{ seq: row.seq, reason: 'project_limit_reached' }])
+
+      expect(store.blockedMutations()[0].last_error).toBe('project_limit_reached')
+    })
+
+    it('unblockMutations only lifts the reasons named, not every blocked row', () => {
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'A', content: 'a', source: 'mcp' })
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'B', content: 'b', source: 'mcp' })
+      const [rowA, rowB] = store.pendingMutations()
+      store.blockMutations([
+        { seq: rowA.seq, reason: 'project_limit_reached' },
+        { seq: rowB.seq, reason: 'quota_exceeded' },
+      ])
+
+      store.unblockMutations(['quota_exceeded'])
+
+      const pendingSeqs = store.pendingMutations().map((m) => m.seq)
+      expect(pendingSeqs).toContain(rowB.seq) // freed
+      expect(pendingSeqs).not.toContain(rowA.seq) // still blocked
+      expect(store.blockedMutations().map((m) => m.seq)).toEqual([rowA.seq])
+    })
+
+    it('an empty reasons list is a no-op, not "unblock everything"', () => {
+      store.save({ projectKey: 'proj-a', type: 'decision', title: 'X', content: 'x', source: 'mcp' })
+      const [row] = store.pendingMutations()
+      store.blockMutations([{ seq: row.seq, reason: 'project_limit_reached' }])
+
+      store.unblockMutations([])
+
+      expect(store.blockedMutations().map((m) => m.seq)).toContain(row.seq)
+    })
+  })
+})
+
+describe('MemoryStore — applyIncomingObservation (daemon pull-apply path, §4.4)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-store-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('inserts a row that does not exist locally yet, without going through save()s dedupe path', () => {
+    store.applyIncomingObservation({
+      syncId: 'obs-remote-1',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: null,
+      type: 'decision',
+      title: 'From another device',
+      content: 'Synced from device B.',
+      updatedAt: Date.now(),
+      lamport: 1,
+      deleted: false,
+    })
+    const row = store.get('obs-remote-1')
+    expect(row).not.toBeNull()
+    expect(row?.title).toBe('From another device')
+  })
+
+  it('is idempotent — applying the same incoming row twice does not duplicate', () => {
+    const incoming = {
+      syncId: 'obs-remote-2',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: null,
+      type: 'decision',
+      title: 'Idempotent row',
+      content: 'Should only exist once.',
+      updatedAt: Date.now(),
+      lamport: 1,
+      deleted: false,
+    }
+    store.applyIncomingObservation(incoming)
+    store.applyIncomingObservation(incoming)
+    expect(store.count()).toBe(1)
+  })
+
+  it('findActiveTopicOwner finds the current holder of a topic_key, excluding a given sync_id', () => {
+    store.save({ projectKey: 'proj-a', topicKey: 'architecture/x', type: 'architecture', title: 'X', content: 'Some content about X here.', source: 'mcp' })
+    const owner = store.findActiveTopicOwner('proj-a', 'personal', 'architecture/x', 'not-the-owner')
+    expect(owner).not.toBeNull()
+  })
+})
+
+// Coverage for the connect-time project-registration fix (gap #1, CLAUDE.md task
+// notes): electron/main.ts's memory:connect handler now calls ensureProject() for
+// every known repo root plus '__global__' BEFORE running the importers, so
+// memory-daemon.ts's doPull() (which bails out entirely when listProjects() is empty)
+// has something to iterate even on a device that only ever imports and never captures
+// live through memory-ipc-server.ts.
+describe('MemoryStore — projects (ensureProject / listProjects)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-store-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('registers a new project with enrolled=1 by default', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'raven-nest', rootPath: '/repos/raven-nest', remoteUrl: 'github.com/x/raven-nest' })
+    const projects = store.listProjects()
+    expect(projects).toEqual([{ projectKey: 'proj-a', displayName: 'raven-nest', enrolled: true }])
+  })
+
+  it('is idempotent — calling it again for the same project_key is a no-op (does not overwrite display_name)', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'raven-nest' })
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'renamed-locally-but-should-not-apply' })
+    const projects = store.listProjects()
+    expect(projects).toHaveLength(1)
+    expect(projects[0].displayName).toBe('raven-nest')
+  })
+
+  it('registers the __global__ partition alongside repo-derived projects so doPull() has something to iterate', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'raven-nest' })
+    store.ensureProject({ projectKey: '__global__', displayName: '__global__' })
+    const keys = store.listProjects().map((p) => p.projectKey)
+    expect(keys).toEqual(expect.arrayContaining(['proj-a', '__global__']))
+  })
+
+  it('listProjects returns [] when no project has ever been registered (the pre-fix broken state)', () => {
+    expect(store.listProjects()).toEqual([])
+  })
+
+  // Cifrado de equipo (Task 9 fix round 1): `setLocalTeamId` es el único lugar que escribe
+  // `projects.team_id` localmente — espejo de lo que `memory:shareProjectWithTeam` ya hizo
+  // contra el servidor. Sin esto, `teamIdForProjectKey` nunca encuentra nada.
+  it('setLocalTeamId marca team_id para ese project_key, y teamIdForProjectKey lo lee de vuelta', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'raven-nest' })
+    store.ensureProject({ projectKey: 'proj-b', displayName: 'otro-repo' })
+
+    expect(store.teamIdForProjectKey('proj-a')).toBeNull()
+
+    store.setLocalTeamId('proj-a', 'team-123')
+
+    expect(store.teamIdForProjectKey('proj-a')).toBe('team-123')
+    expect(store.teamIdForProjectKey('proj-b')).toBeNull()
+  })
+
+  // Task 14: el gate fail-closed del push de equipo lee esto, no la red — tiene que funcionar
+  // en el arranque y offline, igual que `knownKeyEpoch`. Nunca olvida.
+  it('rememberEncryptedTeams acumula, ignora basura y nunca olvida', () => {
+    expect(store.isTeamEncrypted('t1')).toBe(false)
+    store.rememberEncryptedTeams(['t1'])
+    store.rememberEncryptedTeams(['t2', '', 't1'])
+    store.rememberEncryptedTeams([]) // un status sin equipos no borra nada
+    expect(store.encryptedTeamIds()).toEqual(['t1', 't2'])
+    expect(store.isTeamEncrypted('t2')).toBe(true)
+  })
+})
+
+// Bug 1 & bug 2 fixes: importers need original timestamps preserved (not stamped to
+// `now`) and a stable cross-device identity (not a fresh random sync_id per import run)
+// so a local wipe + cloud reconnect doesn't re-insert duplicates. See
+// electron/memory-importers/engram.ts for the importer-side half of this.
+describe('MemoryStore — import identity & timestamps (bug 1 & bug 2 fixes)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-store-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('uses caller-supplied createdAt/updatedAt/lastSeenAt on insert instead of stamping now', () => {
+    const past = Date.now() - 1000 * 60 * 60 * 24 * 30 // 30 days ago
+    const result = store.save({
+      projectKey: 'proj-a',
+      type: 'discovery',
+      title: 'Imported row',
+      content: 'Some imported content here.',
+      source: 'import',
+      createdAt: past,
+      updatedAt: past + 1000,
+      lastSeenAt: past + 2000,
+    })
+    const row = store.get(result.syncId)
+    expect(row?.created_at).toBe(past)
+    expect(row?.updated_at).toBe(past + 1000)
+    expect(row?.last_seen_at).toBe(past + 2000)
+  })
+
+  it('stamps now for created_at/updated_at/last_seen_at when no timestamps are supplied (regression)', () => {
+    const before = Date.now()
+    const result = store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title: 'Regular save',
+      content: 'No timestamps supplied here.',
+      source: 'mcp',
+    })
+    const row = store.get(result.syncId)
+    expect(row!.created_at).toBeGreaterThanOrEqual(before)
+    expect(row!.created_at).toBe(row!.updated_at)
+    expect(row!.last_seen_at).toBe(row!.created_at)
+  })
+
+  it('uses a caller-supplied syncId on insert instead of generating a random one', () => {
+    const result = store.save({
+      projectKey: 'proj-a',
+      type: 'discovery',
+      title: 'Fixed id',
+      content: 'Deterministic identity here.',
+      source: 'import',
+      syncId: 'obs-deterministic-test',
+    })
+    expect(result.syncId).toBe('obs-deterministic-test')
+  })
+
+  it('a caller-supplied syncId matching an existing ACTIVE row updates it in place instead of colliding on insert', () => {
+    const first = store.save({
+      projectKey: 'proj-a',
+      type: 'discovery',
+      title: 'v1',
+      content: 'Version one content here.',
+      source: 'import',
+      syncId: 'obs-shared-id',
+    })
+    const second = store.save({
+      projectKey: 'proj-a',
+      type: 'discovery',
+      title: 'v2',
+      content: 'Version two content here.',
+      source: 'import',
+      syncId: 'obs-shared-id',
+    })
+
+    expect(second.syncId).toBe(first.syncId)
+    expect(second.outcome).toBe('source_ref_updated')
+    expect(store.count()).toBe(1) // not 2 — no PRIMARY KEY collision, no duplicate row
+    const row = store.get('obs-shared-id')
+    expect(row?.title).toBe('v2')
+    expect(row?.revision_count).toBe(1)
+  })
+
+  it('a syncId matching a row pulled from the server (no source_ref) resolves via sync_id-match, not a fresh insert', () => {
+    // Simulates the daemon's pull-apply path (§4.4) restoring a row after a local wipe —
+    // applyIncomingObservation never sets source_ref (the server has no such column), so
+    // Step 0's (source, source_ref) identity lookup in save() can never find this row
+    // again on re-import; only the sync_id-match step can.
+    store.applyIncomingObservation({
+      syncId: 'obs-from-server',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: null,
+      type: 'discovery',
+      title: 'Pulled from server',
+      content: 'Synced from another device before this device was wiped.',
+      updatedAt: Date.now() - 5000,
+      lamport: 1,
+      deleted: false,
+    })
+    expect(store.get('obs-from-server')?.source_ref).toBeNull()
+
+    const result = store.save({
+      projectKey: 'proj-a',
+      type: 'discovery',
+      title: 'Pulled from server',
+      content: 'Synced from another device before this device was wiped.',
+      source: 'import',
+      sourceRef: 'engram:some-id', // no local row has this yet (wiped) — Step 0 can't find it
+      syncId: 'obs-from-server', // but the sync_id survived the pull
+    })
+
+    expect(result.outcome).toBe('source_ref_updated')
+    expect(result.syncId).toBe('obs-from-server')
+    expect(store.count()).toBe(1) // NOT 2 — no duplicate inserted
+  })
+
+  it('a syncId matching a tombstoned row resolves to it as a duplicate without resurrecting it', () => {
+    const first = store.save({
+      projectKey: 'proj-a',
+      type: 'discovery',
+      title: 'Original',
+      content: 'Original content here for testing.',
+      source: 'import',
+      syncId: 'obs-lineage',
+    })
+    store.deleteObservation(first.syncId)
+
+    const result = store.save({
+      projectKey: 'proj-a',
+      type: 'discovery',
+      title: 'Reimported after delete',
+      content: 'Should not resurrect the tombstoned row.',
+      source: 'import',
+      syncId: 'obs-lineage',
+    })
+
+    expect(result.outcome).toBe('duplicate')
+    expect(result.syncId).toBe('obs-lineage')
+    const row = store.get('obs-lineage')
+    expect(row?.deleted).toBe(1) // untouched
+    expect(row?.content).toBeNull() // tombstone stays nulled, not overwritten
+  })
+
+  it('deriveImportSyncId is deterministic for the same inputs and differs when project/scope/type/hash differ', () => {
+    const a1 = deriveImportSyncId('proj-a', 'personal', 'decision', 'hash-1')
+    const a2 = deriveImportSyncId('proj-a', 'personal', 'decision', 'hash-1')
+    const byHash = deriveImportSyncId('proj-a', 'personal', 'decision', 'hash-2')
+    const byProject = deriveImportSyncId('proj-b', 'personal', 'decision', 'hash-1')
+    const byScope = deriveImportSyncId('proj-a', 'project', 'decision', 'hash-1')
+    const byType = deriveImportSyncId('proj-a', 'personal', 'bugfix', 'hash-1')
+    expect(a1).toBe(a2)
+    expect(a1).not.toBe(byHash)
+    expect(a1).not.toBe(byProject)
+    expect(a1).not.toBe(byScope)
+    expect(a1).not.toBe(byType)
+    expect(a1).toMatch(/^obs-[0-9a-f]{32}$/)
+  })
+
+  it('deriveImportSyncId is source-agnostic: does NOT take the import source as an input', () => {
+    // Regression for the field failure this replaces: the OLD formula was
+    // sha256(`${source}:${sourceRef}`), which meant two different importers (or two
+    // engram installs with different internal sync_ids) for the SAME content diverged.
+    // The new signature has no `source`/`sourceRef` parameter at all — this test just
+    // documents that two calls with identical (projectKey, scope, type, contentHash)
+    // always match, which is the whole point of excluding source from the seed.
+    const fromEngramLikeContext = deriveImportSyncId('proj-a', 'personal', 'discovery', 'same-content-hash')
+    const fromMarkdownLikeContext = deriveImportSyncId('proj-a', 'personal', 'discovery', 'same-content-hash')
+    expect(fromEngramLikeContext).toBe(fromMarkdownLikeContext)
+  })
+})
+
+// Content-derived import identity (cross-device dedupe fix): the field failure was 261
+// duplicate content groups because deriveImportSyncId used to key off (source,
+// sourceRef) instead of content. See deriveImportSyncId's doc comment in
+// memory-store.ts for the full story.
+describe('MemoryStore — content-derived import identity (cross-device dedupe fix)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-store-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('two saves with identical content but DIFFERENT source_ref derive the same sync_id and converge on one row via Step 0.5, without violating idx_obs_source_ref', () => {
+    const { hash } = computeContentIdentity('Shared title', 'Shared content body here.')
+    const derivedSyncId = deriveImportSyncId('proj-a', 'personal', 'discovery', hash)
+
+    // Simulates device A's engram sync_id.
+    const first = store.save({
+      projectKey: 'proj-a',
+      type: 'discovery',
+      title: 'Shared title',
+      content: 'Shared content body here.',
+      source: 'import',
+      sourceRef: 'engram:device-a-id',
+      syncId: derivedSyncId,
+    })
+    expect(first.outcome).toBe('inserted')
+    expect(first.syncId).toBe(derivedSyncId)
+
+    // Simulates device B's engram sync_id for the SAME underlying content, arriving in
+    // the same import run (Step 0's source_ref lookup can't find it — this source_ref
+    // has never been seen — so this must fall through to Step 0.5's sync_id match).
+    let second: ReturnType<typeof store.save> | undefined
+    expect(() => {
+      second = store.save({
+        projectKey: 'proj-a',
+        type: 'discovery',
+        title: 'Shared title',
+        content: 'Shared content body here.',
+        source: 'import',
+        sourceRef: 'engram:device-b-id',
+        syncId: derivedSyncId,
+      })
+    }).not.toThrow() // must NOT be a PRIMARY KEY or idx_obs_source_ref UNIQUE violation
+
+    expect(second?.outcome).toBe('source_ref_updated')
+    expect(second?.syncId).toBe(derivedSyncId)
+    expect(store.count()).toBe(1) // one observation, not two
+
+    const row = store.get(derivedSyncId)
+    expect(row?.source_ref).toBe('engram:device-b-id') // last writer's source_ref wins, no leftover row holds the old one
+
+    // Task 13 (2026-09-09): this used to assert `revision_count === 1`, using that counter as
+    // a proxy for "went through the update path". The content is byte-identical between the
+    // two saves, so the update path now applies ONLY the local source_ref and skips the
+    // rewrite — no revision, no new lamport, no mutation. The proxy is replaced by the thing
+    // it stood for, which is also the thing that actually matters: one row, one push.
+    expect(row?.revision_count).toBe(0)
+    expect(store.pendingMutations().filter((m) => m.sync_id === derivedSyncId)).toHaveLength(1)
+  })
+})
+
+// Finding 1 fix: deriveImportSyncId used to ignore topic_key entirely, so two import rows
+// sharing (projectKey, scope, type, content_hash) but carrying DIFFERENT topic_key values
+// derived the SAME sync_id — save()'s Step 0.5 update path then silently dropped the
+// second import's topic classification (it never writes topic_key on that path) while
+// flipping source_ref to the second import's, and alternating re-imports ping-ponged
+// source_ref on one row instead of ever producing two. See deriveImportSyncId's doc
+// comment in memory-store.ts for the full story.
+describe('MemoryStore — topic-aware import identity (Finding 1 fix)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-store-topic-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('same content, DIFFERENT topicKey -> two distinct rows, both retrievable, distinct sync_ids', () => {
+    const { hash } = computeContentIdentity('Shared title', 'Shared content body, byte-identical across both topics.')
+    const syncIdTopicA = deriveImportSyncId('proj-a', 'personal', 'discovery', hash, 'topic/a')
+    const syncIdTopicB = deriveImportSyncId('proj-a', 'personal', 'discovery', hash, 'topic/b')
+    expect(syncIdTopicA).not.toBe(syncIdTopicB)
+
+    const first = store.save({
+      projectKey: 'proj-a',
+      topicKey: 'topic/a',
+      type: 'discovery',
+      title: 'Shared title',
+      content: 'Shared content body, byte-identical across both topics.',
+      source: 'import',
+      sourceRef: 'source:topic-a',
+      syncId: syncIdTopicA,
+    })
+    const second = store.save({
+      projectKey: 'proj-a',
+      topicKey: 'topic/b',
+      type: 'discovery',
+      title: 'Shared title',
+      content: 'Shared content body, byte-identical across both topics.',
+      source: 'import',
+      sourceRef: 'source:topic-b',
+      syncId: syncIdTopicB,
+    })
+
+    expect(first.outcome).toBe('inserted')
+    expect(second.outcome).toBe('inserted') // NOT folded into a Step 0.5 update or a Step 2 content dupe
+    expect(first.syncId).not.toBe(second.syncId)
+    expect(store.count()).toBe(2)
+
+    const rowA = store.get(syncIdTopicA)
+    const rowB = store.get(syncIdTopicB)
+    expect(rowA?.topic_key).toBe('topic/a')
+    expect(rowB?.topic_key).toBe('topic/b')
+    expect(rowA?.source_ref).toBe('source:topic-a') // neither row's source_ref was clobbered by the other
+    expect(rowB?.source_ref).toBe('source:topic-b')
+  })
+
+  it('same content, SAME topicKey, across two independent stores -> same sync_id (cross-device convergence preserved)', () => {
+    const dir2 = makeTmpDir('raven-memory-store-topic-2-')
+    const store2 = new MemoryStore(join(dir2, 'memory.db'))
+    try {
+      const { hash } = computeContentIdentity('Auth model', 'JWT-based auth with refresh tokens.')
+      const syncId = deriveImportSyncId('proj-a', 'personal', 'architecture', hash, 'architecture/auth-model')
+
+      const resultA = store.save({
+        projectKey: 'proj-a',
+        topicKey: 'architecture/auth-model',
+        type: 'architecture',
+        title: 'Auth model',
+        content: 'JWT-based auth with refresh tokens.',
+        source: 'import',
+        sourceRef: 'device-a:some-id',
+        syncId,
+      })
+      const resultB = store2.save({
+        projectKey: 'proj-a',
+        topicKey: 'architecture/auth-model',
+        type: 'architecture',
+        title: 'Auth model',
+        content: 'JWT-based auth with refresh tokens.',
+        source: 'import',
+        sourceRef: 'device-b:some-other-id',
+        syncId,
+      })
+
+      expect(resultA.syncId).toBe(resultB.syncId)
+      expect(resultA.syncId).toBe(syncId)
+    } finally {
+      store2.close()
+      cleanupTmp(dir2)
+    }
+  })
+})
+
+describe('MemoryStore — superseding the local row on a topic collision (C2)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-c2-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('supersedes the local row and applies the incoming one without violating idx_obs_topic', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
+    store.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      topicKey: 'deploy-target',
+      title: 'local wins for now',
+      content: 'written on this machine',
+      source: 'mcp',
+    })
+    const local = store.context('proj-a', 10)[0]
+
+    expect(() =>
+      store.applyIncomingObservation({
+        syncId: 'obs_remota',
+        projectKey: 'proj-a',
+        scope: 'personal',
+        topicKey: 'deploy-target',
+        type: 'decision',
+        title: 'the remote one wins',
+        content: 'written on the other machine',
+        updatedAt: Date.now() + 60_000,
+        lamport: 99,
+        deleted: false,
+        supersedeLocal: local.syncId,
+      })
+    ).not.toThrow()
+
+    const active = store.context('proj-a', 10)
+    expect(active).toHaveLength(1)
+    expect(active[0].syncId).toBe('obs_remota')
+    expect(store.get(local.syncId)?.superseded_by).toBe('obs_remota')
+  })
+
+  it('leaves the local row untouched when applying the incoming one throws', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
+    store.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      topicKey: 'deploy-target',
+      title: 'local',
+      content: 'x',
+      source: 'mcp',
+    })
+    const local = store.context('proj-a', 10)[0]
+
+    expect(() =>
+      store.applyIncomingObservation({
+        syncId: 'obs_rota',
+        projectKey: 'proj-a',
+        scope: 'fails-the-CHECK',
+        topicKey: 'deploy-target',
+        type: 'decision',
+        title: 'breaks the scope CHECK',
+        content: 'x',
+        updatedAt: Date.now(),
+        lamport: 1,
+        deleted: false,
+        supersedeLocal: local.syncId,
+      })
+    ).toThrow()
+
+    expect(store.get(local.syncId)?.superseded_by).toBeNull()
+  })
+})
+
+describe('MemoryStore — schema versioning (C3)', () => {
+  let dir: string
+
+  beforeEach(() => { dir = makeTmpDir('raven-memory-c3-') })
+  afterEach(() => { cleanupTmp(dir) })
+
+  // El pin sube A MANO con cada migracion, y es a proposito: es lo que obliga a que alguien
+  // mire la migracion nueva antes de que salga. v5 agrega `memory_links` — las relaciones
+  // puestas a mano entre dos memorias.
+  // `meta` no tiene setter publico: el estado del que parte la migracion se escribe crudo.
+  const metaCrudo = (store: MemoryStore, key: string, value: string) => {
+    ;(store as unknown as { db: { prepare(s: string): { run(...a: unknown[]): unknown } } }).db
+      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+      .run(key, value)
+  }
+
+  it('SCHEMA_VERSION is pinned to the published value', () => {
+    // 8 desde el 2026-09-13: el índice sobre `lamport`, que vuelve barato leer el reloj de
+    // Lamport desde la base en vez de un contador en memoria (medido: 278µs sin índice contra
+    // 1µs con él). La 7 movió el conjunto de memorias ilegibles a su propia tabla.
+    //
+    // Este test existe para que subir el esquema sea una decisión y no un descuido — si lo
+    // estás cambiando, la migración correspondiente tiene que estar escrita y testeada.
+    expect(SCHEMA_VERSION).toBe(8)
+  })
+
+  /**
+   * La migracion 7 no puede empezar de cero: una maquina que todavia no consiguio la clave
+   * tiene memorias anotadas como ilegibles, y si la actualizacion las perdiera la tarjeta
+   * mostraria 0 — que se lee como "ya esta resuelto" cuando no se resolvio nada.
+   */
+  it('la v7 se queda con los ilegibles que el JSON de meta ya tenia', () => {
+    const ruta = join(dir, 'migrar-7.db')
+    const v6 = new MemoryStore(ruta)
+    ;(v6 as unknown as { db: { pragma(s: string): unknown; exec(s: string): unknown } }).db
+      .exec('DROP TABLE IF EXISTS undecryptable')
+    ;(v6 as unknown as { db: { pragma(s: string): unknown } }).db.pragma('user_version = 6')
+    metaCrudo(v6, 'undecryptable_ids', JSON.stringify(['obs_a', 'obs_b', 'obs_c']))
+    v6.close()
+
+    const v7 = new MemoryStore(ruta)
+    expect(v7.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(v7.undecryptableCount()).toBe(3)
+    // Y la clave vieja de `meta` no queda dando vueltas como segunda fuente de verdad.
+    v7.clearUndecryptableFor('obs_a')
+    expect(v7.undecryptableCount()).toBe(2)
+    v7.close()
+  })
+
+  it('un JSON roto en meta no frena la migracion', () => {
+    const ruta = join(dir, 'migrar-7-roto.db')
+    const v6 = new MemoryStore(ruta)
+    ;(v6 as unknown as { db: { pragma(s: string): unknown; exec(s: string): unknown } }).db
+      .exec('DROP TABLE IF EXISTS undecryptable')
+    ;(v6 as unknown as { db: { pragma(s: string): unknown } }).db.pragma('user_version = 6')
+    metaCrudo(v6, 'undecryptable_ids', 'esto no es JSON')
+    v6.close()
+
+    const v7 = new MemoryStore(ruta)
+    expect(v7.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(v7.undecryptableCount()).toBe(0)
+    v7.close()
+  })
+
+  // Task 8 (smoke/memory-bridge): the memory dir syncs across two machines, so a v1
+  // database (blocked_reason column absent) opened by a build that already knows v2 is
+  // the routine case, not an edge case — it's every existing user's database on upgrade.
+  it('a v1 database gains blocked_reason via migration without losing data', () => {
+    const dbPath = join(dir, 'memory.db')
+    const v1 = new MemoryStore(dbPath)
+    v1.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
+    v1.save({ projectKey: 'proj-a', scope: 'personal', type: 'decision', title: 'pre-migration', content: 'x', source: 'mcp' })
+    ;(v1 as unknown as { db: { pragma(s: string): unknown } }).db.pragma('user_version = 1')
+    v1.close()
+
+    const v2 = new MemoryStore(dbPath)
+    expect(v2.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(v2.count()).toBe(1)
+    // The real point of the test: the new column exists and is usable, not just that the
+    // migration ran without throwing.
+    const [row] = v2.pendingMutations()
+    v2.blockMutations([{ seq: row.seq, reason: 'quota_exceeded' }])
+    expect(v2.blockedMutations()).toHaveLength(1)
+    v2.close()
+  })
+
+  it('a fresh database lands on the current version', () => {
+    const store = new MemoryStore(join(dir, 'memory.db'))
+    expect(store.schemaVersion).toBe(SCHEMA_VERSION)
+    const userVersion = (store as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } })
+      .db.pragma('user_version', { simple: true })
+    expect(userVersion).toBe(SCHEMA_VERSION)
+    store.close()
+  })
+
+  it('reopening an existing database loses no data', () => {
+    const first = new MemoryStore(join(dir, 'memory.db'))
+    first.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
+    first.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      title: 'survives the reopen',
+      content: 'x',
+      source: 'mcp',
+    })
+    first.close()
+
+    const second = new MemoryStore(join(dir, 'memory.db'))
+    expect(second.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(second.count()).toBe(1)
+    const userVersion = (second as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } })
+      .db.pragma('user_version', { simple: true })
+    expect(userVersion).toBe(SCHEMA_VERSION)
+    second.close()
+  })
+
+  // Two machines share one synced memory dir, so the day SCHEMA_VERSION becomes 2 the
+  // machine still on 1 WILL open a v2 database. The loop simply doesn't run in that
+  // direction, so the old code no-op'd, adopted the higher number and then wrote against
+  // a schema it has never seen. main.ts's try/catch turns this throw into "memory
+  // disabled for this session".
+  it('refuses to open a database whose schema is newer than this build', () => {
+    const dbPath = join(dir, 'memory.db')
+    const store = new MemoryStore(dbPath)
+    ;(store as unknown as { db: { pragma(s: string): unknown } }).db.pragma(`user_version = ${SCHEMA_VERSION + 1}`)
+    store.close()
+
+    expect(() => new MemoryStore(dbPath)).toThrow(/newer than this build/)
+  })
+
+  it('an old database with no user_version is adopted without deleting anything', () => {
+    const legacy = new MemoryStore(join(dir, 'memory.db'))
+    legacy.ensureProject({ projectKey: 'proj-a', displayName: 'proj-a' })
+    legacy.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      title: 'written before schema versioning existed',
+      content: 'x',
+      source: 'mcp',
+    })
+    // simulates the field state: tables created, user_version never set
+    ;(legacy as unknown as { db: { pragma(s: string): unknown } }).db.pragma('user_version = 0')
+    legacy.close()
+
+    const migrated = new MemoryStore(join(dir, 'memory.db'))
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(migrated.count()).toBe(1)
+    const userVersion = (migrated as unknown as { db: { pragma(s: string, o?: { simple?: boolean }): unknown } })
+      .db.pragma('user_version', { simple: true })
+    expect(userVersion).toBe(SCHEMA_VERSION)
+    migrated.close()
+  })
+})
+
+// La memoria es de la CUENTA DE NEST, no de la máquina ni de la IA. El store, en cambio,
+// vive en `{home}/.raven-nest/memory/memory.db` — uno por máquina — y `pendingMutations()`
+// no filtraba por nadie. Con un sign out / sign in (un botón de Settings), el daemon de la
+// segunda cuenta empujaba a SU nube las memorias de la primera.
+//
+// Esto sella el autor en cada escritura y filtra el push. La partición de la base por
+// cuenta es el paso siguiente; esto cierra la fuga a la nube ajena, que es la parte grave.
+describe('MemoryStore — la memoria es de una cuenta de Nest', () => {
+  let dir: string
+  let store: MemoryStore
+
+  const USER_A = 'user-aaaa'
+  const USER_B = 'user-bbbb'
+
+  function guardar(store: MemoryStore, title: string) {
+    return store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title,
+      content: `Contenido de ${title}, con largo suficiente para no ser descartado.`,
+      source: 'pty',
+    })
+  }
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-owner-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('sin cuenta activa no hay dueño', () => {
+    expect(store.getOwnerUserId()).toBeNull()
+  })
+
+  it('la primera cuenta que entra reclama el store y adopta lo que ya habia', () => {
+    guardar(store, 'Escrito antes de loguearse')
+
+    const r = store.setCurrentUser(USER_A)
+
+    expect(r.claimed).toBe(true)
+    expect(r.adopted).toBeGreaterThan(0)
+    expect(store.getOwnerUserId()).toBe(USER_A)
+  })
+
+  it('una segunda cuenta NO adopta lo de la primera', () => {
+    guardar(store, 'De la primera cuenta')
+    store.setCurrentUser(USER_A)
+
+    const r = store.setCurrentUser(USER_B)
+
+    expect(r.claimed).toBe(false)
+    expect(r.adopted).toBe(0)
+    expect(store.getOwnerUserId()).toBe(USER_A)
+  })
+
+  it('el push de una cuenta no arrastra las memorias de la otra', () => {
+    guardar(store, 'De la primera cuenta')
+    store.setCurrentUser(USER_A)
+    expect(store.pendingMutations().length).toBe(1)
+
+    store.setCurrentUser(USER_B)
+
+    // Lo de A no aparece para B, que es la fuga que esto cierra.
+    expect(store.pendingMutations()).toEqual([])
+    expect(store.pendingMutationCount()).toBe(0)
+
+    guardar(store, 'De la segunda cuenta')
+    const deB = store.pendingMutations()
+    expect(deB.length).toBe(1)
+    expect(JSON.parse(deB[0].payload).title).toBe('De la segunda cuenta')
+  })
+
+  it('lo de la primera cuenta sigue ahi cuando vuelve, no se perdio', () => {
+    guardar(store, 'De la primera cuenta')
+    store.setCurrentUser(USER_A)
+    store.setCurrentUser(USER_B)
+
+    store.setCurrentUser(USER_A)
+
+    expect(store.pendingMutations().length).toBe(1)
+  })
+
+  it('sella el autor en cada escritura nueva', () => {
+    store.setCurrentUser(USER_A)
+    guardar(store, 'Con dueño')
+
+    const [m] = store.pendingMutations()
+    expect(m.author_user_id).toBe(USER_A)
+  })
+})
+
+// Task 1 del plan de memoria por cuenta multi-dispositivo (Step 1): originalmente este test
+// llamaba setCurrentUser() dos veces sobre UNA sola instancia de MemoryStore compartida —
+// eso prueba si search() filtra por autor DENTRO de un mismo archivo, que nunca fue el
+// diseño elegido (setCurrentUser sella el autor de cada fila, pero no fue pensado para
+// filtrar cada búsqueda) y por eso quedaba rojo para siempre incluso después de implementar
+// el resto de la Task 1: physical separation vive en swapMemoryStore()/resolveStorePath(),
+// no en MemoryStore.search(). Reescrito para ejercitar el camino real — el mismo que usa
+// electron/main.ts en cada 'memory:setUser' — probando lo que la Task 1 realmente prometía:
+// dos cuentas en la misma máquina terminan en archivos .db físicamente distintos.
+describe('MemoryStore — la memoria de una cuenta no aparece en la busqueda de otra (Task 1)', () => {
+  let home: string
+
+  const USER_A = 'user-aaaa'
+  const USER_B = 'user-bbbb'
+
+  function fakeDaemon() {
+    return { pause: vi.fn(async () => {}), resume: vi.fn(() => {}), setStore: vi.fn((_s: MemoryStore) => {}) }
+  }
+  function fakeIpcServer() {
+    return { suspend: vi.fn(async () => {}), resume: vi.fn(() => {}), setStore: vi.fn((_s: MemoryStore) => {}) }
+  }
+
+  beforeEach(() => {
+    home = makeTmpDir('raven-memory-isolation-')
+  })
+
+  afterEach(() => {
+    cleanupTmp(home)
+  })
+
+  it('B no encuentra en la busqueda lo que A guardo antes de que B entrara', async () => {
+    const localPath = resolveStorePath(home, null)
+    const localStore = new MemoryStore(localPath)
+    let ctx: SwapContext = { store: localStore, daemon: fakeDaemon(), ipcServer: fakeIpcServer(), currentStorePath: localPath }
+
+    // A entra primero: adopta el _local (mismo flujo que 'memory:setUser' en main.ts).
+    const afterA = await swapMemoryStore(ctx, home, USER_A)
+    afterA.store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title: 'Secreto de A',
+      content: 'ContenidoUnicoDeLaCuentaA con largo suficiente para no ser descartado.',
+      source: 'pty',
+    })
+
+    // B entra despues, en la misma maquina: es una cuenta real nueva, no hereda _local.
+    ctx = { store: afterA.store, daemon: fakeDaemon(), ipcServer: fakeIpcServer(), currentStorePath: afterA.currentStorePath }
+    const afterB = await swapMemoryStore(ctx, home, USER_B)
+
+    const results = afterB.store.search('proj-a', 'ContenidoUnicoDeLaCuentaA')
+
+    // Cada cuenta tiene su propia base fisica: B no ve nada de A.
+    expect(results.length).toBe(0)
+    expect(afterB.currentStorePath).not.toBe(afterA.currentStorePath)
+
+    afterB.store.close()
+  })
+})
+
+// Task 1 del plan de memoria por cuenta multi-dispositivo (Step 2): resolveStorePath es
+// pura (cero fs) — sólo calcula el path, no decide si hay que migrar un store `_local`
+// preexistente. Esa decisión la toma quien orquesta el swap (memory-account-switch.ts).
+describe('resolveStorePath (Task 1, Step 2)', () => {
+  const home = join('C:', 'Users', 'gero')
+
+  it('userId null cae en la particion _local', () => {
+    expect(resolveStorePath(home, null)).toBe(join(home, '.raven-nest', 'memory', '_local', 'memory.db'))
+  })
+
+  it('userId string vacia tambien cae en _local', () => {
+    expect(resolveStorePath(home, '')).toBe(join(home, '.raven-nest', 'memory', '_local', 'memory.db'))
+  })
+
+  it('un userId concreto usa su propia subcarpeta', () => {
+    expect(resolveStorePath(home, 'user-aaaa')).toBe(join(home, '.raven-nest', 'memory', 'user-aaaa', 'memory.db'))
+  })
+
+  it('dos userIds distintos no colisionan entre si ni con _local', () => {
+    const a = resolveStorePath(home, 'user-aaaa')
+    const b = resolveStorePath(home, 'user-bbbb')
+    const local = resolveStorePath(home, null)
+    expect(a).not.toBe(b)
+    expect(a).not.toBe(local)
+    expect(b).not.toBe(local)
+  })
+})
+
+// Task 2 del plan de memoria por cuenta multi-dispositivo (adopcion con aviso): antes de
+// que swapMemoryStore() reclame en silencio lo que hay en `_local`, el renderer necesita
+// saber CUANTO hay y DE QUE proyectos, para poder preguntar "¿son tuyas?" en vez de
+// adoptar sin avisar.
+describe('MemoryStore — countUnclaimedRows (Task 2, el diagnostico para el dialogo de adopcion)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-unclaimed-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('base recien creada, sin nadie logueado nunca: 0 filas, 0 proyectos', () => {
+    expect(store.countUnclaimedRows()).toEqual({ count: 0, projects: [] })
+  })
+
+  it('cuenta las filas guardadas antes de que exista una cuenta activa', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Proyecto A' })
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 't1', content: 'contenido uno con largo suficiente', source: 'pty' })
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 't2', content: 'contenido dos con largo suficiente', source: 'pty' })
+
+    expect(store.countUnclaimedRows()).toEqual({ count: 2, projects: ['Proyecto A'] })
+  })
+
+  it('junta proyectos distintos sin duplicar, ordenados', () => {
+    store.ensureProject({ projectKey: 'proj-b', displayName: 'Zeta' })
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Alfa' })
+    store.save({ projectKey: 'proj-b', type: 'discovery', title: 't1', content: 'contenido en zeta con largo suficiente', source: 'pty' })
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 't2', content: 'contenido en alfa con largo suficiente', source: 'pty' })
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 't3', content: 'otro contenido en alfa con largo suficiente', source: 'pty' })
+
+    expect(store.countUnclaimedRows()).toEqual({ count: 3, projects: ['Alfa', 'Zeta'] })
+  })
+
+  it('una vez que una cuenta reclamo el store, ya no queda nada sin dueno', () => {
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Proyecto A' })
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 't1', content: 'contenido con largo suficiente', source: 'pty' })
+    store.setCurrentUser('user-aaaa')
+
+    expect(store.countUnclaimedRows()).toEqual({ count: 0, projects: [] })
+  })
+})
+
+// Task 4 (los handoffs dejan de ser un archivo del worktree): el handoff se guarda ADEMAS
+// como observacion type:'handoff', para poder reconstruirlo en otra maquina cuando el
+// worktree local no tiene .nest/handoff.md. latestByType() es el lado de lectura.
+describe('MemoryStore — latestByType (Task 4, reconstruir el handoff en otra maquina)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-latestbytype-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Proyecto A' })
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('null cuando no hay ninguna observacion de ese tipo', () => {
+    expect(store.latestByType('proj-a', 'handoff')).toBeNull()
+  })
+
+  it('devuelve la mas reciente cuando hay varias', () => {
+    store.save({ projectKey: 'proj-a', type: 'handoff', title: 'h1', content: 'primer handoff', source: 'ui' })
+    store.save({ projectKey: 'proj-a', type: 'handoff', title: 'h2', content: 'segundo handoff, mas nuevo', source: 'ui' })
+
+    const latest = store.latestByType('proj-a', 'handoff')
+    expect(latest?.content).toBe('segundo handoff, mas nuevo')
+  })
+
+  it('no confunde tipos: un "session" mas nuevo no tapa al ultimo "handoff"', () => {
+    store.save({ projectKey: 'proj-a', type: 'handoff', title: 'h1', content: 'el handoff que importa', source: 'ui' })
+    store.save({ projectKey: 'proj-a', type: 'session', title: 's1', content: 'un rollup de sesion, no es un handoff', source: 'hook' })
+
+    const latest = store.latestByType('proj-a', 'handoff')
+    expect(latest?.content).toBe('el handoff que importa')
+  })
+
+  it('no confunde proyectos: el handoff de otro proyecto no aparece', () => {
+    store.ensureProject({ projectKey: 'proj-b', displayName: 'Proyecto B' })
+    store.save({ projectKey: 'proj-b', type: 'handoff', title: 'hb', content: 'handoff de B', source: 'ui' })
+
+    expect(store.latestByType('proj-a', 'handoff')).toBeNull()
+  })
+
+  it('ignora una observacion borrada', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'handoff', title: 'h1', content: 'handoff borrado', source: 'ui' })
+    store.deleteObservation(saved.syncId)
+
+    expect(store.latestByType('proj-a', 'handoff')).toBeNull()
+  })
+})
+
+describe('MemoryStore — cursores de equipo', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-team-cursors-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('sin ninguno guardado devuelve vacío', () => {
+    expect(store.getTeamCursors()).toEqual({})
+  })
+
+  it('guarda uno por proyecto de origen, sin tocar el cursor propio del proyecto', () => {
+    store.setSyncState('proj-a', { pullCursor: 6 })
+    store.setTeamCursor('proj-a', '41', 3)
+    store.setTeamCursor('proj-a', '57', 9)
+    store.setTeamCursor('proj:con:dos:puntos', '41', 1)
+    store.setTeamCursor('proj-a', '41', 4)
+
+    expect(store.getTeamCursors()).toEqual({
+      'proj-a': { '41': 4, '57': 9 },
+      'proj:con:dos:puntos': { '41': 1 },
+    })
+    expect(store.getSyncState('proj-a').pullCursor).toBe(6)
+  })
+
+  it('un source que no es numérico no se guarda', () => {
+    store.setTeamCursor('proj-a', 'x:y', 3)
+    expect(store.getTeamCursors()).toEqual({})
+  })
+
+  it('resetPullCursors también los vuelve a 0', () => {
+    store.setTeamCursor('proj-a', '41', 3)
+    store.resetPullCursors()
+    expect(store.getTeamCursors()).toEqual({ 'proj-a': { '41': 0 } })
+  })
+})
+
+// Team Memory Layer 1, Parte 6 (lado cliente): promoteToTeam() es la unica forma de que una
+// fila salga de scope 'personal'/'project'. Sin cola de aprobacion (decision ya tomada), pero
+// deja registro en promotion_queue con status 'approved'.
+describe('MemoryStore — promoteToTeam (Team Memory Layer 1, Parte 6)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  function promotionQueueRow(syncId: string): { sync_id: string; to_scope: string; reason: string | null; status: string } | undefined {
+    return (store as unknown as { db: { prepare(sql: string): { get(...args: unknown[]): unknown } } }).db
+      .prepare('SELECT sync_id, to_scope, reason, status FROM promotion_queue WHERE sync_id = ?')
+      .get(syncId) as { sync_id: string; to_scope: string; reason: string | null; status: string } | undefined
+  }
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-promote-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Proyecto A' })
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('caso feliz: cambia el scope a team y crea la fila de promotion_queue con status approved', () => {
+    const saved = store.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      title: 'Decision a compartir',
+      content: 'Contenido con largo suficiente para no ser descartado.',
+      source: 'mcp',
+    })
+
+    const result = store.promoteToTeam(saved.syncId, 'lo necesita todo el equipo')
+
+    expect(result.promoted).toBe(true)
+    expect(store.get(saved.syncId)?.scope).toBe('team')
+
+    const queueRow = promotionQueueRow(saved.syncId)
+    expect(queueRow).toMatchObject({
+      sync_id: saved.syncId,
+      to_scope: 'team',
+      reason: 'lo necesita todo el equipo',
+      status: 'approved',
+    })
+  })
+
+  it('deja una mutacion op:promote en el mutation_log', () => {
+    const saved = store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title: 'Decision a compartir',
+      content: 'Contenido con largo suficiente para no ser descartado.',
+      source: 'mcp',
+    })
+
+    store.promoteToTeam(saved.syncId)
+
+    const promoteMutations = store.pendingMutations().filter((m) => m.op === 'promote')
+    expect(promoteMutations).toHaveLength(1)
+    expect(JSON.parse(promoteMutations[0].payload).scope).toBe('team')
+  })
+
+  it('no-op sobre un syncId inexistente, sin tirar', () => {
+    const result = store.promoteToTeam('obs-no-existe')
+
+    expect(result).toEqual({ promoted: false })
+    expect(promotionQueueRow('obs-no-existe')).toBeUndefined()
+  })
+
+  it('no-op sobre una observacion borrada (deleted)', () => {
+    const saved = store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title: 'A borrar',
+      content: 'Contenido con largo suficiente para no ser descartado.',
+      source: 'mcp',
+    })
+    store.deleteObservation(saved.syncId)
+
+    const result = store.promoteToTeam(saved.syncId)
+
+    expect(result).toEqual({ promoted: false })
+    expect(promotionQueueRow(saved.syncId)).toBeUndefined()
+  })
+
+  it('no-op sobre una observacion superseded (perdio una colision de topic)', () => {
+    store.save({
+      projectKey: 'proj-a',
+      scope: 'personal',
+      type: 'decision',
+      topicKey: 'deploy-target',
+      title: 'local, va a perder',
+      content: 'contenido local',
+      source: 'mcp',
+    })
+    const local = store.context('proj-a', 10)[0]
+    store.applyIncomingObservation({
+      syncId: 'obs_remota',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: 'deploy-target',
+      type: 'decision',
+      title: 'remota, gana',
+      content: 'contenido remoto',
+      updatedAt: Date.now() + 60_000,
+      lamport: 99,
+      deleted: false,
+      supersedeLocal: local.syncId,
+    })
+    expect(store.get(local.syncId)?.superseded_by).toBe('obs_remota')
+
+    const result = store.promoteToTeam(local.syncId)
+
+    expect(result).toEqual({ promoted: false })
+    expect(promotionQueueRow(local.syncId)).toBeUndefined()
+  })
+
+  it('es idempotente: promover la misma fila dos veces no revienta la PK de promotion_queue', () => {
+    const saved = store.save({
+      projectKey: 'proj-a',
+      type: 'decision',
+      title: 'Decision a compartir',
+      content: 'Contenido con largo suficiente para no ser descartado.',
+      source: 'mcp',
+    })
+
+    store.promoteToTeam(saved.syncId, 'primer motivo')
+    const result = store.promoteToTeam(saved.syncId, 'motivo actualizado')
+
+    expect(result.promoted).toBe(true)
+    expect(store.get(saved.syncId)?.scope).toBe('team')
+    expect(promotionQueueRow(saved.syncId)?.reason).toBe('motivo actualizado')
+  })
+})
+
+describe('MemoryStore — crossProjectMemories (spec 2026-09-11, pantalla de Memories legible)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-crossproject-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+    store.ensureProject({ projectKey: 'proj-a', displayName: 'Proyecto A' })
+    store.ensureProject({ projectKey: 'proj-b', displayName: 'Proyecto B' })
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('devuelve filas de varios proyectos en un solo resultado, con el project_key y su display_name', () => {
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'De A', content: 'contenido de proyecto A', source: 'mcp' })
+    store.save({ projectKey: 'proj-b', type: 'bugfix', title: 'De B', content: 'contenido de proyecto B', source: 'mcp' })
+
+    const page = store.crossProjectMemories({ limit: 10 })
+
+    expect(page.items).toHaveLength(2)
+    const byTitle = Object.fromEntries(page.items.map((i) => [i.title, i]))
+    expect(byTitle['De A']).toMatchObject({ projectKey: 'proj-a', projectDisplayName: 'Proyecto A' })
+    expect(byTitle['De B']).toMatchObject({ projectKey: 'proj-b', projectDisplayName: 'Proyecto B' })
+  })
+
+  it('ordena por updated_at DESC', () => {
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'Primera', content: 'contenido uno', source: 'mcp', createdAt: 1000, updatedAt: 1000 })
+    store.save({ projectKey: 'proj-b', type: 'decision', title: 'Segunda', content: 'contenido dos', source: 'mcp', createdAt: 2000, updatedAt: 2000 })
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'Tercera', content: 'contenido tres', source: 'mcp', createdAt: 3000, updatedAt: 3000 })
+
+    const page = store.crossProjectMemories({ limit: 10 })
+
+    expect(page.items.map((i) => i.title)).toEqual(['Tercera', 'Segunda', 'Primera'])
+  })
+
+  it('el paginado no repite ni saltea filas entre paginas consecutivas', () => {
+    for (let i = 0; i < 5; i++) {
+      store.save({
+        projectKey: i % 2 === 0 ? 'proj-a' : 'proj-b',
+        type: 'decision',
+        title: `Memoria ${i}`,
+        content: `contenido numero ${i}`,
+        source: 'mcp',
+        createdAt: 1000 + i,
+        updatedAt: 1000 + i,
+      })
+    }
+
+    const page1 = store.crossProjectMemories({ limit: 2 })
+    expect(page1.items.map((i) => i.title)).toEqual(['Memoria 4', 'Memoria 3'])
+    expect(page1.nextCursor).not.toBeNull()
+
+    const page2 = store.crossProjectMemories({ limit: 2, cursor: page1.nextCursor })
+    expect(page2.items.map((i) => i.title)).toEqual(['Memoria 2', 'Memoria 1'])
+    expect(page2.nextCursor).not.toBeNull()
+
+    const page3 = store.crossProjectMemories({ limit: 2, cursor: page2.nextCursor })
+    expect(page3.items.map((i) => i.title)).toEqual(['Memoria 0'])
+    expect(page3.nextCursor).toBeNull()
+  })
+
+  it('deleted = 1 no aparece nunca', () => {
+    const a = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Viva', content: 'sigue viva', source: 'mcp' })
+    const b = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Borrada', content: 'esta se borra', source: 'mcp' })
+    store.deleteObservation(b.syncId)
+
+    const page = store.crossProjectMemories({ limit: 10 })
+
+    expect(page.items.map((i) => i.syncId)).toEqual([a.syncId])
+  })
+
+  it('las reemplazadas no aparecen por default y si cuando se piden explicitamente', () => {
+    store.save({ projectKey: 'proj-a', scope: 'personal', type: 'decision', topicKey: 'x', title: 'v1', content: 'version 1', source: 'mcp' })
+    const local = store.context('proj-a', 10)[0]
+    store.applyIncomingObservation({
+      syncId: 'obs_remota_x',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: 'x',
+      type: 'decision',
+      title: 'v2 remota',
+      content: 'version 2',
+      updatedAt: Date.now() + 60_000,
+      lamport: 999,
+      deleted: false,
+      supersedeLocal: local.syncId,
+    })
+
+    const withoutSuperseded = store.crossProjectMemories({ limit: 10 })
+    expect(withoutSuperseded.items.map((i) => i.syncId)).toEqual(['obs_remota_x'])
+
+    const withSuperseded = store.crossProjectMemories({ limit: 10, includeSuperseded: true })
+    expect(withSuperseded.items.map((i) => i.syncId).sort()).toEqual([local.syncId, 'obs_remota_x'].sort())
+  })
+
+  it('la busqueda encuentra por contenido via FTS (no solo por titulo)', () => {
+    store.save({ projectKey: 'proj-a', type: 'discovery', title: 'Bug raro', content: 'El reconnect de websocket era el culpable.', source: 'mcp' })
+    store.save({ projectKey: 'proj-b', type: 'decision', title: 'Otra cosa', content: 'nada que ver con esto', source: 'mcp' })
+
+    const page = store.crossProjectMemories({ limit: 10, query: 'websocket' })
+
+    expect(page.items.map((i) => i.title)).toEqual(['Bug raro'])
+  })
+
+  it('cuando hay mas filas que el limite, nextCursor lo reporta — nunca corta en silencio', () => {
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'Uno', content: 'contenido uno', source: 'mcp', createdAt: 1000, updatedAt: 1000 })
+    store.save({ projectKey: 'proj-a', type: 'decision', title: 'Dos', content: 'contenido dos', source: 'mcp', createdAt: 2000, updatedAt: 2000 })
+
+    const full = store.crossProjectMemories({ limit: 10 })
+    expect(full.nextCursor).toBeNull()
+
+    const short = store.crossProjectMemories({ limit: 1 })
+    expect(short.items).toHaveLength(1)
+    expect(short.nextCursor).not.toBeNull()
+  })
+
+  it('usa el indice global (deleted, updated_at, lamport) para el listado plano, no un sort completo', () => {
+    const db = (store as unknown as { db: { prepare(sql: string): { all(...args: unknown[]): unknown[] } } }).db
+    const plan = db
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT o.sync_id FROM observations o LEFT JOIN projects p ON p.project_key = o.project_key
+         WHERE o.deleted = 0 AND o.superseded_by IS NULL
+         ORDER BY o.updated_at DESC, o.lamport DESC LIMIT 10`
+      )
+      .all() as Array<{ detail: string }>
+    const detail = plan.map((r) => r.detail).join(' | ')
+    expect(detail).toContain('idx_obs_deleted_updated')
+    expect(detail).not.toMatch(/USE TEMP B-TREE FOR ORDER BY/i)
+  })
+})
+
+describe('MemoryStore — getSummary (MCP memory_get)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-getsummary-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('devuelve la memoria pedida', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Una decision', content: 'contenido de la decision', source: 'mcp' })
+    const result = store.getSummary(saved.syncId)
+    expect(result?.title).toBe('Una decision')
+  })
+
+  it('devuelve null (no tira) cuando el id no existe', () => {
+    expect(store.getSummary('obs-no-existe')).toBeNull()
+  })
+
+  it('devuelve null para una memoria borrada', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'A borrar', content: 'contenido a borrar', source: 'mcp' })
+    store.deleteObservation(saved.syncId)
+    expect(store.getSummary(saved.syncId)).toBeNull()
+  })
+
+  it('SI devuelve una memoria superseded — el llamador pidio ESTE id puntual', () => {
+    store.save({ projectKey: 'proj-a', scope: 'personal', type: 'decision', topicKey: 'x', title: 'local', content: 'contenido local', source: 'mcp' })
+    const local = store.context('proj-a', 10)[0]
+    store.applyIncomingObservation({
+      syncId: 'obs_remota_get',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: 'x',
+      type: 'decision',
+      title: 'remota',
+      content: 'contenido remoto',
+      updatedAt: Date.now() + 60_000,
+      lamport: 500,
+      deleted: false,
+      supersedeLocal: local.syncId,
+    })
+
+    expect(store.getSummary(local.syncId)?.title).toBe('local')
+  })
+})
+
+describe('MemoryStore — update (MCP memory_update)', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-update-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  it('modifica la memoria y deja el rastro de replicacion correcto (content_hash, revision_count, lamport, mutation_log)', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Titulo original', content: 'contenido original', source: 'mcp' })
+    const before = store.get(saved.syncId)!
+
+    const result = store.update({ syncId: saved.syncId, title: 'Titulo corregido', content: 'contenido corregido' })
+
+    expect(result.updated).toBe(true)
+    const after = store.get(saved.syncId)!
+    expect(after.sync_id).toBe(before.sync_id) // misma identidad, no una fila nueva
+    expect(after.title).toBe('Titulo corregido')
+    expect(after.content).toBe('contenido corregido')
+    expect(after.content_hash).not.toBe(before.content_hash)
+    expect(after.revision_count).toBe(before.revision_count + 1)
+    expect(after.lamport).toBeGreaterThan(before.lamport)
+
+    const mutations = store.pendingMutations().filter((m) => m.sync_id === saved.syncId && m.op === 'upsert')
+    expect(mutations).toHaveLength(2) // insert original + este update
+    const lastPayload = JSON.parse(mutations[mutations.length - 1].payload)
+    expect(lastPayload.title).toBe('Titulo corregido')
+    expect(lastPayload.revision_count).toBe(before.revision_count + 1)
+  })
+
+  it('es un patch: solo cambia los campos pedidos, el resto queda intacto', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Titulo', content: 'contenido', tags: ['a', 'b'], source: 'mcp' })
+
+    store.update({ syncId: saved.syncId, content: 'contenido nuevo' })
+
+    const after = store.get(saved.syncId)!
+    expect(after.title).toBe('Titulo')
+    expect(JSON.parse(after.tags!)).toEqual(['a', 'b'])
+    expect(after.content).toBe('contenido nuevo')
+  })
+
+  it('no-op sobre un syncId inexistente, sin tirar', () => {
+    expect(store.update({ syncId: 'obs-no-existe', title: 'x' })).toEqual({ updated: false, reason: 'not_found' })
+  })
+
+  it('no-op sobre una observacion borrada', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'A borrar', content: 'contenido', source: 'mcp' })
+    store.deleteObservation(saved.syncId)
+
+    expect(store.update({ syncId: saved.syncId, title: 'nuevo titulo' })).toEqual({ updated: false, reason: 'deleted' })
+  })
+
+  it('no-op sobre una observacion superseded (perdio una colision de topic)', () => {
+    store.save({ projectKey: 'proj-a', scope: 'personal', type: 'decision', topicKey: 'x', title: 'local', content: 'contenido local', source: 'mcp' })
+    const local = store.context('proj-a', 10)[0]
+    store.applyIncomingObservation({
+      syncId: 'obs_remota_upd',
+      projectKey: 'proj-a',
+      scope: 'personal',
+      topicKey: 'x',
+      type: 'decision',
+      title: 'remota',
+      content: 'contenido remoto',
+      updatedAt: Date.now() + 60_000,
+      lamport: 500,
+      deleted: false,
+      supersedeLocal: local.syncId,
+    })
+
+    expect(store.update({ syncId: local.syncId, title: 'intento de update' })).toEqual({ updated: false, reason: 'superseded' })
+  })
+
+  it('no-op sin generar mutacion nueva cuando el contenido pedido es igual al actual', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Igual', content: 'contenido igual', source: 'mcp' })
+    const before = store.pendingMutations().length
+
+    const result = store.update({ syncId: saved.syncId, title: 'Igual', content: 'contenido igual' })
+
+    expect(result).toEqual({ updated: false, reason: 'unchanged', syncId: saved.syncId })
+    expect(store.pendingMutations()).toHaveLength(before)
+  })
+
+  it('redacta secretos en el contenido actualizado (M13 aplica igual que en cualquier otra escritura)', () => {
+    const saved = store.save({ projectKey: 'proj-a', type: 'decision', title: 'Titulo', content: 'contenido inicial', source: 'mcp' })
+
+    const result = store.update({ syncId: saved.syncId, content: 'la clave es AKIAABCDEFGHIJKLMNOP, no la compartas' })
+
+    expect(result.redacted).toBe(true)
+    expect(store.get(saved.syncId)?.content).not.toContain('AKIAABCDEFGHIJKLMNOP')
+  })
+})
+
+// El tipo declarado tiene que llegar a las filas que YA existen.
+//
+// El re-import identifica la fila por (source, source_ref) y actualiza titulo, contenido,
+// tags y hash — pero nunca tocaba el tipo. Con el importador estampando un tipo fijo eso
+// estaba bien; desde que lee el que la nota declara, una nota que declaraba `decision` se
+// quedaba con el `pattern` de la primera importacion PARA SIEMPRE. Y como el re-import corre
+// en cada arranque de la app, "reimportar" no lo arreglaba: no habia nada que correr a mano,
+// simplemente no se aplicaba.
+describe('re-import: el tipo declarado', () => {
+  const REF = 'claude-memory:/repo/memory/auth.md#auth'
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-memory-tipo-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+
+  afterEach(() => {
+    store.close()
+    cleanupTmp(dir)
+  })
+
+  function importar(type: string, applyType: boolean) {
+    return store.save({
+      projectKey: 'proj-a',
+      type: type as never,
+      title: 'Auth',
+      content: 'El auth pasa a cookies de sesion, no tokens en localStorage.',
+      source: 'import',
+      sourceRef: REF,
+      applyType,
+    })
+  }
+
+  it('corrige el tipo de una fila ya importada', () => {
+    const primera = importar('pattern', false)
+    expect(store.get(primera.syncId)?.type).toBe('pattern')
+
+    importar('decision', true)
+
+    // La MISMA fila, con el tipo corregido — no una fila nueva.
+    expect(store.get(primera.syncId)?.type).toBe('decision')
+    store.close()
+  })
+
+  it('no crea una fila nueva: la identidad es el source_ref, no el tipo', () => {
+    const primera = importar('pattern', false)
+    const segunda = importar('decision', true)
+
+    expect(segunda.syncId).toBe(primera.syncId)
+    store.close()
+  })
+
+  // Sin declaracion el importador cae a `pattern`, que es un default NUESTRO. Escribirlo
+  // pisaria una clasificacion puesta a proposito por otra via.
+  it('sin applyType no pisa el tipo que ya tiene la fila', () => {
+    const primera = importar('decision', true)
+    importar('pattern', false)
+
+    expect(store.get(primera.syncId)?.type).toBe('decision')
+    store.close()
+  })
+
+  // El re-import corre en CADA arranque: un cambio de tipo tiene que contar como cambio, o
+  // se descarta en silencio; y un re-import sin cambios no puede escribir nada, o cada
+  // apertura de la app re-loguea y re-pushea todo lo importado.
+  it('un re-import identico sigue sin escribir', () => {
+    const primera = importar('decision', true)
+    const antes = store.get(primera.syncId)!.revision_count
+    importar('decision', true)
+
+    expect(store.get(primera.syncId)!.revision_count).toBe(antes)
+  })
+})
+
+// Conectar dos memorias a mano. Hace falta una tabla propia porque `topic_key` NO sirve: su
+// indice es UNICO por (project_key, scope, topic_key) entre las filas vivas, asi que guardar
+// una segunda memoria con el mismo tema no crea una fila, REEMPLAZA a la primera (outcome
+// `topic_updated`). Conectar dos via topic borraria una de las dos.
+describe('MemoryStore — relaciones puestas a mano', () => {
+  let dir: string
+  let store: MemoryStore
+
+  beforeEach(() => {
+    dir = makeTmpDir('raven-links-')
+    store = new MemoryStore(join(dir, 'memory.db'))
+  })
+  afterEach(() => { store.close(); cleanupTmp(dir) })
+
+  const guardar = (title: string) => store.save({
+    projectKey: 'p', type: 'decision', source: 'ui', title, content: `contenido de ${title}`,
+  }).syncId
+
+  it('conecta dos memorias', () => {
+    const a = guardar('una'); const b = guardar('otra')
+    expect(store.linkMemories(a, b)).toEqual({ ok: true })
+  })
+
+  it('una memoria no se conecta consigo misma', () => {
+    const a = guardar('una')
+    expect(store.linkMemories(a, a)).toEqual({ ok: false, error: 'same_memory' })
+  })
+
+  // Una relacion hacia algo que no existe dibujaria un nodo fantasma del otro lado.
+  it('rechaza conectar con una memoria que no existe', () => {
+    const a = guardar('una')
+    expect(store.linkMemories(a, 'no-existe')).toEqual({ ok: false, error: 'memory_not_found' })
+  })
+
+  it('desconectar deshace la relacion', () => {
+    const a = guardar('una'); const b = guardar('otra')
+    store.linkMemories(a, b)
+    expect(store.unlinkMemories(a, b)).toEqual({ ok: true })
+  })
+
+  // Borrar algo que no esta es el resultado que el llamador queria.
+  it('desconectar algo que no estaba conectado no es un error', () => {
+    const a = guardar('una'); const b = guardar('otra')
+    expect(store.unlinkMemories(a, b)).toEqual({ ok: true })
+  })
+})
+
+// El hallazgo que obligo a la tabla propia, escrito como test para que no se pierda.
+describe('MemoryStore — dos memorias NO pueden compartir topic_key', () => {
+  it('la segunda reemplaza a la primera en vez de crear una fila', () => {
+    const dir = makeTmpDir('raven-topic-')
+    const store = new MemoryStore(join(dir, 'memory.db'))
+    const a = store.save({ projectKey: 'p', type: 'decision', source: 'ui', title: 'A', content: 'contenido a', topicKey: 'auth' })
+    const b = store.save({ projectKey: 'p', type: 'decision', source: 'ui', title: 'B', content: 'contenido b', topicKey: 'auth' })
+
+    expect(b.syncId).toBe(a.syncId)
+    expect(b.outcome).toBe('topic_updated')
+    expect(store.get(a.syncId)?.title).toBe('B')
+    store.close()
+    cleanupTmp(dir)
+  })
+})
+
+/**
+ * `ensureProject` era insert-only, y eso congelaba un nombre de marcador para siempre.
+ *
+ * Una segunda máquina se entera de un proyecto por el roster de `/v1/status` o por el cursor
+ * de un pull, y en los dos casos el único nombre que tiene para ponerle es la `project_key`
+ * —un hash— porque el `display_name` del roster viaja cifrado y desde ahí no se puede abrir.
+ * Después el usuario clona el repo, Nest resuelve la MISMA `project_key` y llama con el
+ * nombre real de la carpeta: el insert-only lo tiraba y el usuario seguía viendo el hash.
+ */
+describe('ensureProject mejora lo que ya está', () => {
+  let dir: string
+  let store: MemoryStore
+  beforeEach(() => { dir = makeTmpDir(); store = new MemoryStore(join(dir, 'm.db')) })
+  afterEach(() => { store.close(); cleanupTmp(dir) })
+
+  const nombreDe = (clave: string) =>
+    store.listProjects().find((p) => p.projectKey === clave)?.displayName
+
+  // `listProjects()` sólo devuelve clave, nombre y enrolled: los paths se leen de la tabla.
+  const filaDe = (clave: string) =>
+    (store as unknown as { db: { prepare(s: string): { get(v: string): unknown } } }).db
+      .prepare('SELECT display_name, root_path, remote_url FROM projects WHERE project_key = ?')
+      .get(clave) as { display_name: string; root_path: string | null; remote_url: string | null }
+
+  it('un nombre real reemplaza al marcador que dejó el roster', () => {
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'hash-abc' })
+    expect(nombreDe('hash-abc')).toBe('hash-abc')
+
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest', rootPath: '/repos/raven-nest' })
+    expect(nombreDe('hash-abc')).toBe('raven-nest')
+  })
+
+  it('un marcador NO degrada un nombre real que esta máquina ya sabe', () => {
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest' })
+    // El roster vuelve con el nombre cifrado, así que el daemon cae a la project_key.
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'hash-abc' })
+    expect(nombreDe('hash-abc')).toBe('raven-nest')
+  })
+
+  it('un nombre real tampoco pisa a OTRO nombre real', () => {
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'como-lo-llamó-el-usuario' })
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'otro-nombre' })
+    expect(nombreDe('hash-abc')).toBe('como-lo-llamó-el-usuario')
+  })
+
+  it('el path local se completa cuando faltaba, y no se pisa cuando ya está', () => {
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'hash-abc' })
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest', rootPath: '/repos/nest', remoteUrl: 'git@x:y.git' })
+    expect(filaDe('hash-abc').root_path).toBe('/repos/nest')
+    expect(filaDe('hash-abc').remote_url).toBe('git@x:y.git')
+
+    // Desde v1.2 el path local es por máquina y lo elige el usuario: una respuesta de red no
+    // lo puede cambiar.
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest', rootPath: '/otro/lado' })
+    expect(filaDe('hash-abc').root_path).toBe('/repos/nest')
+  })
+
+  it('sin nada que mejorar no escribe', () => {
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest', rootPath: '/repos/nest' })
+    const antes = filaDe('hash-abc')
+    store.ensureProject({ projectKey: 'hash-abc', displayName: 'raven-nest', rootPath: '/repos/nest' })
+    expect(filaDe('hash-abc')).toEqual(antes)
+  })
+})
+
+/**
+ * La época conocida sostiene el gate fail-closed del push: `isEncryptionExpected()` es
+ * `store.knownKeyEpoch() > 0` (main.ts), y con el gate desarmado una máquina sin la clave
+ * sube título y contenido EN CLARO a una cuenta cifrada.
+ *
+ * Por eso sólo puede subir. La cuarta revisión adversarial (2026-09-21) encontró que esa
+ * regla no la probaba NADA: sacando la comparación de `rememberKeyEpoch`, los 1905 tests de
+ * `electron/` seguían en verde.
+ *
+ * Y el llamador que puede pasar un 0 existe y es normal: `main.ts` hace
+ * `rememberKeyEpoch(estado.keyEpoch)` con lo que devuelve `fetchKeyState`, y un servicio que
+ * no conoce a esta cuenta contesta 0 — el caso se volvió alcanzable el mismo día, cuando la
+ * URL del servicio de sync pasó a poderse cambiar desde la UI.
+ */
+describe('la época conocida del cifrado sólo sube', () => {
+  let dirEpoca: string
+  let s: MemoryStore
+
+  beforeEach(() => {
+    dirEpoca = makeTmpDir('nest-epoca-')
+    s = new MemoryStore(join(dirEpoca, 'memory.db'))
+  })
+
+  afterEach(() => {
+    s.close()
+    cleanupTmp(dirEpoca)
+  })
+
+  it('un 0 no desarma un gate ya armado', () => {
+    s.rememberKeyEpoch(2)
+    s.rememberKeyEpoch(0)
+    expect(s.knownKeyEpoch()).toBe(2)
+  })
+
+  it('una época vieja tampoco lo baja', () => {
+    s.rememberKeyEpoch(2)
+    s.rememberKeyEpoch(1)
+    expect(s.knownKeyEpoch()).toBe(2)
+  })
+
+  it('pero una nueva sí sube: rotar tiene que poder avanzarla', () => {
+    s.rememberKeyEpoch(1)
+    s.rememberKeyEpoch(2)
+    expect(s.knownKeyEpoch()).toBe(2)
+  })
+
+  it('un valor que no es un número no toca nada', () => {
+    s.rememberKeyEpoch(1)
+    s.rememberKeyEpoch(Number.NaN)
+    s.rememberKeyEpoch(Infinity)
+    expect(s.knownKeyEpoch()).toBe(1)
+  })
+})

@@ -134,8 +134,7 @@ export default function RepoPicker({ githubToken, gitlabToken, excludedFullNames
     try {
       // Pass the repo's HTML URL so pickRepoFolder validates the picked
       // folder's `origin` remote matches. Without this, the user could link
-      // any random folder to the wrong repo and the link sticks silently
-      // (the sti-travel-console → algoritmos bug reopens here otherwise).
+      // any random folder to the wrong repo and the link sticks silently.
       const folder = await window.git.pickRepoFolder(repo.html_url)
       if (!folder) return
       await onAdd(repo.full_name, provider, folder)
@@ -186,7 +185,7 @@ export default function RepoPicker({ githubToken, gitlabToken, excludedFullNames
                 fontSize: 12,
                 borderRadius: 12,
                 border: '1px solid var(--border-color, #ccc)',
-                background: provider === 'github' ? 'var(--raven-blue, #0066FF)' : 'transparent',
+                background: provider === 'github' ? 'var(--raven-blue, var(--primary))' : 'transparent',
                 color: provider === 'github' ? '#fff' : 'inherit',
                 cursor: 'pointer',
               }}
@@ -201,7 +200,7 @@ export default function RepoPicker({ githubToken, gitlabToken, excludedFullNames
                 fontSize: 12,
                 borderRadius: 12,
                 border: '1px solid var(--border-color, #ccc)',
-                background: provider === 'gitlab' ? 'var(--raven-blue, #0066FF)' : 'transparent',
+                background: provider === 'gitlab' ? 'var(--raven-blue, var(--primary))' : 'transparent',
                 color: provider === 'gitlab' ? '#fff' : 'inherit',
                 cursor: 'pointer',
               }}

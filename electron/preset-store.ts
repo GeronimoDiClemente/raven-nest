@@ -13,17 +13,37 @@ function slugify(name: string): string {
   return s || 'preset'
 }
 
+const sonStrings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string')
+
+/**
+ * Variables que cambian QUÉ se ejecuta, no con qué datos: un preset que viene en un repo ajeno
+ * podría usarlas para correr otra cosa detrás de un `npm install` que se ve inocente (un
+ * `NODE_OPTIONS=--require ./x.js`, un `PATH` con un `npm` propio). Un preset que las trae se
+ * rechaza entero.
+ */
+const ENV_PROHIBIDO = /^(PATH|NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|ZDOTDIR|SHELL|IFS|PS4|PROMPT_COMMAND|ELECTRON_RUN_AS_NODE|PYTHONPATH|PYTHONSTARTUP|PERL5OPT|PERL5LIB|RUBYOPT|RUBYLIB|GIT_SSH|GIT_SSH_COMMAND|GIT_EXEC_PATH|LD_.*|DYLD_.*)$/i
+
+export function envProhibido(env: Record<string, unknown>): string[] {
+  return Object.keys(env).filter((k) => ENV_PROHIBIDO.test(k))
+}
+
 function validate(p: unknown): p is RavenPreset {
   if (!p || typeof p !== 'object') return false
   const obj = p as Record<string, unknown>
   if (typeof obj.id !== 'string' || !SLUG_RE.test(obj.id)) return false
   if (typeof obj.name !== 'string' || !obj.name.trim()) return false
   if (obj.description !== undefined && typeof obj.description !== 'string') return false
-  if (obj.setup !== undefined && !Array.isArray(obj.setup)) return false
+  // Cada comando se le pasa a `/bin/sh -c`: algo que no sea un string no tiene nada que hacer ahí.
+  if (obj.setup !== undefined && !sonStrings(obj.setup)) return false
   if (obj.dev !== undefined && typeof obj.dev !== 'string') return false
   if (obj.ports !== undefined && !Array.isArray(obj.ports)) return false
-  if (obj.env !== undefined && (typeof obj.env !== 'object' || Array.isArray(obj.env))) return false
-  if (obj.postCreate !== undefined && !Array.isArray(obj.postCreate)) return false
+  if (obj.env !== undefined) {
+    if (!obj.env || typeof obj.env !== 'object' || Array.isArray(obj.env)) return false
+    const env = obj.env as Record<string, unknown>
+    if (!Object.values(env).every((v) => typeof v === 'string')) return false
+    if (envProhibido(env).length > 0) return false
+  }
+  if (obj.postCreate !== undefined && !sonStrings(obj.postCreate)) return false
   if (obj.spotlightIgnore !== undefined && !Array.isArray(obj.spotlightIgnore)) return false
   return true
 }

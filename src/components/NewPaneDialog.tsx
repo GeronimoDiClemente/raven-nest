@@ -2,8 +2,23 @@ import { useState, useEffect, useRef } from 'react'
 import { AIType, AI_CONFIG, COLOR_PALETTE, CustomCLI, ShellInfo , PICKER_AI_TYPES } from '../types'
 import { safeWriteText } from '../lib/clipboard'
 import { bridge } from '../lib/bridge'
+import { appendModelFlag } from '../lib/launch-cmd'
 import { AI_LOGOS } from './AILogos'
 import ConfirmDialog from './ConfirmDialog'
+import { cn } from '@/lib/utils'
+
+// Label de seccion chica (MAYUSCULA, tracking ancho) repetido en cuatro
+// lugares de este dialogo ("Color", "Model", "Saved accounts", "New
+// account"). `--text-muted` no tiene equivalente Tailwind (no es
+// `--muted-foreground`, ver el comentario en global.css) asi que va como
+// var() a mano, no como clase.
+const SECTION_LABEL_CLASS = 'text-fs-xs uppercase tracking-[0.8px] mb-2'
+
+// El logo de cada tile mantiene su color de marca; el label reacciona al
+// :hover del tile (`.ai-card` de global.css pone el `group` — necesita CSS
+// propio por el color-mix con --ai-color, ver la nota ahi). No hay estado
+// "seleccionado": un click en la grilla siempre navega al siguiente paso.
+const AI_CARD_LABEL_CLASS = 'relative z-10 text-fs-sm font-semibold tracking-[0.2px] text-muted-foreground group-hover:text-foreground'
 
 // El banner muestra el comando del SO en el que estas: el de Cursor difiere en
 // Windows y ensenar el de curl ahi seria mentirle al usuario.
@@ -39,13 +54,25 @@ interface Props {
     shellId?: string
   ) => void
   onCancel: () => void
-  allowedAIs?: string[]
-  onUpgrade?: () => void
+  /** Board "Run with worker": zero-click launch on this agent with `presetModel`.
+   *  Resolved once on mount — if the CLI is found and there's exactly one saved
+   *  account (or the agent needs no account at all), it launches immediately
+   *  with no dialog shown. Falls back to the normal account-step UI only when
+   *  it's genuinely ambiguous (0 or >1 saved accounts) or impossible (CLI
+   *  missing). Initial values only — the manual (no-preset) flow is untouched. */
+  presetAgent?: AIType
+  presetModel?: string
+  /** Worker-step-configured account (see worker-spec-store.ts's WorkerStep.account).
+   *  When it names an account that still exists in the saved list, the resolve
+   *  effect launches with it directly and skips the manual account picker even
+   *  when there are 0/>1 saved accounts. A stale/missing value (account deleted
+   *  since the worker was configured) is ignored and the existing rules apply. */
+  presetAccount?: string
 }
 
 type Step = 'select-ai' | 'select-account' | 'add-custom' | 'select-shell'
 
-function TerminalIcon({ size = 36, color = '#888' }: { size?: number; color?: string }) {
+function TerminalIcon({ size = 36, color = 'var(--muted-foreground)' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 36 36" fill="none">
       <path d="M6 12l7 6-7 6" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -54,7 +81,7 @@ function TerminalIcon({ size = 36, color = '#888' }: { size?: number; color?: st
   )
 }
 
-function CustomCLIIcon({ size = 36, color = '#888' }: { size?: number; color?: string }) {
+function CustomCLIIcon({ size = 36, color = 'var(--muted-foreground)' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 36 36" fill="none">
       <circle cx="18" cy="18" r="10" stroke={color} strokeWidth="2" fill="none" />
@@ -71,15 +98,23 @@ const SHELL_COLORS: Record<string, string> = {
   wsl:        '#FFCC00',  // Tux/Linux yellow
 }
 
-const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', '#A78BFA', '#F59E0B', '#EC4899', '#14B8A6', '#60A5FA', '#888888']
+const CUSTOM_COLORS = ['#E07B54', '#4F9EFF', '#22C55E', 'var(--primary)', '#F59E0B', '#EC4899', '#14B8A6', '#60A5FA', '#888888']
 
-export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgrade }: Props) {
+export default function NewPaneDialog({ onConfirm, onCancel, presetAgent, presetModel, presetAccount }: Props) {
+  const presetCfg = presetAgent ? AI_CONFIG[presetAgent] : null
+  // While a preset resolves (see the mount effect below), render a minimal
+  // placeholder instead of any step UI — no flash of an account form the user
+  // never needs to touch. `step`/`selectedAI` still seed the manual-flow-shaped
+  // fallback (select-account) the resolve effect uses when it can't launch blind.
+  const [autoResolving, setAutoResolving] = useState<boolean>(!!presetAgent)
+  const autoLaunchedRef = useRef(false)
   const [step, setStep] = useState<Step>('select-ai')
-  const [selectedAI, setSelectedAI] = useState<AIType | null>(null)
+  const [selectedAI, setSelectedAI] = useState<AIType | null>(presetAgent ?? null)
+  const [model, setModel] = useState<string>(presetModel ?? '') // '' = agent default; reset on agent change
   const [accounts, setAccounts] = useState<string[]>([])
   const [newAccountName, setNewAccountName] = useState('')
   const [creatingNew, setCreatingNew] = useState(false)
-  const [borderColor, setBorderColor] = useState(COLOR_PALETTE[0])
+  const [borderColor, setBorderColor] = useState(presetCfg ? presetCfg.color : COLOR_PALETTE[0])
   const [customCLIs, setCustomCLIs] = useState<CustomCLI[]>([])
   const [customCmd, setCustomCmd] = useState('')
   const [customLabel, setCustomLabel] = useState('')
@@ -110,7 +145,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   }, [])
 
   function selectShell(shell: ShellInfo) {
-    onConfirm('terminal', 'default', '', SHELL_COLORS[shell.id] ?? '#888888', '', shell.label, SHELL_COLORS[shell.id] ?? '#888888', shell.id)
+    onConfirm('terminal', 'default', '', SHELL_COLORS[shell.id] ?? 'var(--muted-foreground)', '', shell.label, SHELL_COLORS[shell.id] ?? 'var(--muted-foreground)', shell.id)
   }
 
   useEffect(() => {
@@ -122,6 +157,75 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   useEffect(() => {
     bridge.customCLIs.list().then(setCustomCLIs)
   }, [])
+
+  // Preset agent: resolve automatically so a worker launches with zero clicks —
+  // no account picking, no Enter. Launches immediately when it's unambiguous
+  // (noAccount agent with its CLI present; account agent with exactly one saved
+  // account and its CLI present). Otherwise falls back to the normal
+  // select-account UI — same shape `selectAI` produces for a manual pick — so
+  // the user finishes by hand rather than auto-launching into a broken state.
+  // Mount-only — preset is an initial value, not a live prop. `autoLaunchedRef`
+  // guards against a double-launch if this ever re-runs (e.g. dev StrictMode).
+  useEffect(() => {
+    if (!presetAgent) return
+    const cfg = AI_CONFIG[presetAgent]
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (cfg.noAccount) {
+          const found = cfg.cmd ? (await bridge.cli.check(cfg.cmd)).found : true
+          if (cancelled || autoLaunchedRef.current) return
+          if (found) {
+            autoLaunchedRef.current = true
+            onConfirm(presetAgent, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, presetModel ?? ''))
+            return
+          }
+          // CLI missing: same install-banner UI a manual noAccount pick shows
+          // (see selectAI below) — can't launch blind without the CLI.
+          setCliFound(false)
+          setStep('select-account')
+          setAutoResolving(false)
+          return
+        }
+
+        const existing = await bridge.accounts.list(presetAgent)
+        if (cancelled || autoLaunchedRef.current) return
+        setAccounts(existing)
+
+        // A worker-configured account that's still valid bypasses the "exactly
+        // one saved account" requirement entirely — it's an explicit choice,
+        // not a guess, so it wins even with 0 (unless the account itself has
+        // since been deleted — in that case it wouldn't be in `existing`) or
+        // >1 saved accounts. A missing/stale presetAccount falls back to the
+        // "auto-launch only when unambiguous" rule.
+        const chosenAccount = presetAccount && existing.includes(presetAccount)
+          ? presetAccount
+          : existing.length === 1 ? existing[0] : null
+
+        if (chosenAccount) {
+          const { found } = await bridge.cli.check(cfg.cmd)
+          if (cancelled || autoLaunchedRef.current) return
+          if (found) {
+            const dir = await bridge.accounts.getDir(presetAgent, chosenAccount)
+            if (cancelled || autoLaunchedRef.current) return
+            autoLaunchedRef.current = true
+            onConfirm(presetAgent, chosenAccount, dir, cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, presetModel ?? ''))
+            return
+          }
+          setCliFound(false)
+        }
+
+        // 0 accounts (login needed), >1 with no valid stored pick (ambiguous),
+        // or CLI missing → the user finishes manually on the account step,
+        // accounts already loaded above.
+        setStep('select-account')
+        setAutoResolving(false)
+      } catch {
+        if (!cancelled) setAutoResolving(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (step !== 'select-account' || !selectedAI) return
@@ -142,6 +246,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   async function selectAI(aiType: AIType) {
     const cfg = AI_CONFIG[aiType]
     setSelectedAI(aiType)
+    setModel('') // switching agents: don't let a leftover model pick leak into the new one
     setBorderColor(cfg.color)
     // Windows shell submenu: clicking "Terminal" on Windows with detected shells
     // opens a sub-step to pick which shell, instead of cluttering the main grid.
@@ -159,7 +264,10 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
           return
         }
       }
-      onConfirm(aiType, 'default', '', cfg.color, cfg.cmd)
+      // This launch happens for a just-selected agent, before any model dropdown for it
+      // could have rendered — pass '' explicitly rather than the `model` state var, which
+      // (inside this same closure) would still hold the PREVIOUS agent's stale value.
+      onConfirm(aiType, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, ''))
       return
     }
     const existing = await bridge.accounts.list(aiType)
@@ -174,7 +282,8 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
   async function selectAccount(name: string) {
     if (!selectedAI) return
     const dir = await bridge.accounts.getDir(selectedAI, name)
-    onConfirm(selectedAI, name, dir, borderColor, AI_CONFIG[selectedAI].cmd)
+    const cfg = AI_CONFIG[selectedAI]
+    onConfirm(selectedAI, name, dir, borderColor, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
   }
 
   async function installCli() {
@@ -202,7 +311,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
       if (installAbortRef.current) return
       const cfg = AI_CONFIG[ai]
       if (cfg.noAccount) {
-        onConfirm(ai, 'default', '', cfg.color, cfg.cmd)
+        onConfirm(ai, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
       } else {
         setCliFound(true)
         setInstallState('idle')
@@ -214,7 +323,8 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     if (!selectedAI || !newAccountName.trim()) return
     setCreatingNew(true)
     const dir = await bridge.accounts.save(selectedAI, newAccountName.trim())
-    onConfirm(selectedAI, newAccountName.trim(), dir, borderColor, AI_CONFIG[selectedAI].cmd)
+    const cfg = AI_CONFIG[selectedAI]
+    onConfirm(selectedAI, newAccountName.trim(), dir, borderColor, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
   }
 
   async function saveCustomCLI() {
@@ -238,13 +348,34 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
     setConfirmDelete({ type: 'cli', id, label: cli?.label ?? id, e })
   }
 
+  if (autoResolving) {
+    // Preset resolve is in flight (see the mount effect above): no account
+    // form, no agent grid — just a brief "Opening…" beat. onCancel (overlay
+    // click / Escape) still works while this is up.
+    return (
+      <div className="dialog-overlay" onClick={onCancel}>
+        <div className="dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-center gap-2.5 py-10 text-muted-foreground text-fs">
+            <span
+              className="size-3.5 shrink-0 rounded-full border-2 border-border border-t-primary animate-spin"
+              style={presetCfg ? { borderTopColor: presetCfg.color } : undefined}
+            />
+            <span>
+              Opening{presetCfg ? <> <span style={{ color: presetCfg.color }}>{presetCfg.label}</span></> : null}…
+            </span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (step === 'add-custom') {
     return (
       <div className="dialog-overlay" onClick={onCancel}>
         <div className="dialog" onClick={(e) => e.stopPropagation()}>
           <button className="dialog-back" onClick={() => setStep('select-ai')}>← Back</button>
           <h2 className="dialog-title">Add Custom CLI</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="flex flex-col gap-2.5">
             <input
               className="new-account-input"
               placeholder="Display name (e.g. Aider, LLM)"
@@ -260,8 +391,8 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               onKeyDown={(e) => e.key === 'Enter' && saveCustomCLI()}
             />
             <div>
-              <p className="account-list-label" style={{ marginBottom: 8 }}>Color</p>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <p className={SECTION_LABEL_CLASS} style={{ color: 'var(--text-muted)' }}>Color</p>
+              <div className="flex gap-1.5 flex-wrap">
                 {CUSTOM_COLORS.map((c) => (
                   <button
                     key={c}
@@ -273,8 +404,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               </div>
             </div>
             <button
-              className="btn-primary"
-              style={{ marginTop: 4 }}
+              className="btn-primary mt-1"
               onClick={saveCustomCLI}
               disabled={!customCmd.trim() || !customLabel.trim()}
             >
@@ -293,68 +423,63 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
           <>
             <h2 className="dialog-title">Choose AI</h2>
             {isWindows && shellsError && (
-              <div style={{
-                background: '#2a1a00',
-                border: '1px solid #f59e0b',
-                borderRadius: 6,
-                padding: '8px 12px',
-                marginBottom: 12,
-                fontSize: 11,
-                color: '#f59e0b',
-              }}>
+              <div className="bg-warn/10 border border-warn rounded-md px-3 py-2 mb-3 text-fs-xs text-warn">
                 ⚠ Couldn't detect Windows shells: {shellsError}
               </div>
             )}
-            <div className="ai-grid">
+            <div className="grid grid-cols-4 gap-2 mb-4">
               {PICKER_AI_TYPES.map((aiType) => {
                 const cfg = AI_CONFIG[aiType]
                 const Logo = AI_LOGOS[aiType]
-                const locked = allowedAIs && !allowedAIs.includes(aiType)
                 return (
                   <button
                     key={aiType}
-                    className={`ai-card${locked ? ' locked' : ''}`}
-                    style={{ '--ai-color': cfg.color, '--ai-bg': cfg.bg } as React.CSSProperties}
-                    onClick={() => locked ? onUpgrade?.() : selectAI(aiType)}
-                    title={locked ? 'Requires Pro plan' : undefined}
+                    className="ai-card group"
+                    style={{ '--ai-color': cfg.color } as React.CSSProperties}
+                    onClick={() => selectAI(aiType)}
                   >
                     <div className="ai-card-logo">
                       {Logo
-                        ? <Logo size={36} color={locked ? '#555' : cfg.color} />
-                        : <TerminalIcon size={36} color={locked ? '#555' : cfg.color} />
+                        ? <Logo size={36} color={cfg.color} />
+                        : <TerminalIcon size={36} color={cfg.color} />
                       }
                     </div>
-                    <span className="ai-card-label">{cfg.label}</span>
-                    {locked && <span className="ai-card-lock">Pro</span>}
+                    <span className={AI_CARD_LABEL_CLASS}>{cfg.label}</span>
                   </button>
                 )
               })}
               {customCLIs.map((cli) => (
                 <button
                   key={cli.id}
-                  className="ai-card"
-                  style={{ '--ai-color': cli.color, '--ai-bg': '#1a1a1a' } as React.CSSProperties}
+                  className="ai-card group"
+                  style={{ '--ai-color': cli.color } as React.CSSProperties}
                   onClick={() => selectCustomCLI(cli)}
                 >
-                  <div className="ai-card-logo" style={{ position: 'relative' }}>
+                  <div className="ai-card-logo relative">
                     <CustomCLIIcon size={36} color={cli.color} />
                     <button
-                      className="custom-cli-delete"
+                      className="hidden group-hover:flex absolute -top-1.5 -right-1.5 size-4 rounded-full items-center justify-center bg-accent text-fs-sm leading-none text-muted-foreground hover:bg-destructive/20 hover:text-destructive z-10"
                       onClick={(e) => deleteCustomCLI(cli.id, e)}
                       title="Remove"
                     >×</button>
                   </div>
-                  <span className="ai-card-label">{cli.label}</span>
+                  <span className={AI_CARD_LABEL_CLASS}>{cli.label}</span>
                 </button>
               ))}
               <button
-                className="ai-card ai-card-add"
+                className="ai-card ai-card-add group"
                 onClick={() => setStep('add-custom')}
               >
                 <div className="ai-card-logo">
-                  <span style={{ fontSize: 24, color: 'var(--text-muted)' }}>+</span>
+                  <span className="text-fs-2xl" style={{ color: 'var(--text-muted)' }}>+</span>
                 </div>
-                <span className="ai-card-label" style={{ color: 'var(--text-muted)' }}>Add CLI</span>
+                {/* Sin AI_CARD_LABEL_CLASS a proposito: esa clase trae su propio
+                    color (`text-muted-foreground` + `group-hover:text-foreground`),
+                    y el tile "Add CLI" quiere el gris MAS apagado de `--text-muted`
+                    todo el tiempo (`.ai-card-add:hover` solo toca opacity/borde).
+                    Mezclar las dos clases de color dejaria `text-muted-foreground`
+                    muerta debajo del `style`. */}
+                <span className="relative z-10 text-fs-sm font-semibold tracking-[0.2px]" style={{ color: 'var(--text-muted)' }}>Add CLI</span>
               </button>
             </div>
             <button className="dialog-cancel" onClick={onCancel}>Cancel</button>
@@ -363,34 +488,34 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
           <>
             <button className="dialog-back" onClick={() => setStep('select-ai')}>← Back</button>
             <h2 className="dialog-title">Choose shell</h2>
-            <div className="ai-grid">
+            <div className="grid grid-cols-4 gap-2 mb-4">
               {shells.map((shell) => {
-                const color = SHELL_COLORS[shell.id] ?? '#888888'
+                const color = SHELL_COLORS[shell.id] ?? 'var(--muted-foreground)'
                 return (
                   <button
                     key={`shell-${shell.id}`}
-                    className="ai-card"
-                    style={{ '--ai-color': color, '--ai-bg': '#15171a' } as React.CSSProperties}
+                    className="ai-card group"
+                    style={{ '--ai-color': color } as React.CSSProperties}
                     onClick={() => selectShell(shell)}
                     title={`Open ${shell.label}`}
                   >
                     <div className="ai-card-logo">
                       <TerminalIcon size={36} color={color} />
                     </div>
-                    <span className="ai-card-label">{shell.label}</span>
+                    <span className={AI_CARD_LABEL_CLASS}>{shell.label}</span>
                   </button>
                 )
               })}
               <button
-                className="ai-card"
-                style={{ '--ai-color': '#888888', '--ai-bg': '#1a1a1a' } as React.CSSProperties}
-                onClick={() => onConfirm('terminal', 'default', '', '#888888', '')}
+                className="ai-card group"
+                style={{ '--ai-color': 'var(--muted-foreground)' } as React.CSSProperties}
+                onClick={() => onConfirm('terminal', 'default', '', 'var(--muted-foreground)', '')}
                 title="System default shell"
               >
                 <div className="ai-card-logo">
-                  <TerminalIcon size={36} color="#888888" />
+                  <TerminalIcon size={36} color="var(--muted-foreground)" />
                 </div>
-                <span className="ai-card-label">Default</span>
+                <span className={AI_CARD_LABEL_CLASS}>Default</span>
               </button>
             </div>
             <button className="dialog-cancel" onClick={onCancel}>Cancel</button>
@@ -403,43 +528,51 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
               {' '}Account
             </h2>
 
-            {/* CLI detection banner */}
+            {AI_CONFIG[selectedAI!]?.models?.length ? (
+              <div className="mb-4">
+                <p className={SECTION_LABEL_CLASS} style={{ color: 'var(--text-muted)' }}>Model</p>
+                <select
+                  aria-label="Model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="w-full bg-popover border border-border rounded-lg px-3 py-2 text-foreground text-fs outline-none cursor-pointer transition-colors focus:border-primary"
+                >
+                  <option value="">Default model</option>
+                  {AI_CONFIG[selectedAI!]!.models!.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
             {/* Cursor solo se instala bajando y ejecutando un script. Ese patron
                 (`curl | bash`, `irm | iex`) es el que Defender levanta como
                 troyano, asi que no lo ejecutamos en ningun SO: va a la web. */}
             {cliFound === false && selectedAI && CLI_INSTALL[selectedAI] && (
-              <div style={{
-                background:
-                  installState === 'done' || (installState === 'error' && installReason === 'not-on-path')
-                    ? '#07210f'
-                    : installState === 'error'
-                      ? '#2a0a0a'
-                      : '#2a1a00',
-                border: `1px solid ${
-                  installState === 'done' || (installState === 'error' && installReason === 'not-on-path')
-                    ? '#22c55e'
-                    : installState === 'error'
-                      ? '#ef4444'
-                      : '#f59e0b'
-                }`,
-                borderRadius: 6,
-                padding: '10px 12px',
-                marginBottom: 12,
-                fontSize: 11,
-              }}>
+              <div className={cn(
+                'rounded-md px-3 py-2.5 mb-3 text-fs-xs border',
+                installState === 'done' || (installState === 'error' && installReason === 'not-on-path')
+                  ? 'bg-ok/10 border-ok'
+                  : installState === 'error'
+                    ? 'bg-destructive/10 border-destructive'
+                    : 'bg-warn/10 border-warn',
+              )}>
                 {installState === 'idle' && (
                   <>
-                    <div style={{ color: '#f59e0b', fontWeight: 600, marginBottom: 6 }}>
+                    <div className="text-warn font-semibold mb-1.5">
                       ⚠ {AI_CONFIG[selectedAI].label} CLI not found
                     </div>
-                    <div style={{ color: '#aaa', marginBottom: 8 }}>
+                    <div className="text-muted-foreground mb-2">
                       {manualInstall
                         ? 'This one installs from its website.'
                         : 'Raven Nest can install it for you.'}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div className="flex items-center gap-1.5">
                       {!manualInstall && (
-                        <button className="cli-banner-install" onClick={installCli}>
+                        <button
+                          className="bg-warn text-background rounded-sm px-3 py-1 text-fs-xs font-semibold cursor-pointer shrink-0 transition hover:brightness-110"
+                          onClick={installCli}
+                        >
                           Install {AI_CONFIG[selectedAI].label} CLI
                         </button>
                       )}
@@ -455,13 +588,13 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
 
                 {installState === 'installing' && (
                   <>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                      <span className="cli-banner-spinner" />
-                      <div style={{ color: '#f59e0b', fontWeight: 600, flex: 1 }}>
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="inline-block size-3 shrink-0 rounded-full border-2 border-warn border-t-transparent animate-spin" />
+                      <div className="text-warn font-semibold flex-1">
                         Installing {AI_CONFIG[selectedAI].label} CLI…
                       </div>
                       <button
-                        style={{ background: 'transparent', color: '#888', border: '1px solid #333', borderRadius: 4, padding: '4px 10px', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}
+                        className="bg-transparent text-muted-foreground border border-border rounded-sm px-2.5 py-1 text-fs-xs cursor-pointer shrink-0"
                         onClick={() => bridge.cli.cancelInstall(selectedAI!)}
                       >
                         Cancel
@@ -473,22 +606,22 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
 
                 {installState === 'done' && (
                   <>
-                    <div style={{ color: '#22c55e', fontWeight: 600, marginBottom: 4 }}>
+                    <div className="text-ok font-semibold mb-1">
                       ✓ {AI_CONFIG[selectedAI].label} CLI installed
                     </div>
-                    <div style={{ color: '#aaa' }}>Opening {AI_CONFIG[selectedAI].label}…</div>
+                    <div className="text-muted-foreground">Opening {AI_CONFIG[selectedAI].label}…</div>
                   </>
                 )}
 
                 {installState === 'error' && installReason === 'not-on-path' && (
                   <>
-                    <div style={{ color: '#22c55e', fontWeight: 600, marginBottom: 6 }}>
+                    <div className="text-ok font-semibold mb-1.5">
                       ✓ {AI_CONFIG[selectedAI].label} CLI installed
                     </div>
-                    <div style={{ color: '#aaa', marginBottom: 8 }}>
+                    <div className="text-muted-foreground mb-2">
                       Restart Raven Nest to pick it up.
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div className="flex items-center gap-1.5">
                       <button
                         className="cli-banner-link"
                         onClick={() => bridge.electronShell.openExternal(CLI_INSTALL[selectedAI!]!.url)}
@@ -501,39 +634,21 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
 
                 {installState === 'error' && installReason === 'failed' && (
                   <>
-                    <div style={{ color: '#ef4444', fontWeight: 600, marginBottom: 6 }}>
+                    <div className="text-destructive font-semibold mb-1.5">
                       ✗ Install failed
                     </div>
-                    <div style={{ color: '#aaa', marginBottom: 8 }}>
+                    <div className="text-muted-foreground mb-2">
                       Try it manually:
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <code style={{
-                        flex: 1,
-                        background: '#111',
-                        border: '1px solid #333',
-                        borderRadius: 4,
-                        padding: '4px 8px',
-                        color: '#e2e8f0',
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}>
+                    <div className="flex items-center gap-1.5">
+                      <code className="flex-1 bg-background border border-border rounded-sm px-2 py-1 text-foreground text-fs-xs font-mono overflow-hidden text-ellipsis whitespace-nowrap">
                         {installCmdFor(CLI_INSTALL[selectedAI]!, isWindows)}
                       </code>
                       <button
-                        style={{
-                          background: copied ? '#22c55e' : '#333',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: 4,
-                          padding: '4px 10px',
-                          fontSize: 11,
-                          cursor: 'pointer',
-                          flexShrink: 0,
-                        }}
+                        className={cn(
+                          'border-none rounded-sm px-2.5 py-1 text-fs-xs cursor-pointer shrink-0',
+                          copied ? 'bg-ok text-background' : 'bg-accent text-foreground',
+                        )}
                         onClick={() => {
                           void safeWriteText(CLI_INSTALL[selectedAI!]!.cmd).then(ok => {
                             if (ok) {
@@ -561,23 +676,29 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
             {/* noAccount types (opencode) land here only when CLI not found — show open anyway */}
             {selectedAI && AI_CONFIG[selectedAI].noAccount && cliFound === false && installState === 'idle' && (
               <button
-                className="btn-primary"
-                style={{ width: '100%', marginBottom: 8 }}
-                onClick={() => onConfirm(selectedAI!, 'default', '', AI_CONFIG[selectedAI!].color, AI_CONFIG[selectedAI!].cmd)}
+                className="btn-primary w-full mb-2"
+                onClick={() => {
+                  const cfg = AI_CONFIG[selectedAI!]
+                  onConfirm(selectedAI!, 'default', '', cfg.color, appendModelFlag(cfg.cmd, cfg.modelFlag, model))
+                }}
               >
                 Open anyway
               </button>
             )}
 
             {accounts.length > 0 && !AI_CONFIG[selectedAI!]?.noAccount && (
-              <div className="account-list">
-                <p className="account-list-label">Saved accounts</p>
+              <div className="mb-5">
+                <p className={SECTION_LABEL_CLASS} style={{ color: 'var(--text-muted)' }}>Saved accounts</p>
                 {accounts.map((name) => (
-                  <button key={name} className="account-item" onClick={() => selectAccount(name)}>
-                    <span className="account-dot" style={{ background: borderColor }} />
-                    <span style={{ flex: 1, textAlign: 'left' }}>{name}</span>
+                  <button
+                    key={name}
+                    className="group w-full bg-popover border border-border rounded-lg px-3.5 py-2.5 text-foreground text-fs cursor-pointer flex items-center gap-2.5 mb-1.5 relative text-left transition-colors hover:bg-border hover:border-primary"
+                    onClick={() => selectAccount(name)}
+                  >
+                    <span className="size-2 rounded-full shrink-0" style={{ background: borderColor }} />
+                    <span className="flex-1 text-left">{name}</span>
                     <span
-                      className="account-delete-btn"
+                      className="shrink-0 size-5 flex items-center justify-center rounded-sm text-fs opacity-0 transition-colors cursor-pointer group-hover:opacity-100 text-[var(--text-muted)] hover:text-destructive hover:bg-destructive/10"
                       role="button"
                       onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'account', name }) }}
                       title="Delete account and local folder"
@@ -588,7 +709,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
             )}
 
             {selectedAI && !AI_CONFIG[selectedAI].noAccount && <div className="new-account-form">
-              <p className="account-list-label">New account</p>
+              <p className={SECTION_LABEL_CLASS} style={{ color: 'var(--text-muted)' }}>New account</p>
               <div className="new-account-row">
                 <input
                   data-tour-id="account-field"
@@ -613,7 +734,7 @@ export default function NewPaneDialog({ onConfirm, onCancel, allowedAIs, onUpgra
             </div>}
 
             {selectedAI && !AI_CONFIG[selectedAI].noAccount && <div className="color-picker-section">
-              <p className="account-list-label">Border color</p>
+              <p className={SECTION_LABEL_CLASS} style={{ color: 'var(--text-muted)' }}>Border color</p>
               <div className="color-palette">
                 {COLOR_PALETTE.map((c) => (
                   <button

@@ -8,6 +8,11 @@ describe('rutaDe', () => {
     expect(rutaDe('/admin-api/api/internal/manifest')).toEqual({ nombre: 'manifest' })
   })
 
+  it('reconoce las métricas, con y sin prefijo', () => {
+    expect(rutaDe('/admin-api/api/internal/metrics')).toEqual({ nombre: 'metricas' })
+    expect(rutaDe('/api/internal/metrics/')).toEqual({ nombre: 'metricas' })
+  })
+
   it('reconoce el manifest sin prefijo', () => {
     expect(rutaDe('/api/internal/manifest')).toEqual({ nombre: 'manifest' })
   })

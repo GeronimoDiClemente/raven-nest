@@ -5,54 +5,58 @@ import { useSharedWorkspaces } from '../hooks/useSharedWorkspaces'
 import { useSharedMcpConfigs } from '../hooks/useSharedMcpConfigs'
 import { useGitHub } from '../hooks/useGitHub'
 import { useGitHubNotifications } from '../hooks/useGitHubNotifications'
-import { useTeamRepos, TeamRepo } from '../hooks/useTeamRepos'
+import { useTeamRepos } from '../hooks/useTeamRepos'
 import { useTeamPresence } from '../hooks/useTeamPresence'
 import { useTeamsKeyboard } from '../hooks/useTeamsKeyboard'
 import { Workspace } from '../types'
-import PRList, { GitHubPR } from './PRList'
-import PRReview from './PRReview'
-import IssueList, { GitHubIssue } from './IssueList'
-import IssueDetail from './IssueDetail'
-import ActivityFeed from './ActivityFeed'
-import DailyStandup from './DailyStandup'
 import NotificationPanel from './NotificationPanel'
-import RepoCIBadge from './RepoCIBadge'
-import RepoActionsAccordion from './RepoActionsAccordion'
-import RepoActionsMenu, { type RepoAction } from './RepoActionsMenu'
 import { useGitlab } from '../hooks/useGitlab'
 import { ProviderAvatarPill, ProviderIcon } from './ProviderAvatar'
-import RepoPicker from './RepoPicker'
 import ConfirmDialog from './ConfirmDialog'
 import TeamChat from './TeamChat'
-import RepoStatusPanel from './RepoStatusPanel'
 import { useTeamChat } from '../hooks/useTeamChat'
 import { safeWriteText } from '../lib/clipboard'
 import ErrorBoundary from './ErrorBoundary'
 import JoinByCodeForm from './JoinByCodeForm'
 import TeamJoinCodePanel from './TeamJoinCodePanel'
 import TeamStats from './TeamStats'
+import WorkspaceNavButton from './WorkspaceNavButton'
+import type { WorkspaceSection } from './teamSections'
+import {
+  MessageSquare, Users, ChartColumn, TextAlignStart, Monitor, Cable, ChevronLeft,
+  ChevronDown, Inbox, KeyRound, Bell,
+} from 'lucide-react'
+import { ICON_SIZE } from '../lib/icons'
 
 interface TeamsWorkspaceProps {
   onClose: () => void
   onLoad?: (ws: Workspace) => void
   onRequireUpgrade?: () => void
-  onOpenRepoTerminal: (repoFullName: string, localPath: string) => void
   onPendingInvitesChange?: () => void
   /** When provided, the header shows a "?" button that launches the Teams tutorial. */
   onStartTutorial?: () => void
+  /** Pending invites live in Personal; call sites that show an invite open them through this. */
+  onOpenPersonalInvites?: () => void
+  /**
+   * The caller (App.tsx) delays actually unmounting
+   * this component after `onClose` so the zoomOut exit animation has time to
+   * play. While that grace period runs, `closing` is true — it drives the
+   * `.closing` CSS class, which both plays the exit keyframes and sets
+   * `pointer-events: none` so a still-fading overlay never blocks clicks to
+   * whatever is behind it.
+   */
+  closing?: boolean
 }
 
-type WorkspaceSection = 'activity' | 'chat' | 'repos' | 'issues' | 'members' | 'stats' | 'snippets' | 'workspaces' | 'mcp' | 'pendings'
-type ReposView = 'list' | 'prs' | 'pr-detail'
-type IssuesView = 'repo-select' | 'list' | 'detail'
+export { WORKSPACE_SECTIONS, type WorkspaceSection } from './teamSections'
 
 const PRESENCE_COLORS = [
-  '#0066FF', '#00CC44', '#CC44FF', '#FFB800', '#FF6600',
+  'var(--primary)', '#00CC44', '#CC44FF', '#FFB800', '#FF6600',
   '#00CCCC', '#FF2D78', '#4455FF', '#88FF00',
 ]
 
-export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, onPendingInvitesChange, onStartTutorial }: TeamsWorkspaceProps) {
-  const [section, setSection] = useState<WorkspaceSection>('activity')
+export default function TeamsWorkspace({ onClose, onLoad, onPendingInvitesChange, onStartTutorial, onOpenPersonalInvites, closing = false }: TeamsWorkspaceProps) {
+  const [section, setSection] = useState<WorkspaceSection>('chat')
   const [acceptError, setAcceptError] = useState<string | null>(null)
   const [acceptingId, setAcceptingId] = useState<string | null>(null)
   const [showSwitcher, setShowSwitcher] = useState(false)
@@ -62,7 +66,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [inviting, setInviting] = useState(false)
   const [terminalExpanded, setTerminalExpanded] = useState(false)
-  const [activityView, setActivityView] = useState<'feed' | 'standup'>('feed')
   const [showNotifications, setShowNotifications] = useState(false)
   const [emptyStateTab, setEmptyStateTab] = useState<'join' | 'create'>('join')
   const [showJoinCodeModal, setShowJoinCodeModal] = useState(false)
@@ -70,18 +73,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
   const [actingRequestId, setActingRequestId] = useState<string | null>(null)
   const switcherRef = useRef<HTMLDivElement>(null)
   const notifRef = useRef<HTMLDivElement>(null)
-
-  // Repos section state
-  const [reposView, setReposView] = useState<ReposView>('list')
-  const [selectedRepo, setSelectedRepo] = useState<TeamRepo | null>(null)
-  const [selectedPR, setSelectedPR] = useState<GitHubPR | null>(null)
-  const [showRepoPicker, setShowRepoPicker] = useState(false)
-  const [statusRepo, setStatusRepo] = useState<TeamRepo | null>(null)
-
-  // Issues section state
-  const [issuesView, setIssuesView] = useState<IssuesView>('repo-select')
-  const [selectedIssueRepo, setSelectedIssueRepo] = useState<TeamRepo | null>(null)
-  const [selectedIssue, setSelectedIssue] = useState<GitHubIssue | null>(null)
 
   const {
     teams, activeTeam, members, pendingInvites, myPendingRequests, loading, userId,
@@ -127,11 +118,9 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
   }
 
   const { githubLogin, githubToken, isConnected: githubConnected, connectGitHub } = useGitHub()
-  const { gitlabLogin, gitlabToken, isConnected: gitlabConnected, connectGitlab } = useGitlab()
-  const tokenForProvider = (provider: 'github' | 'gitlab') =>
-    provider === 'gitlab' ? gitlabToken : githubToken
+  const { gitlabLogin, isConnected: gitlabConnected, connectGitlab } = useGitlab()
   const { notifications, unreadCount, markAsRead } = useGitHubNotifications(githubToken)
-  const { repos, userLocalPaths, refresh: refreshRepos, addRepo, updateUserLocalPath, removeRepo } = useTeamRepos(activeTeam?.id ?? null)
+  const { repos, refresh: refreshRepos } = useTeamRepos(activeTeam?.id ?? null)
   const { presence } = useTeamPresence(activeTeam?.id ?? null, userId)
 
   const { items: teamSnippets, loading: snippetsLoading, userId: sUserId, refresh: refreshSnippets, remove: removeSnippet } = useSharedSnippets(activeTeam?.id)
@@ -152,7 +141,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
 
   useTeamsKeyboard({
     onClose,
-    onSectionChange: (s) => setSection(s as WorkspaceSection),
+    onSectionChange: setSection,
     currentSection: section,
   })
 
@@ -199,121 +188,12 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
     if (s === 'snippets') refreshSnippets()
     if (s === 'workspaces') refreshWorkspaces()
     if (s === 'mcp') refreshMcp()
-    if (s === 'repos') { setReposView('list'); setSelectedRepo(null); setSelectedPR(null) }
-    if (s === 'issues') { setIssuesView('repo-select'); setSelectedIssueRepo(null); setSelectedIssue(null) }
-  }
-
-  const excludedRepoNames = new Set(repos.map(r => r.repo_full_name))
-
-  const handlePickerAdd = async (repoFullName: string, provider: 'github' | 'gitlab', localPath: string | null) => {
-    await addRepo(repoFullName, provider, localPath)
-    setShowRepoPicker(false)
-  }
-
-  const handleLinkExisting = async (repo: TeamRepo) => {
-    // Pass repo_url so the picker rejects (or warns about) folders whose
-    // origin remote doesn't match this repo. Prevents the exact bug that
-    // landed sti-travel-console at the algoritmos folder.
-    const folder = await window.git.pickRepoFolder(repo.repo_url)
-    if (folder) await updateUserLocalPath(repo.id, folder)
-  }
-
-  const handleCloneExisting = async (repo: TeamRepo) => {
-    const cloneUrl = `${repo.repo_url}.git`
-    const result = await window.git.clone(cloneUrl, repo.repo_full_name)
-    if (result.ok && result.path) await updateUserLocalPath(repo.id, result.path)
-  }
-
-  const handleOpenTerminal = async (repo: TeamRepo) => {
-    if (terminalOpening) return
-    setTerminalOpening(true)
-    try {
-      const userPath = userLocalPaths?.[repo.id]
-      if (!userPath) {
-        setCloneTarget(repo)
-        return
-      }
-      const exists = await window.pathUtils.exists(userPath).catch(() => false)
-      if (!exists) {
-        setCloneTarget(repo)
-        return
-      }
-      // Verify the local folder still points at this repo's remote.
-      // Mirrors MyReposPanel.tsx:145-164. getRemoteUrl returns either the
-      // legacy `string | null` shape or the newer `{ ok, url, reason }` shape
-      // depending on main process version — handle both. Any thrown error
-      // (git missing, folder not a repo, perms) falls into the Clone/Link
-      // dialog so the user is never left with a silently dead button.
-      try {
-        const rawResult: unknown = await (window.git as unknown as {
-          getRemoteUrl: (folder: string) => Promise<unknown>
-        }).getRemoteUrl(userPath)
-        let remoteUrl: string | null = null
-        if (typeof rawResult === 'string') {
-          remoteUrl = rawResult
-        } else if (rawResult && typeof rawResult === 'object' && 'ok' in rawResult) {
-          const r = rawResult as { ok: boolean; url?: string | null; reason?: string }
-          if (r.ok && r.url) remoteUrl = r.url
-        }
-        const norm = (u: string) => u
-          .replace(/\.git$/, '')
-          .replace(/\/+$/, '')
-          .replace(/^https?:\/\/[^@/]+@/, 'https://')
-          .toLowerCase()
-        if (remoteUrl && norm(remoteUrl) !== norm(repo.repo_url)) {
-          setCloneTarget(repo)
-          return
-        }
-      } catch {
-        setCloneTarget(repo)
-        return
-      }
-      onOpenRepoTerminal(repo.repo_full_name, userPath)
-    } finally {
-      setTerminalOpening(false)
-    }
-  }
-
-  const [cloneTarget, setCloneTarget] = useState<TeamRepo | null>(null)
-  const [cloning, setCloning] = useState(false)
-  const [cloneError, setCloneError] = useState<string | null>(null)
-  const [terminalOpening, setTerminalOpening] = useState(false)
-
-  const handleCloneTarget = async () => {
-    if (!cloneTarget) return
-    setCloning(true)
-    setCloneError(null)
-    const token = cloneTarget.provider === 'gitlab' ? gitlabToken : githubToken
-    const result = await window.git.clone(
-      `${cloneTarget.repo_url}.git`,
-      cloneTarget.repo_full_name,
-      undefined,
-      { provider: cloneTarget.provider, token: token ?? null },
-    )
-    setCloning(false)
-    if (result.ok && result.path) {
-      await updateUserLocalPath(cloneTarget.id, result.path)
-      setCloneTarget(null)
-      onOpenRepoTerminal(cloneTarget.repo_full_name, result.path)
-    } else {
-      setCloneError(result.error ?? 'Clone failed')
-    }
-  }
-
-  const handleLinkTarget = async () => {
-    if (!cloneTarget) return
-    const folder = await window.git.pickRepoFolder(cloneTarget.repo_url)
-    if (folder) {
-      await updateUserLocalPath(cloneTarget.id, folder)
-      setCloneTarget(null)
-      onOpenRepoTerminal(cloneTarget.repo_full_name, folder)
-    }
   }
 
   const isTeamLeader = activeTeam && userId
     ? members.some(m => m.user_id === userId && m.role === 'leader' && m.status === 'active')
     : false
-  // RLS allows DELETE on teams only to owner_id (decision B13). Render the
+  // RLS allows DELETE on teams only to owner_id. Render the
   // Delete button by ownership, not by leader role — otherwise non-owner
   // leaders see it and click into a silent RLS rejection.
   const isTeamOwner = activeTeam && userId ? activeTeam.owner_id === userId : false
@@ -337,97 +217,76 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
     if (!r.ok) setMemberActionError(r.error ?? 'Error')
   }
 
-  const NAV_ITEMS: { id: WorkspaceSection; label: string; icon: React.ReactNode }[] = [
-    {
-      id: 'activity',
-      label: 'Activity',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 8h3l2-5 3 10 2-5h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-    },
+  // A counter is only wired up when its data is
+  // already sitting in memory — no fetch triggered by rendering the nav.
+  // `members` (and whether any of them is a pending join request) come from
+  // useTeam(), which loads eagerly on `activeTeam` regardless of which
+  // section is selected — so `members` qualifies for both a count and a
+  // warn dot. `chat`/`stats`/`snippets`/`workspaces`/`mcp` do NOT: chat has
+  // no unread-message tracking, stats has no pre-loaded number, and
+  // snippets/workspaces/mcp only fetch once `switchSection` visits them (see
+  // below) — showing a count before that first visit would be a lying zero.
+  const hasJoinRequest = members.some(m => m.status === 'requested')
+
+  const NAV_ITEMS: { id: WorkspaceSection; label: string; icon: React.ReactNode; count?: number; dotStatus?: 'ok' | 'warn' | 'destructive' }[] = [
     {
       id: 'chat',
       label: 'Chat',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4a1.5 1.5 0 011.5-1.5h9A1.5 1.5 0 0114 4v6a1.5 1.5 0 01-1.5 1.5H6L3 14v-2.5A1.5 1.5 0 012 10V4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>,
-    },
-    {
-      id: 'repos',
-      label: 'Repos',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/><circle cx="12" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3"/><circle cx="4" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M4 5.5v5M5.5 4h5M4 5.5c2 0 4 1 4 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
-    },
-    {
-      id: 'issues',
-      label: 'Issues',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3"/><path d="M8 5v4M8 11v.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>,
+      icon: <MessageSquare size={ICON_SIZE.lg} aria-hidden />,
     },
     {
       id: 'members',
       label: 'Members',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/><circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/><path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/></svg>,
+      icon: <Users size={ICON_SIZE.md} aria-hidden />,
+      count: members.length,
+      dotStatus: hasJoinRequest ? 'warn' : undefined,
     },
     // Stats is only for team leaders/managers — members don't see it.
     ...(isTeamLeader ? [{
       id: 'stats' as WorkspaceSection,
       label: 'Stats',
       icon: (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <rect x="1" y="9" width="3" height="5" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="6" y="5" width="3" height="9" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
-          <rect x="11" y="2" width="3" height="12" rx="0.5" stroke="currentColor" strokeWidth="1.3"/>
-        </svg>
+        <ChartColumn size={ICON_SIZE.lg} aria-hidden />
       ),
     }] : []),
     {
       id: 'snippets',
       label: 'Snippets',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M3 8h7M3 12h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>,
+      icon: <TextAlignStart size={ICON_SIZE.lg} aria-hidden />,
     },
     {
       id: 'workspaces',
       label: 'Workspaces',
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="2" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M5 12v2M11 12v2M3 14h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+      icon: <Monitor size={ICON_SIZE.lg} aria-hidden />,
     },
     {
       id: 'mcp',
       label: 'MCP Servers',
-      icon: <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="8" height="10" rx="1.2" stroke="currentColor" strokeWidth="1.3"/><path d="M4 5h2M4 7.5h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/><circle cx="11" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/><path d="M11 7v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>,
+      icon: <Cable size={ICON_SIZE.lg} aria-hidden />,
     },
-    ...(pendingInvites.length > 0 ? [{
-      id: 'pendings' as WorkspaceSection,
-      label: `Pending invites (${pendingInvites.length})`,
-      icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4h10v8a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M3 4l5 4 5-4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>,
-    }] : []),
   ]
 
   // Presence: merge Supabase Realtime data with member list
   const onlineUserIds = new Set(Object.keys(presence))
 
   return (
-    <div className="teams-workspace">
+    <div className={`teams-workspace teams-workspace--front${closing ? ' closing' : ''}`}>
 
-      {/* Header */}
       <div className="teams-workspace-header">
         <button className="tw-back-btn" onClick={onClose}>
-          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 5 }}>
-            <path d="M8 2L4 6.5L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <ChevronLeft size={ICON_SIZE.lg} aria-hidden />
           Back
         </button>
 
         <div className="tw-header-center">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style={{ color: 'var(--raven-blue)', flexShrink: 0 }}>
-            <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.3"/>
-            <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.2" opacity="0.7"/>
-            <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.7"/>
-          </svg>
+          <Users size={ICON_SIZE.md} aria-hidden />
           <span className="tw-header-title" data-tour-id="teams-header">Teams</span>
 
           {activeTeam && (
             <div className="team-switcher" ref={switcherRef}>
               <button className="team-switcher-btn" data-tour-id="team-switcher" onClick={() => setShowSwitcher(v => !v)}>
                 <span className="team-switcher-name">{activeTeam.name}</span>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
-                  <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <ChevronDown size={ICON_SIZE.lg} aria-hidden />
               </button>
               {showSwitcher && (
                 <div className="team-switcher-dropdown">
@@ -437,15 +296,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                       className={`team-switcher-item${t.id === activeTeam.id ? ' active' : ''}`}
                       onClick={() => {
                         switchTeam(t.id)
-                        // H3: Wipe local view state — selections from the previous team
-                        // must not leak across (stale repo/PR/issue refs cause flicker
-                        // or "not found" errors against the new team's data).
-                        setSelectedRepo(null)
-                        setSelectedPR(null)
-                        setStatusRepo(null)
-                        setCloneTarget(null)
-                        setSelectedIssueRepo(null)
-                        setCloneError(null)
                         setShowSwitcher(false)
                         setCreatingTeam(false)
                       }}
@@ -460,14 +310,11 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                       <button
                         className="team-switcher-item"
                         style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}
-                        onClick={() => { setShowSwitcher(false); setCreatingTeam(false); setSection('pendings') }}
+                        onClick={() => { setShowSwitcher(false); setCreatingTeam(false); onOpenPersonalInvites?.() }}
                         title="Review teams that invited you"
                       >
                         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-                            <path d="M3 4h10v8a1 1 0 01-1 1H4a1 1 0 01-1-1V4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-                            <path d="M3 4l5 4 5-4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-                          </svg>
+                          <Inbox size={ICON_SIZE.lg} aria-hidden />
                           Pending invites
                         </span>
                         <span
@@ -490,10 +337,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                     onClick={() => { setShowSwitcher(false); setShowJoinCodeModal(true) }}
                     title="Join an existing team using a code"
                   >
-                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-                      <circle cx="6" cy="10" r="3" stroke="currentColor" strokeWidth="1.3"/>
-                      <path d="M8.5 8L13 3.5M11 5.5L13 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                    </svg>
+                    <KeyRound size={ICON_SIZE.lg} aria-hidden />
                     Join with code
                   </button>
                   <button className="team-switcher-new" onClick={() => { setShowSwitcher(false); setCreatingTeam(true); setSection('members') }}>
@@ -536,9 +380,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
               onClick={() => setShowNotifications(v => !v)}
               title="Notifications"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2a5 5 0 00-5 5v3l-1 1h12l-1-1V7a5 5 0 00-5-5zM8 14a2 2 0 002-2H6a2 2 0 002 2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
-              </svg>
+              <Bell size={ICON_SIZE.lg} aria-hidden />
               {unreadCount > 0 && (
                 <span className="tw-notif-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
               )}
@@ -554,7 +396,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
         </div>
       </div>
 
-      {/* Body */}
       <div className="teams-workspace-body">
 
         {loading && (
@@ -568,12 +409,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
             <div className="empty-state-shell">
               <div className="empty-state-hero">
                 <div className="empty-state-hero-icon">
-                  <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
-                    <circle cx="6" cy="5" r="2" stroke="currentColor" strokeWidth="1.4"/>
-                    <path d="M2 13c0-2.21 1.79-4 4-4s4 1.79 4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                    <circle cx="11.5" cy="5.5" r="1.5" stroke="currentColor" strokeWidth="1.3" opacity="0.7"/>
-                    <path d="M13.5 12.5c0-1.38-.9-2.55-2.14-2.87" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" opacity="0.7"/>
-                  </svg>
+                  <Users size={ICON_SIZE.md} aria-hidden />
                 </div>
                 <div className="empty-state-hero-title">Welcome to Teams</div>
                 <div className="empty-state-hero-subtitle">
@@ -678,18 +514,18 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
 
         {!loading && activeTeam && (
           <>
-            {/* Left nav */}
             <nav className="teams-workspace-nav">
               {NAV_ITEMS.map(item => (
-                <button
+                <WorkspaceNavButton
                   key={item.id}
-                  data-tour-id={`teams-nav-${item.id}`}
-                  className={`tw-nav-btn${!creatingTeam && section === item.id ? ' active' : ''}`}
+                  dataTourId={`teams-nav-${item.id}`}
+                  icon={item.icon}
+                  label={item.label}
+                  active={!creatingTeam && section === item.id}
                   onClick={() => switchSection(item.id)}
-                >
-                  <span className="tw-nav-icon">{item.icon}</span>
-                  {item.label}
-                </button>
+                  count={item.count}
+                  dotStatus={item.dotStatus}
+                />
               ))}
               <div className="tw-nav-spacer" />
               {isTeamOwner ? (
@@ -713,7 +549,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
               )}
             </nav>
 
-            {/* Content area */}
             <div className="teams-workspace-content">
 
               {/* Create new team (while already in a team) */}
@@ -742,32 +577,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
               )}
 
               <ErrorBoundary label={section}><>
-              {/* ACTIVITY */}
-              {!creatingTeam && section === 'activity' && (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-                  <div style={{ display: 'flex', gap: 2, padding: '8px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-                    <button
-                      className={`tw-nav-btn${activityView === 'feed' ? ' active' : ''}`}
-                      style={{ padding: '4px 10px', fontSize: 11 }}
-                      onClick={() => setActivityView('feed')}
-                    >Feed</button>
-                    <button
-                      className={`tw-nav-btn${activityView === 'standup' ? ' active' : ''}`}
-                      style={{ padding: '4px 10px', fontSize: 11 }}
-                      onClick={() => setActivityView('standup')}
-                    >Standup</button>
-                  </div>
-                  <div style={{ flex: 1, overflow: 'auto' }}>
-                    {activityView === 'feed' && (
-                      <ActivityFeed repos={repos} githubToken={githubToken} teamMembers={members} />
-                    )}
-                    {activityView === 'standup' && (
-                      <DailyStandup repos={repos} githubToken={githubToken} teamMembers={members} />
-                    )}
-                  </div>
-                </div>
-              )}
-
               {!creatingTeam && section === 'chat' && (
                 <TeamChat
                   timeline={teamChat.timeline}
@@ -783,311 +592,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                 />
               )}
 
-              {/* REPOS */}
-              {!creatingTeam && section === 'repos' && (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-                  {reposView === 'list' && (
-                    <div className="team-tab-pane" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                          {repos.length} {repos.length === 1 ? 'repo' : 'repos'}
-                        </span>
-                        {isTeamLeader && (
-                          <button className="repo-action-btn primary" onClick={() => setShowRepoPicker(true)}>
-                            <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                              <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-                            </svg>
-                            Add repo
-                          </button>
-                        )}
-                      </div>
-
-                      {repos.length === 0 ? (
-                        <div className="tw-placeholder">
-                          <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>No repos linked</p>
-                          <p style={{ fontSize: 12 }}>{isTeamLeader ? 'Click ＋ Add repo to pick one from GitHub' : 'Wait for a team leader to add repos'}</p>
-                        </div>
-                      ) : (
-                        <div className="repo-list-scroll snippet-list" style={{ flex: 1, minHeight: 0, maxHeight: 'none' }}>
-                          {repos.map(repo => {
-                            const myPath = userLocalPaths?.[repo.id]
-                            const repoProvider: 'github' | 'gitlab' =
-                              ((repo as { provider?: 'github' | 'gitlab' }).provider) ?? 'github'
-                            const overflow: RepoAction[] = []
-                            if (myPath) {
-                              overflow.push({
-                                label: 'Git status',
-                                onClick: () => setStatusRepo(repo),
-                                icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4"/>
-                                    <path d="M8 5.5v3l2 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                                  </svg>
-                                ),
-                              })
-                              overflow.push({
-                                label: 'Re-link folder',
-                                onClick: () => handleLinkExisting(repo),
-                                icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M6 9l-2 2a2 2 0 102.83 2.83l3-3a2 2 0 00-2.83-2.83M10 7l2-2a2 2 0 10-2.83-2.83l-3 3a2 2 0 002.83 2.83" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                                  </svg>
-                                ),
-                              })
-                              overflow.push({
-                                label: 'Unlink folder',
-                                onClick: () => updateUserLocalPath(repo.id, null),
-                                icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M3 8h10M5 5l-2 3 2 3M11 5l2 3-2 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                                  </svg>
-                                ),
-                              })
-                            } else {
-                              // No local folder linked yet — give the user
-                              // explicit clone/link options so they're not
-                              // forced through the auto-fallback in
-                              // handleOpenTerminal (which can fail silently if
-                              // the modal is dismissed or the validation
-                              // rejects the team-shared path).
-                              overflow.push({
-                                label: 'Clone repo',
-                                onClick: () => setCloneTarget(repo),
-                                icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                                  </svg>
-                                ),
-                              })
-                              overflow.push({
-                                label: 'Link existing folder',
-                                onClick: () => handleLinkExisting(repo),
-                                icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M6 9l-2 2a2 2 0 102.83 2.83l3-3a2 2 0 00-2.83-2.83M10 7l2-2a2 2 0 10-2.83-2.83l-3 3a2 2 0 002.83 2.83" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                                  </svg>
-                                ),
-                              })
-                            }
-                            if (isTeamLeader) {
-                              overflow.push({
-                                label: 'Remove from team',
-                                danger: true,
-                                onClick: () => setConfirmAction({
-                                  title: 'Remove repo',
-                                  message: `Remove "${repo.repo_full_name}" from the team? All members will lose access. Local folder is not deleted.`,
-                                  onConfirm: () => removeRepo(repo.id),
-                                }),
-                                icon: (
-                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                  </svg>
-                                ),
-                              })
-                            }
-                            return (
-                            <div key={repo.id} className="snippet-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <span className="snippet-name">{repo.repo_full_name}</span>
-                                  {myPath ? (
-                                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      📁 {myPath}
-                                    </div>
-                                  ) : (
-                                    <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 2 }}>
-                                      No local folder
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="snippet-item-actions">
-                                  {repoProvider === 'github' && (
-                                    <RepoCIBadge repoFullName={repo.repo_full_name} githubToken={githubToken} />
-                                  )}
-                                  <button
-                                    className="repo-action-btn subtle-accent"
-                                    onClick={() => handleOpenTerminal(repo)}
-                                    title="Open terminal in this repo"
-                                  >
-                                    <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                                      <path d="M3 4l3 3-3 3M7.5 10.5h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                    Terminal
-                                  </button>
-                                  {repoProvider === 'github' && (
-                                    <button
-                                      className="repo-action-btn"
-                                      onClick={() => { setSelectedRepo(repo); setReposView('prs') }}
-                                      title="Pull requests"
-                                    >
-                                      <svg className="ra-icon" width="11" height="11" viewBox="0 0 16 16" fill="none">
-                                        <circle cx="4" cy="3.5" r="1.4" stroke="currentColor" strokeWidth="1.3"/>
-                                        <circle cx="4" cy="12.5" r="1.4" stroke="currentColor" strokeWidth="1.3"/>
-                                        <circle cx="12" cy="12.5" r="1.4" stroke="currentColor" strokeWidth="1.3"/>
-                                        <path d="M4 4.9v6.2M9 5.5l3 3v3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                                        <path d="M9 5.5h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                                      </svg>
-                                      PRs
-                                    </button>
-                                  )}
-                                  <RepoActionsMenu actions={overflow} />
-                                </div>
-                              </div>
-                              <RepoActionsAccordion
-                                repoFullName={repo.repo_full_name}
-                                provider={repoProvider}
-                                token={tokenForProvider(repoProvider)}
-                              />
-                            </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {reposView === 'prs' && selectedRepo && githubToken && (
-                    <>
-                      <div className="tw-subnav">
-                        <button className="tw-back-btn" onClick={() => { setReposView('list'); setSelectedRepo(null) }}>← Repos</button>
-                        <span className="tw-subnav-title">{selectedRepo.repo_full_name} · Pull Requests</span>
-                      </div>
-                      <PRList
-                        repoFullName={selectedRepo.repo_full_name}
-                        githubToken={githubToken}
-                        onSelectPR={(pr) => { setSelectedPR(pr); setReposView('pr-detail') }}
-                      />
-                    </>
-                  )}
-
-                  {reposView === 'pr-detail' && selectedRepo && selectedPR && githubToken && (
-                    <PRReview
-                      repoFullName={selectedRepo.repo_full_name}
-                      pr={selectedPR}
-                      githubToken={githubToken}
-                      canReview={true}
-                      onBack={() => { setSelectedPR(null); setReposView('prs') }}
-                    />
-                  )}
-
-                  {(reposView === 'prs' || reposView === 'pr-detail') && !githubToken && (
-                    <div className="tw-placeholder">
-                      <p style={{ fontSize: 12, marginBottom: 12 }}>Connect your GitHub account to view PRs</p>
-                      <button className="snippet-save-btn" onClick={connectGitHub}>Connect GitHub</button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ISSUES */}
-              {!creatingTeam && section === 'issues' && (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-                  {issuesView === 'repo-select' && (
-                    <div className="team-tab-pane">
-                      {repos.length === 0 ? (
-                        <div className="tw-placeholder">
-                          <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>No repos linked</p>
-                          <p style={{ fontSize: 12 }}>Add a repo in the Repos section first</p>
-                        </div>
-                      ) : (
-                        <>
-                          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>Select a repo to view its issues:</p>
-                          <div className="snippet-list" style={{ maxHeight: 'none' }}>
-                            {repos.map(repo => (
-                              <div
-                                key={repo.id}
-                                className="snippet-item"
-                                style={{ cursor: 'pointer' }}
-                                onClick={() => { setSelectedIssueRepo(repo); setIssuesView('list') }}
-                              >
-                                <span className="snippet-name">{repo.repo_full_name}</span>
-                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
-                                  <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                                </svg>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {issuesView === 'list' && selectedIssueRepo && githubToken && (
-                    <>
-                      <div className="tw-subnav">
-                        <button className="tw-back-btn" onClick={() => { setIssuesView('repo-select'); setSelectedIssueRepo(null) }}>← Repos</button>
-                        <span className="tw-subnav-title">{selectedIssueRepo.repo_full_name} · Issues</span>
-                      </div>
-                      <IssueList
-                        repoFullName={selectedIssueRepo.repo_full_name}
-                        githubToken={githubToken}
-                        currentUserLogin={githubLogin ?? ''}
-                        onSelectIssue={(issue) => { setSelectedIssue(issue); setIssuesView('detail') }}
-                      />
-                    </>
-                  )}
-
-                  {issuesView === 'detail' && selectedIssueRepo && selectedIssue && githubToken && (
-                    <IssueDetail
-                      repoFullName={selectedIssueRepo.repo_full_name}
-                      issue={selectedIssue}
-                      githubToken={githubToken}
-                      onBack={() => { setSelectedIssue(null); setIssuesView('list') }}
-                    />
-                  )}
-
-                  {issuesView !== 'repo-select' && !githubToken && (
-                    <div className="tw-placeholder">
-                      <p style={{ fontSize: 12, marginBottom: 12 }}>Connect your GitHub account to view issues</p>
-                      <button className="snippet-save-btn" onClick={connectGitHub}>Connect GitHub</button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* PENDINGS */}
-              {!creatingTeam && section === 'pendings' && (
-                <div className="team-tab-pane">
-                  {pendingInvites.length === 0 ? (
-                    <p className="snippet-empty">No pending invites.</p>
-                  ) : (
-                    <>
-                      <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12 }}>
-                        Accept or decline invitations to other teams.
-                      </p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        {pendingInvites.map(inv => (
-                          <div key={inv.memberId} className="team-pending-banner" style={{ alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 600 }}>{inv.team.name}</div>
-                              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                                Invited {new Date(inv.invitedAt).toLocaleDateString()}
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <button
-                                className="snippet-save-btn"
-                                style={{ fontSize: 11, padding: '3px 8px' }}
-                                onClick={() => handleAccept(inv.memberId)}
-                                disabled={acceptingId === inv.memberId}
-                              >
-                                {acceptingId === inv.memberId ? '…' : 'Accept'}
-                              </button>
-                              <button
-                                className="snippet-cancel-btn"
-                                style={{ fontSize: 11, padding: '3px 8px' }}
-                                onClick={() => handleReject(inv.memberId)}
-                              >Decline</button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      {acceptError && <p style={{ color: '#EF4444', fontSize: 11, marginTop: 10 }}>{acceptError}</p>}
-                    </>
-                  )}
-                </div>
-              )}
-
               {/* MEMBERS */}
               {!creatingTeam && section === 'members' && (
                 <div className="team-tab-pane">
@@ -1095,7 +599,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                     <div
                       className="team-pending-banner"
                       style={{ cursor: 'pointer' }}
-                      onClick={() => setSection('pendings')}
+                      onClick={() => onOpenPersonalInvites?.()}
                       title="View all pending invites"
                     >
                       <span>
@@ -1107,7 +611,7 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                         <button
                           className="snippet-save-btn"
                           style={{ fontSize: 11, padding: '3px 8px' }}
-                          onClick={(e) => { e.stopPropagation(); setSection('pendings') }}
+                          onClick={(e) => { e.stopPropagation(); onOpenPersonalInvites?.() }}
                         >View</button>
                       </div>
                     </div>
@@ -1131,7 +635,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                   {memberActionError && <p style={{ color: '#EF4444', fontSize: 11, marginBottom: 8 }}>{memberActionError}</p>}
                   {joinRequestError && <p style={{ color: '#EF4444', fontSize: 11, marginBottom: 8 }}>{joinRequestError}</p>}
                   {members.length === 0 ? (
-                    <p className="snippet-empty">No members yet.</p>
+                    <div className="tw-placeholder">
+                      <p className="tw-placeholder-title">No members yet</p>
+                      <p className="tw-placeholder-text">Teammates you invite will show up here, ready to share snippets, workspaces and MCP configs.</p>
+                    </div>
                   ) : (
                     <div className="team-member-list">
                       {members.map(m => (
@@ -1208,7 +715,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                 <div className="team-tab-pane">
                   {snippetsLoading && <p className="snippet-empty">Loading…</p>}
                   {!snippetsLoading && teamSnippets.length === 0 && (
-                    <p className="snippet-empty">No snippets. Share from the Snippets panel using ↗.</p>
+                    <div className="tw-placeholder">
+                      <p className="tw-placeholder-title">No snippets shared yet</p>
+                      <p className="tw-placeholder-text">Share one from the Snippets panel (↗) to make it available to the whole team.</p>
+                    </div>
                   )}
                   <div className="snippet-list" style={{ maxHeight: 'none' }}>
                     {teamSnippets.map(s => (
@@ -1238,7 +748,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                 <div className="team-tab-pane">
                   {wsLoading && <p className="snippet-empty">Loading…</p>}
                   {!wsLoading && teamWorkspaces.length === 0 && (
-                    <p className="snippet-empty">No workspaces. Share from the Workspaces panel using ↗.</p>
+                    <div className="tw-placeholder">
+                      <p className="tw-placeholder-title">No workspaces shared yet</p>
+                      <p className="tw-placeholder-text">Share one from the Workspaces panel (↗) to make it available to the whole team.</p>
+                    </div>
                   )}
                   <div className="snippet-list" style={{ maxHeight: 'none' }}>
                     {teamWorkspaces.map(ws => (
@@ -1269,7 +782,10 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
                 <div className="team-tab-pane">
                   {mcpLoading && <p className="snippet-empty">Loading…</p>}
                   {!mcpLoading && teamMcpConfigs.length === 0 && (
-                    <p className="snippet-empty">No MCP configs. Share from the MCP panel using ↗.</p>
+                    <div className="tw-placeholder">
+                      <p className="tw-placeholder-title">No MCP configs shared yet</p>
+                      <p className="tw-placeholder-text">Share one from the MCP panel (↗) to make it available to the whole team.</p>
+                    </div>
                   )}
                   <div className="snippet-list" style={{ maxHeight: 'none' }}>
                     {teamMcpConfigs.map(mc => (
@@ -1314,7 +830,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
 
             </div>
 
-            {/* Right presence sidebar */}
             <div className="teams-workspace-presence">
               <p className="tw-presence-title">Presence</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
@@ -1350,13 +865,9 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
 
       </div>
 
-      {/* Terminal panel */}
       <div className={`teams-workspace-terminal${terminalExpanded ? ' expanded' : ''}`}>
         <button className="tw-terminal-toggle" onClick={() => setTerminalExpanded(v => !v)}>
-          <svg width="11" height="11" viewBox="0 0 11 11" fill="none"
-            style={{ transition: 'transform 0.2s', transform: terminalExpanded ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}>
-            <path d="M1.5 3.5L5.5 7.5L9.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <ChevronDown size={ICON_SIZE.lg} aria-hidden />
           Terminal
         </button>
         {terminalExpanded && (
@@ -1366,25 +877,12 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
         )}
       </div>
 
-      {showRepoPicker && (
-        <RepoPicker
-          githubToken={githubToken}
-          gitlabToken={gitlabToken}
-          excludedFullNames={excludedRepoNames}
-          onAdd={handlePickerAdd}
-          onClose={() => setShowRepoPicker(false)}
-        />
-      )}
-
       {showJoinCodeModal && (
         <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setShowJoinCodeModal(false) }}>
           <div className="team-modal join-code-modal">
             <div className="team-modal-header">
               <div className="team-modal-header-left">
-                <svg className="jcf-title-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <circle cx="6" cy="10" r="3" stroke="currentColor" strokeWidth="1.4"/>
-                  <path d="M8.1 8.1L14 2.2M11.5 4.8l1.7 1.7M13 3.3l1.5 1.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <KeyRound size={ICON_SIZE.lg} aria-hidden />
                 <span className="team-modal-title">Join a team with code</span>
               </div>
               <button className="team-modal-close" onClick={() => setShowJoinCodeModal(false)}>×</button>
@@ -1412,72 +910,6 @@ export default function TeamsWorkspace({ onClose, onLoad, onOpenRepoTerminal, on
           }}
           onCancel={() => setConfirmAction(null)}
         />
-      )}
-
-      {statusRepo && userLocalPaths?.[statusRepo.id] && (
-        <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setStatusRepo(null) }}>
-          <RepoStatusPanel
-            localPath={userLocalPaths![statusRepo.id]}
-            repoFullName={statusRepo.repo_full_name}
-            onClose={() => setStatusRepo(null)}
-          />
-        </div>
-      )}
-
-      {cloneTarget && (
-        <div className="confirm-overlay" onMouseDown={e => { if (e.target === e.currentTarget) { setCloneTarget(null); setCloneError(null) } }}>
-          <div className="confirm-dialog" style={{ width: 420, padding: 18 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <ProviderIcon provider={cloneTarget.provider} size={16} />
-              <div className="confirm-title" style={{ margin: 0, fontSize: 14 }}>
-                {cloneTarget.repo_full_name}
-              </div>
-            </div>
-            <div className="confirm-message" style={{ marginBottom: 14, color: 'var(--text-muted)', fontSize: 12 }}>
-              No local folder for this repo on this machine.
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <button
-                className="clone-action-btn clone-action-btn--primary"
-                onClick={handleCloneTarget}
-                disabled={cloning}
-              >
-                <span className="clone-action-icon">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M3 13h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </span>
-                <span className="clone-action-body">
-                  <span className="clone-action-label">{cloning ? 'Cloning…' : 'Clone repo'}</span>
-                  <span className="clone-action-sub">Downloads a fresh copy into your RavenProjects folder</span>
-                </span>
-              </button>
-              <button
-                className="clone-action-btn"
-                onClick={handleLinkTarget}
-                disabled={cloning}
-              >
-                <span className="clone-action-icon">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M2 5.5A1.5 1.5 0 013.5 4h2.382a1.5 1.5 0 011.06.44l.618.618a1.5 1.5 0 001.061.44H12.5A1.5 1.5 0 0114 7v4.5A1.5 1.5 0 0112.5 13h-9A1.5 1.5 0 012 11.5v-6z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-                  </svg>
-                </span>
-                <span className="clone-action-body">
-                  <span className="clone-action-label">Link existing folder</span>
-                  <span className="clone-action-sub">Pick a folder you already cloned. We&apos;ll verify the remote matches.</span>
-                </span>
-              </button>
-            </div>
-            {cloneError && (
-              <div className="clone-action-error">{cloneError}</div>
-            )}
-            <div className="confirm-actions" style={{ marginTop: 14 }}>
-              <button className="confirm-btn-cancel" onClick={() => { setCloneTarget(null); setCloneError(null) }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
     </div>

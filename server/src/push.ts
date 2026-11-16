@@ -1,0 +1,934 @@
+import type { Pool, PoolClient } from 'pg'
+import { allocateSeqRange } from './seq'
+import { resolveTopicCollision } from './lww'
+import { limitsFor, maxBytesFor } from './limits'
+import { proyectosPermitidos } from './proyectos-permitidos'
+
+export interface Mutation {
+  seq: number
+  sync_id: string
+  op: 'upsert' | 'delete' | 'promote'
+  payload: Record<string, unknown>
+}
+
+export interface PushBody {
+  // Accepted on the wire for backward/forward compatibility but deliberately never read:
+  // the device identity that matters is the authenticated one in `auth.deviceId`. A
+  // client-supplied device id must never be allowed to drive authorization or receipt
+  // lookups — wiring this up "to use the field" would reopen a spoofing hole.
+  device_id?: string
+  mutations: Mutation[]
+}
+
+export interface PushResult {
+  sync_id: string
+  /** `stale`: más vieja (updated_at, después lamport) que la fila guardada; no se escribió nada y está hecha. */
+  outcome: 'applied' | 'superseded' | 'rejected' | 'stale'
+  project_seq: number
+  error?: string
+}
+
+export interface PushResponse {
+  results: PushResult[]
+}
+
+/** §5.2: tags travel as a real array. The client may still send a JSON string. */
+export function normalizeTags(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((t): t is string => typeof t === 'string')
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed)) return parsed.filter((t): t is string => typeof t === 'string')
+    } catch { /* not JSON — treat as untagged */ }
+  }
+  return []
+}
+
+/**
+ * §5.2: the client may send epoch ms or ISO 8601, and the value is the CLIENT's clock.
+ *
+ * Also guards against a raw NaN (JSON cannot encode one, but a caller could still pass a
+ * number that is NaN) and a numeric-string epoch (the real client types these fields as
+ * `number`, so it never sends one today, but Number() alone would otherwise silently drop
+ * it to `fallback` instead of recognizing it). Neither case is reachable through the real
+ * client — this is robustness, not a bug fix.
+ */
+export function parseClientTimestamp(value: unknown, fallback: number): Date {
+  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value)
+  if (typeof value === 'string' && value.trim() !== '') {
+    const asNumber = Number(value)
+    if (Number.isFinite(asNumber)) return new Date(asNumber)
+    const parsed = Date.parse(value)
+    if (!Number.isNaN(parsed)) return new Date(parsed)
+  }
+  return new Date(fallback)
+}
+
+/**
+ * A failure this handler has decided is TERMINAL, carrying the code the client will store
+ * against the mutation. Thrown from inside a mutation's transaction so it takes the same
+ * rollback path as a real database error and gets classified alongside one.
+ */
+export class TerminalPushError extends Error {
+  constructor(readonly code: string, message?: string) {
+    super(message ?? code)
+    this.name = 'TerminalPushError'
+  }
+}
+
+// SQLSTATE classes (the first two characters) that a retry of the SAME payload can never
+// get past, because the payload itself is what Postgres is refusing:
+//   22 — data exception     (a bigint field that is not a number, a bad timestamp, a NUL
+//                            byte in a text column…)
+//   23 — integrity violation (not-null, foreign key, check, unique)
+// Everything else — 08 connection, 40 rollback/deadlock/serialization, 53 out of
+// resources, 57 operator intervention, and every non-SQLSTATE driver error — is transient
+// by assumption and stays OMITTED so the client sends it again. Getting this backwards in
+// either direction loses data: a terminal error omitted is retried forever and never
+// reported, and a transient error rejected is dropped on the floor by a client that (per
+// §5.1) treats `rejected` as final and never retries.
+const TERMINAL_SQLSTATE_CLASSES: Record<string, string> = {
+  '22': 'invalid_payload',
+  '23': 'constraint_violation',
+}
+
+/**
+ * Returns the error code to report with `outcome: 'rejected'`, or null when the failure is
+ * transient and the mutation must be omitted from `results` instead (§5.1: omitting is how
+ * the server says "I did not process this, send it again").
+ */
+export function classifyPushError(err: unknown): string | null {
+  if (err instanceof TerminalPushError) return err.code
+  const code = (err as { code?: unknown } | null | undefined)?.code
+  // A real SQLSTATE is exactly five characters of [0-9A-Z]. Driver-level codes like
+  // ECONNREFUSED or ETIMEDOUT also land in `.code` and must not be pattern-matched as if
+  // their first two characters were a SQLSTATE class.
+  if (typeof code !== 'string' || !/^[0-9A-Z]{5}$/.test(code)) return null
+  return TERMINAL_SQLSTATE_CLASSES[code.slice(0, 2)] ?? null
+}
+
+async function ensureProject(
+  client: PoolClient,
+  userId: string,
+  projectKey: string,
+  displayName: string
+): Promise<number> {
+  const { rows } = await client.query(
+    `insert into projects (user_id, project_key, display_name) values ($1, $2, $3)
+     on conflict (user_id, project_key) do update set display_name = excluded.display_name
+     returning id`,
+    [userId, projectKey, displayName]
+  )
+  return Number(rows[0].id)
+}
+
+// `scope: 'team'` is the field that makes an observation visible beyond its author, so this
+// is an authorization boundary, not a pricing detail: it decides who can read a memory, and
+// it is enforced server-side for the same reason as the cloud gate itself (§9.3 — what is
+// checked only in the renderer is not checked at all).
+//
+// Sale de `limitsFor()` y no de un Set propio acá. Eran DOS fuentes de verdad para el mismo
+// límite —un `Set(['team','enterprise'])` en este archivo y un `teamScope` en `limits.ts`
+// que no leía nadie— y la segunda estaba muerta. Dos declaraciones de una regla de
+// autorización, una de ellas sin efecto, es como se termina cambiando la que no corre.
+
+// §11.6. Igual para todos los planes: existe contra abuso, no como palanca de precio. Son
+// 17 veces la memoria más grande del corpus real medido (59,4 KB), o sea que ningún uso
+// legítimo lo toca.
+const MAX_OBSERVATION_BYTES = 1024 * 1024
+
+/** Sin separadores de ruta ni caracteres de control; los clientes generan `obs-<hex>`. */
+const SYNC_ID_VALIDO = /^[A-Za-z0-9_.:-]{1,128}$/
+
+/**
+ * La partición interna donde cae toda mutación sin `project_key`. NO es un proyecto del
+ * usuario: no cuenta contra `maxProjects` y nunca se rechaza con `project_limit_reached`.
+ *
+ * Por qué es especial, que dentro de un año nadie lo va a adivinar leyendo el código: el
+ * CLIENTE la crea SOLO, sin que el usuario pida nada. `electron/main.ts` llama
+ * `ensureProject('__global__')` en CADA connect, y `electron/memory-project-key.ts` la usa
+ * de fallback para toda captura cuyo repo no se puede resolver. Como la cola de push es un
+ * log plano ordenado por `seq` sobre TODOS los proyectos, si esta clave pagara el tope, en
+ * una cuenta Free (`maxProjects: 1`) el único lugar se lo podría llevar `__global__` en vez
+ * del repo del usuario — según cuál clave apareciera primero en el batch más viejo. El
+ * gancho central del producto (abrir la segunda máquina y encontrar la memoria de la
+ * primera) quedaría librado al azar, y el usuario vería `project_limit_reached` sobre su
+ * repo real sin entender por qué. Un Free tiene entonces su `__global__` MÁS un proyecto
+ * real.
+ *
+ * Mismo valor que `GLOBAL_PROJECT_KEY` en `electron/memory-project-key.ts` — es el
+ * contrato de wire entre cliente y servicio, no una constante local.
+ */
+export const GLOBAL_PROJECT_KEY = '__global__'
+
+/** Mismo prefijo que `CIPHER_PREFIX` de electron/memory-crypto.ts — el servidor no importa
+ * código del cliente, y el prefijo es parte del wire (spec §7), no un detalle interno. */
+const PREFIJO_SOBRE = 'nmc1:'
+
+/**
+ * Task 14 (spec §9.4): ¿viaja sellado todo lo que tiene texto? `null`/'' no es texto
+ * (tombstone, título vacío, una fila sin cuenta de origen).
+ *
+ * Mira TODOS los campos que el cliente sella (`SEALED_FIELDS` de electron/memory-envelope.ts)
+ * más los tags. Antes miraba sólo título, contenido y tags, con el argumento de que
+ * `sealMutationPayload` sella todo junto o nada; pero el gate existe justo para el cliente
+ * que se equivoca, y uno que sellara a medias subía en claro `origin_account` — que en una
+ * máquina real es el mail del usuario — y el nombre del repo (M4, review de Tasks 13–14).
+ */
+const CAMPOS_SELLADOS = ['title', 'content', 'project_display_name', 'content_hash', 'origin_account', 'git_branch'] as const
+
+function viajaSellado(p: Record<string, unknown>): boolean {
+  for (const campo of CAMPOS_SELLADOS) {
+    const v = p[campo]
+    if (typeof v === 'string' && v !== '' && !v.startsWith(PREFIJO_SOBRE)) return false
+  }
+  const tags = p.tags
+  if (Array.isArray(tags) && tags.length > 0) {
+    // `sealMutationPayload` manda los tags como UN sobre (memory-envelope.ts).
+    if (!(tags.length === 1 && typeof tags[0] === 'string' && tags[0].startsWith(PREFIJO_SOBRE))) return false
+  }
+  return true
+}
+
+/**
+ * Una mutación después de la pasada 1 de `handlePush`: o ya quedó rechazada — y su resultado
+ * sólo espera su lugar en `results` — o sobrevivió y va a intentar aplicarse en la pasada 2.
+ *
+ * Existe para que separar los rechazos de la aplicación NO reordene las respuestas: cada
+ * mutación de entrada produce EXACTAMENTE una entrada de esta lista, en su posición
+ * original, y la pasada 2 recorre la lista, no `body.mutations`.
+ */
+type PreparedMutation =
+  | { kind: 'rejected'; result: PushResult }
+  | { kind: 'pending'; m: Mutation; syncId: string; projectKey: string }
+
+export async function handlePush(
+  pool: Pool,
+  auth: { deviceId: string; userId: string; plan: string },
+  body: PushBody
+): Promise<PushResponse> {
+  const mutations = Array.isArray(body.mutations) ? body.mutations : []
+  const results: PushResult[] = []
+
+  const client = await pool.connect()
+  try {
+    // Observabilidad (005_observability.sql): un solo incremento por LLAMADA al handler, no
+    // por mutación — así el contador refleja actividad de sync (cuántas veces este device
+    // pusheó), no el tamaño de cada batch. Corre en autocommit, antes de abrir cualquier
+    // transacción de mutación, así que cuenta pase lo que pase después: body vacío, las
+    // cinco mutaciones rechazadas en la pasada 1, o un error a mitad de la pasada 2.
+    await client.query('update devices set push_count = push_count + 1 where id = $1', [
+      auth.deviceId,
+    ])
+
+    // Una sola lectura por batch, no una por mutación: esta suma escanea todas las
+    // observaciones del usuario y hacerla 200 veces por push sería un escaneo por memoria.
+    // El costo de leerla una vez es que un batch puede pasarse un poco antes de frenar, lo
+    // que es aceptable: el techo existe contra abuso, no para cortar al byte exacto.
+    //
+    // Se lee acá arriba, antes de resolver ningún proyecto, porque `quota_exceeded` es uno
+    // de los seis rechazos de la pasada 1 y esa pasada tiene que correr ANTES de que se
+    // pueda crear una fila en `projects`.
+    const { rows: usedRows } = await client.query(
+      `select coalesce(sum(octet_length(coalesce(o.content, ''))), 0)::bigint as used
+         from observations o join projects p on p.id = o.project_id
+        where p.user_id = $1`,
+      [auth.userId]
+    )
+    // `maxBytesFor`, no `limitsFor(plan).maxBytes`: el override de instancia dedicada
+    // (`MAX_BYTES_PER_USER`) tiene que APLICAR, no sólo salir informado en `status`.
+    const overQuota = Number(usedRows[0].used) >= maxBytesFor(auth.plan)
+
+    // Team Memory Layer 1, Parte 4. Un query por batch, no por mutación — mismo motivo que
+    // el de arriba: escanearlo una vez cuesta lo mismo que doscientas. Sólo los
+    // project_key que YA tienen `team_id` seteado — compartidos vía POST
+    // /v1/projects/share (Parte 3) — porque eso es justo lo que separa un push
+    // `scope: 'team'` legítimo de uno a un proyecto que nunca se compartió con nadie.
+    // Y sólo mientras el autor siga siendo miembro activo de ESE equipo: sacarlo del equipo
+    // no limpia `projects.team_id`, así que sin el join un ex-miembro seguía escribiendo filas
+    // de equipo que el pull les servía a los demás.
+    const { rows: sharedRows } = await client.query(
+      `select p.project_key from projects p
+         join team_memberships tm on tm.user_id = p.user_id and tm.team_id = p.team_id and tm.status = 'active'
+        where p.user_id = $1 and p.team_id is not null`,
+      [auth.userId]
+    )
+    const sharedProjectKeys = new Set(sharedRows.map((r) => r.project_key as string))
+
+    // Task 14 (spec §9.4): los proyectos propios cuyo equipo tiene `team_keys`. Un query por
+    // batch, mismo criterio que `sharedRows`.
+    const { rows: cifradosRows } = await client.query(
+      `select p.project_key from projects p join team_keys tk on tk.team_id = p.team_id
+        where p.user_id = $1`,
+      [auth.userId]
+    )
+    const proyectosDeEquipoCifrado = new Set(cifradosRows.map((r) => r.project_key as string))
+
+    // Si la CUENTA cifra (`key_epoch > 0`), una fila personal en claro no se guarda. Un query
+    // por batch, mismo criterio que los de arriba.
+    const { rows: epochRows } = await client.query('select key_epoch from users where id = $1', [auth.userId])
+    // Spec 2026-11-02: ninguna fila personal en claro, cifre la cuenta o no. La única salida
+    // es `ALLOW_PLAINTEXT_PERSONAL=1` con la cuenta en época 0, que sólo setea el vitest del
+    // servidor: con la cuenta ya cifrando, ni los tests pueden subir claro.
+    const cuentaCifra = Number(epochRows[0]?.key_epoch ?? 0) > 0
+    const exigeSellado = cuentaCifra || process.env.ALLOW_PLAINTEXT_PERSONAL !== '1'
+
+    // PASADA 1 — los siete rechazos que NO dependen del id del proyecto: `missing_sync_id`,
+    // `team_scope_not_allowed`, `project_not_shared_with_team`, `team_encryption_required`,
+    // `encryption_required`, `observation_too_large` y `quota_exceeded`.
+    //
+    // Corren antes de resolver proyectos, y ese orden no es cosmético. `ensureProject` corría
+    // para toda clave nueva con lugar disponible ANTES de que se evaluara ningún rechazo, así
+    // que un batch cuya única mutación después rebotaba dejaba igual la fila en `projects`:
+    // un proyecto VACÍO ocupando para siempre el único lugar de una cuenta Free. Y borrar
+    // todas las observaciones no lo liberaba, porque nada borra filas de `projects` salvo
+    // `delete-data`, que borra todo. El usuario quedaba sin poder sincronizar su repo de
+    // verdad por una mutación que el servidor ni siquiera aceptó.
+    //
+    // Tres cosas que este reordenamiento NO cambia, y que hay que seguir respetando al tocar
+    // esto: el orden de `results` (cada mutación de entrada deja exactamente una entrada en
+    // `prepared`, en su posición, y la pasada 2 recorre `prepared`), la idempotencia por
+    // (device_id, seq) — el recibo se sigue reclamando dentro de la transacción de cada
+    // mutación, en la pasada 2, ese mecanismo no se toca — y el advisory lock y la
+    // transacción de resolución de proyectos, que quedan igual: lo único que cambia es QUÉ
+    // claves entran a ese bloque.
+    const prepared: PreparedMutation[] = []
+    for (const m of mutations) {
+      const p = m.payload ?? {}
+      const syncId = m.sync_id ?? String(p.sync_id ?? '')
+      const projectKey = String(p.project_key ?? GLOBAL_PROJECT_KEY)
+      const scope = String(p.scope ?? 'personal')
+
+      // Without this, a mutation carrying neither `sync_id` nor `payload.sync_id` became
+      // the empty string — a perfectly valid text primary key — so EVERY malformed push
+      // from every account in the world collided on one row and overwrote each other.
+      // Terminal on purpose: no retry of the same payload can grow a sync_id.
+      if (!syncId) {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: '', outcome: 'rejected', project_seq: 0, error: 'missing_sync_id' },
+        })
+        continue
+      }
+
+      // El sync_id de una fila de equipo termina en el nombre de un archivo en la máquina de
+      // otro miembro (el vault): con `/`, `\\` o un carácter de control escapaba de la carpeta.
+      // Los que generan los clientes son `obs-<hex>`; terminal por lo mismo que el de arriba.
+      if (!SYNC_ID_VALIDO.test(syncId)) {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: syncId.slice(0, 200), outcome: 'rejected', project_seq: 0, error: 'invalid_sync_id' },
+        })
+        continue
+      }
+
+      // The scope travels in the payload, so without this check the client is the only
+      // thing deciding whether a memory is private or shared with the whole account.
+      // Terminal on purpose: the same payload on the same plan can never succeed, and
+      // omitting it instead would make the device retry a write it is not allowed to make,
+      // forever.
+      if (scope === 'team' && !limitsFor(auth.plan).teamScope) {
+        prepared.push({
+          kind: 'rejected',
+          result: {
+            sync_id: syncId,
+            outcome: 'rejected',
+            project_seq: 0,
+            error: 'team_scope_not_allowed',
+          },
+        })
+        continue
+      }
+
+      // Team Memory Layer 1, Parte 4. El plan solo no alcanza: `scope: 'team'` también
+      // exige que ESE proyecto se haya compartido explícitamente con un equipo (POST
+      // /v1/projects/share, Parte 3). Sin este gate, cualquier device con plan de equipo
+      // podía marcar `scope: 'team'` sobre CUALQUIER project_key — incluso uno que el
+      // usuario nunca compartió con nadie — y esa observation quedaría visible para todo
+      // el equipo en cuanto el pull team-scoped (Parte 5) la trajera. Terminal por la
+      // misma razón que el gate de arriba: el mismo payload nunca va a poder aplicar
+      // mientras el proyecto siga sin compartir, y omitirlo dejaría al device reintentando
+      // para siempre una escritura que no le corresponde.
+      if (scope === 'team' && !sharedProjectKeys.has(projectKey)) {
+        prepared.push({
+          kind: 'rejected',
+          result: {
+            sync_id: syncId,
+            outcome: 'rejected',
+            project_seq: 0,
+            error: 'project_not_shared_with_team',
+          },
+        })
+        continue
+      }
+
+      // Task 14 (spec §9.4): un equipo con `team_keys` nunca guarda texto en claro. Reversible
+      // A PROPÓSITO (el cliente la retiene en `REVERSIBLE_REJECTIONS`): el mismo payload,
+      // sellado con la clave de equipo, aplica en cuanto ese device la adopte. Defensa en
+      // profundidad para lo que el gate del cliente no ve: un cliente viejo, o uno con
+      // `projects.team_id` local desactualizado.
+      if (scope === 'team' && proyectosDeEquipoCifrado.has(projectKey) && !viajaSellado(p)) {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: syncId, outcome: 'rejected', project_seq: 0, error: 'team_encryption_required' },
+        })
+        continue
+      }
+
+      // Lo mismo para toda fila PERSONAL (spec 2026-11-02, cifrado obligatorio; antes sólo si la
+      // cuenta ya cifraba, hueco del 30-oct): el servidor aceptaba claro de un cliente viejo o
+      // de uno que todavía no aprendió la época. El gate
+      // del cliente (`isEncryptionExpected`) sigue siendo la primera línea; esto es la segunda.
+      // Reversible: el cliente no la descarta, pide un status, arma su gate y la sube sellada
+      // cuando tenga la maestra.
+      if (scope !== 'team' && exigeSellado && !viajaSellado(p)) {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: syncId, outcome: 'rejected', project_seq: 0, error: 'encryption_required' },
+        })
+        continue
+      }
+
+      // Bytes utf-8, no `.length`: `.length` cuenta unidades utf-16 y subcuenta cualquier
+      // texto no ASCII — el mismo error que ya había corrompido cuerpos enteros en readBody.
+      if (Buffer.byteLength(String(p.content ?? ''), 'utf8') > MAX_OBSERVATION_BYTES) {
+        prepared.push({
+          kind: 'rejected',
+          result: {
+            sync_id: syncId,
+            outcome: 'rejected',
+            project_seq: 0,
+            error: 'observation_too_large',
+          },
+        })
+        continue
+      }
+
+      // Frena lo nuevo y no toca nada de lo viejo: la cuota llena NUNCA borra para hacer
+      // lugar. Un borrado (`op: 'delete'`) sí pasa — es lo único que puede bajar el uso, y
+      // bloquearlo dejaría al usuario encerrado sin forma de recuperar espacio.
+      if (overQuota && m.op !== 'delete') {
+        prepared.push({
+          kind: 'rejected',
+          result: { sync_id: syncId, outcome: 'rejected', project_seq: 0, error: 'quota_exceeded' },
+        })
+        continue
+      }
+
+      prepared.push({ kind: 'pending', m, syncId, projectKey })
+    }
+
+    // `ensureProject` used to run once PER MUTATION, so a 200-mutation batch for one
+    // project did 200 upserts against the same `projects` row — ~400 dead tuples per push
+    // on a row that is also the seq counter every push has to lock. Resolve each distinct
+    // project_key ONCE, up front. The last display_name in the batch still wins, exactly
+    // as it did when each mutation overwrote the previous one's.
+    //
+    // Sólo las claves de las mutaciones que SOBREVIVIERON la pasada 1: una clave que sólo
+    // aparecía en mutaciones ya rechazadas no llega hasta acá y por lo tanto no se crea.
+    //
+    // Deliberately BEFORE the per-mutation transactions rather than hoisted inside one:
+    // the transaction boundaries are unchanged (still one per mutation), and a project id
+    // cached from a transaction that later rolled back would name a row that no longer
+    // exists. Resolving them here, in autocommit, means the id stays valid no matter which
+    // mutations fail. A project created for a batch whose surviving mutations then fail on
+    // a DB error is an empty row holding a seq counter — harmless, and the retry reuses it.
+    const displayNames = new Map<string, string>()
+    for (const entry of prepared) {
+      if (entry.kind !== 'pending') continue
+      const p = entry.m.payload ?? {}
+      displayNames.set(entry.projectKey, String(p.project_display_name ?? entry.projectKey))
+    }
+    // El tope se cuenta ANTES de crear nada, y sólo lo pagan las claves NUEVAS: un usuario
+    // que ya tiene su proyecto en la nube sigue escribiendo en él aunque esté en el tope.
+    //
+    // El count-y-luego-insert de acá abajo tiene que correr bajo un lock propio: dos pushes
+    // concurrentes del mismo usuario (dos devices sincronizando a la vez, cada uno con un
+    // project_key nuevo) pueden leer el mismo `known.size` ANTES de que el otro haya
+    // insertado su fila — ambos ven un lugar libre y ambos lo ocupan, dejando al usuario con
+    // más proyectos de los que su plan permite. `pg_advisory_xact_lock` sobre una clave
+    // derivada del user_id serializa a los pushes concurrentes de la MISMA cuenta (cuentas
+    // distintas no se pisan: hashtextextended de distintos user_id no colisiona en la
+    // práctica) sin tocar el resto de las cuentas.
+    //
+    // Esta transacción es corta y propia — no la misma que envuelve cada mutación más abajo
+    // — así que el comentario de arriba sigue siendo cierto: como ella comitea ANTES de que
+    // arranque el loop de mutaciones, los ids resueltos acá quedan válidos pase lo que pase
+    // después, sin importar qué transacción de mutación haga rollback.
+    //
+    // El mismo patrón de advisory lock transaccional que usa la colisión de topic más abajo
+    // (`pg_advisory_xact_lock(hashtextextended($1, 0))`) — misma función, mismo namespace de
+    // 64 bits compartido con CUALQUIER otro advisory lock del proceso (incluido
+    // MIGRATION_LOCK_KEY en db.ts), así que la clave usada acá (`project-limit:<user_id>`)
+    // tiene que seguir siendo distinguible del formato que usa esa otra clave
+    // (`<projectId>:<scope>:<topicKey>`, siempre numérica al inicio) para que una colisión
+    // real sea, como ahí, no creíble.
+    const projectIds = new Map<string, number>()
+    const projectErrors = new Map<string, unknown>()
+    const overLimit = new Set<string>()
+    await client.query('begin')
+    try {
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+        `project-limit:${auth.userId}`,
+      ])
+
+      const { rows: existing } = await client.query(
+        'select project_key, id from projects where user_id = $1 order by id',
+        [auth.userId]
+      )
+      const known = new Set(existing.map((r) => r.project_key as string))
+      const maxProjects = limitsFor(auth.plan).maxProjects
+      // Spec 2b-2 §4.7: quien bajó de plan con más proyectos que el tope sólo sigue escribiendo
+      // en los permitidos (el elegido, o los más viejos). Se lee DENTRO del lock: un keep
+      // concurrente toma el mismo lock (keep.ts), así que la elección y el push no se cruzan.
+      const { rows: keptRows } = await client.query('select kept_project_key from users where id = $1', [auth.userId])
+      const permitidos = proyectosPermitidos(
+        existing
+          .filter((r) => r.project_key !== GLOBAL_PROJECT_KEY)
+          .map((r) => ({ projectKey: r.project_key as string, id: Number(r.id) })),
+        (keptRows[0]?.kept_project_key as string | null | undefined) ?? null,
+        maxProjects
+      )
+      // `__global__` se descuenta de lo YA existente por la misma razón por la que abajo no
+      // pide lugar (ver GLOBAL_PROJECT_KEY): es una partición interna, no un repo. Sin este
+      // descuento el usuario que ya tiene su `__global__` en la nube — o sea, todos, porque
+      // el cliente la crea en cada connect — arrancaría con el tope de Free ya consumido.
+      const ownedProjects = [...known].filter((k) => k !== GLOBAL_PROJECT_KEY).length
+      let slotsLeft = Math.max(0, maxProjects - ownedProjects)
+
+      for (const [key, displayName] of displayNames) {
+        // Ya está en la nube pero quedó fuera de lo permitido: mismo rechazo reversible.
+        if (key !== GLOBAL_PROJECT_KEY && known.has(key) && !permitidos.has(key)) {
+          overLimit.add(key)
+          continue
+        }
+        if (key !== GLOBAL_PROJECT_KEY && !known.has(key)) {
+          if (slotsLeft <= 0) {
+            overLimit.add(key)
+            continue
+          }
+          slotsLeft--
+        }
+        try {
+          // A savepoint per key, not a bare try/catch: a real SQL error inside an explicit
+          // transaction poisons it until something rolls back, so without this a single
+          // unusable project_key would take the WHOLE batch's project resolution down with
+          // it — exactly the failure the surrounding try/catch was written to prevent
+          // before this block ran in a transaction at all.
+          await client.query('savepoint ensure_project')
+          projectIds.set(key, await ensureProject(client, auth.userId, key, displayName))
+          await client.query('release savepoint ensure_project')
+        } catch (err) {
+          await client.query('rollback to savepoint ensure_project')
+          // Kept per-key instead of thrown: one unusable project_key must not take down the
+          // whole batch. The error is re-thrown inside each affected mutation's transaction
+          // below, so it goes through the same terminal/transient classification.
+          projectErrors.set(key, err)
+        }
+      }
+      await client.query('commit')
+    } catch (err) {
+      await client.query('rollback')
+      throw err
+    }
+
+    // PASADA 2 — aplicar. Acá ya sólo queda un rechazo posible, `project_limit_reached`: es
+    // el único de los siete que depende de haber resuelto los proyectos, y por eso es el
+    // único que no se pudo evaluar en la pasada 1.
+    //
+    // Se recorre `prepared`, NO `mutations`: así los rechazos de la pasada 1 vuelven a
+    // `results` en la posición exacta que tenía su mutación en la entrada.
+    //
+    // Los siete rechazos tempranos —los seis de la pasada 1 y `project_limit_reached`— dejan
+    // su fila en `rejected_pushes` igual que los terminales de más abajo. No la dejaban, y
+    // eran justo los que más importa ver: son los de plan y de permisos (cuota llena, tope
+    // de proyectos, equipo sin compartir), o sea los que explican por qué a alguien "no le
+    // sincroniza". `devices-with-rejections.mjs` no los mostraba nunca. Acá no hay ninguna
+    // transacción abierta, así que el insert commitea solo; y si falla no se lleva puesto el
+    // push: es un registro, no parte del resultado.
+    const anotarRechazo = async (syncId: string, error: string): Promise<void> => {
+      try {
+        await client.query(
+          `insert into rejected_pushes (device_id, sync_id, error) values ($1, $2, $3)`,
+          [auth.deviceId, syncId, error]
+        )
+      } catch (err) {
+        console.error('[push] no se pudo anotar el rechazo', error, err)
+      }
+    }
+    for (const entry of prepared) {
+      if (entry.kind === 'rejected') {
+        results.push(entry.result)
+        await anotarRechazo(entry.result.sync_id, entry.result.error ?? 'rejected')
+        continue
+      }
+      const { m, syncId, projectKey } = entry
+      const p = m.payload ?? {}
+      const now = Date.now()
+
+      // El proyecto de más no se rechaza para siempre ni se borra: sigue vivo y completo en
+      // la máquina del usuario. Esto sólo dice "en la nube, no", y es reversible: el cliente lo
+      // retiene (no lo descarta) y vuelve a la cola si el usuario elige este proyecto con
+      // `Keep syncing` o si vuelve a pagar un plan que lo incluye.
+      if (overLimit.has(projectKey)) {
+        results.push({
+          sync_id: syncId,
+          outcome: 'rejected',
+          project_seq: 0,
+          error: 'project_limit_reached',
+        })
+        await anotarRechazo(syncId, 'project_limit_reached')
+        continue
+      }
+
+      await client.query('begin')
+      let rolledBack = false
+      try {
+        // §5.1 idempotency, and the MUTEX for it. The receipt used to be read before the
+        // transaction and written at the end, which left the whole apply unguarded: two
+        // concurrent pushes of the same (device_id, seq) — precisely what the client
+        // produces when its AbortSignal timeout fires and it retries while the first
+        // request is still in flight — both read "no receipt", both applied, and the
+        // receipt ended up naming a project_seq that no row had, leaving a permanent hole
+        // in the seq space.
+        //
+        // Claiming the receipt FIRST closes that: the second transaction blocks on the
+        // uncommitted primary key, and when the first commits, `do nothing` returns no
+        // row. `outcome` is a placeholder until the outcome is actually known — it is
+        // updated below, in this same transaction, so the placeholder can never be
+        // observed by anyone.
+        const claim = await client.query(
+          `insert into push_receipts (device_id, seq, sync_id, outcome, project_seq)
+           values ($1, $2, $3, 'pending', null)
+           on conflict do nothing returning device_id`,
+          [auth.deviceId, m.seq, syncId]
+        )
+        if (claim.rowCount === 0) {
+          // Somebody else owns this (device_id, seq). Since the insert above waits out any
+          // in-flight conflicting transaction, "no row" means that one COMMITTED — so the
+          // stored receipt is there to be read and returned, exactly as a replay would.
+          rolledBack = true
+          await client.query('rollback')
+          const prior = await client.query(
+            'select sync_id, outcome, project_seq from push_receipts where device_id = $1 and seq = $2',
+            [auth.deviceId, m.seq]
+          )
+          if (prior.rows.length > 0) {
+            results.push({
+              sync_id: prior.rows[0].sync_id,
+              outcome: prior.rows[0].outcome,
+              project_seq: Number(prior.rows[0].project_seq ?? 0),
+            })
+          }
+          // No stored receipt after all (the other transaction rolled back between the
+          // conflict and this read): omit it and let the client send it again.
+          continue
+        }
+
+        const projectId = projectIds.get(projectKey)
+        if (projectId === undefined) throw projectErrors.get(projectKey) ?? new Error('no project')
+
+        // N1 (re-review del cifrado obligatorio): guarda de LWW. Una mutación MÁS VIEJA que
+        // la fila guardada no la toca. Sin esto, una máquina que no tenía la clave (y por eso
+        // conserva versiones viejas de filas que otra editó o borró) las re-subía al adoptarla
+        // y pisaba la edición nueva en la nube, o resucitaba el borrado (`deleted =
+        // excluded.deleted`).
+        //
+        // "Más vieja" es EXACTAMENTE el orden de resolveLWW del cliente (memory-merge.ts) y de la
+        // colisión de temas (lww.ts): updated_at primero, lamport después. R1 (re-review de N1):
+        // con sólo lamport, una máquina atrasada en el pull que edita MÁS TARDE con lamport MÁS
+        // BAJO quedaba stale acá, pero ganaba en su LWW local: ella se quedaba con su versión,
+        // la nube con la otra, para siempre. Mismo sync_id, así que el desempate por syncId no
+        // existe: el empate total (el re-upload sellado lleva el updated_at y el lamport de la
+        // fila en claro que reemplaza) PASA — `resolveTopicCollision` le da el empate al segundo
+        // argumento, la entrante.
+        //
+        // R2: el lock de `projects` va ANTES que el de la fila, el mismo orden que la colisión
+        // de temas (allocateSeqRange, después el owner) y que team-keys-recrypt.ts. Al revés,
+        // dos pushes cruzados terminaban en 40P01. Es el mismo lock que toma allocateSeqRange
+        // más abajo, así que no agrega espera: sólo la adelanta.
+        //
+        // Va ANTES de pedir el seq y de la colisión de temas, no como un `where` del upsert: un
+        // stale que "ganara" la colisión ya habría supersedido a la dueña viva del tema, y el
+        // seq pedido quedaría como un agujero. Así no se escribe nada y `project_seq` no se
+        // mueve: ningún pull vuelve a bajar la fila. El `for update` la bloquea hasta el commit
+        // contra un push concurrente de la misma fila. Sólo la del MISMO autor: una de otra
+        // cuenta sigue al `sync_id_conflict` de abajo, sin revelarle nada de esa fila.
+        //
+        // `stale` no es `rejected`: el cliente la da por hecha (marca pushed sin error) y no la
+        // reintenta, que es lo correcto — la versión buena ya está en la nube y le va a llegar
+        // por el pull.
+        await client.query('select 1 from projects where id = $1 for update', [projectId])
+        const vigente = await client.query(
+          `select lamport, client_updated_at, project_seq from observations
+            where sync_id = $1 and author_id = $2 for update`,
+          [syncId, auth.userId]
+        )
+        const guardada = vigente.rows[0]
+          ? {
+              syncId,
+              updatedAt: new Date(vigente.rows[0].client_updated_at).getTime(),
+              lamport: Number(vigente.rows[0].lamport),
+            }
+          : null
+        const entrante = {
+          syncId,
+          updatedAt: parseClientTimestamp(p.updated_at ?? p.client_updated_at, now).getTime(),
+          lamport: Number(p.lamport ?? 0),
+        }
+        if (guardada && resolveTopicCollision(guardada, entrante).winner === guardada) {
+          const stale: PushResult = {
+            sync_id: syncId,
+            outcome: 'stale',
+            project_seq: Number(vigente.rows[0].project_seq),
+          }
+          await client.query(
+            `update push_receipts set sync_id = $3, outcome = $4, project_seq = $5
+              where device_id = $1 and seq = $2`,
+            [auth.deviceId, m.seq, syncId, stale.outcome, stale.project_seq]
+          )
+          await client.query('commit')
+          results.push(stale)
+          continue
+        }
+
+        const seq = await allocateSeqRange(client, projectId, 1)
+
+        // §8.1: a topic collision supersedes the loser; it never rejects it. The old server
+        // did a plain INSERT against obs_topic_uniq, the second memory came back `rejected`,
+        // the client marked it pushed and never retried, and the two machines showed
+        // different memories for the same topic forever. Nothing is discarded here.
+        let supersededBy: string | null = null
+        const scope = String(p.scope ?? 'personal')
+        const topicKey = (p.topic_key as string | null) ?? null
+        const incomingDeleted = m.op === 'delete' || Boolean(p.deleted)
+
+        // F2 (review final, cifrado obligatorio): el re-upload de la migración re-sube también
+        // las filas propias superseded, porque si no su texto quedaba legible en el servidor y
+        // `plaintext_pending` no llegaba nunca a 0. Una fila que el cliente manda YA superseded
+        // y que acá también lo está conserva su marca y no pasa por la colisión de abajo:
+        // re-cifrar no es editar. Sin esto la colisión la resucitaba de dos maneras: si la
+        // ganadora todavía tenía el tema en claro (el re-upload va por updated_at, así que la
+        // perdedora suele subir antes) el HMAC no la encontraba; y si la ganadora estaba
+        // borrada no había dueño vivo contra quién perder.
+        //
+        // Sólo cuando las DOS puntas dicen superseded: un payload con `superseded_by` sobre una
+        // fila viva acá no marca nada (el cliente no decide supersedes, ver §8.1), y una fila
+        // superseded acá que el cliente manda viva sigue el camino normal de la colisión.
+        let conservaSupersede = false
+        const supersededDelCliente = typeof p.superseded_by === 'string' && p.superseded_by !== ''
+        if (supersededDelCliente && !incomingDeleted) {
+          const actual = await client.query(
+            `select superseded_by from observations where sync_id = $1 and author_id = $2`,
+            [syncId, auth.userId]
+          )
+          const marca = (actual.rows[0]?.superseded_by as string | null | undefined) ?? null
+          if (marca !== null) {
+            supersededBy = marca
+            conservaSupersede = true
+          }
+        }
+
+        if (topicKey && !incomingDeleted && !conservaSupersede) {
+          // DEFENSE IN DEPTH, and redundant TODAY — kept deliberately, so read this before
+          // deleting it as dead weight or copying it as a pattern:
+          //
+          // (a) The TOCTOU window this closes is already shut. `allocateSeqRange` ran a few
+          //     lines up and its `update projects ... where id = $1` takes a row lock on
+          //     this project that Postgres holds until commit. Two concurrent pushes to the
+          //     same project therefore cannot both sit between the owner read below and the
+          //     insert further down: the second one is already waiting on that row.
+          // (b) This lock is what keeps the §8.1 guarantee true if seq allocation ever
+          //     STOPS locking the projects row. Note which direction the risk runs: the
+          //     batching optimization the plan contemplates (one range per project per
+          //     push instead of one per mutation) makes that row lock STRONGER, not weaker.
+          //     The real hazard is replacing the counter with a Postgres sequence, with a
+          //     separate table, or with an in-process cached range — any of those drops the
+          //     row lock, and without this line the topic guarantee would evaporate in
+          //     silence, with nothing failing and nobody noticing.
+          // (c) `pg_advisory_xact_lock` shares ONE 64-bit key space with every other
+          //     advisory lock in this process, including `MIGRATION_LOCK_KEY` in db.ts.
+          //     The key here is a hash of a tuple string, so a collision with that constant
+          //     is not credible, but any new advisory lock added anywhere in this service
+          //     lands in the same namespace and has to be chosen with that in mind.
+          //
+          // Keyed on the exact tuple obs_topic_uniq enforces uniqueness over, and
+          // transaction-scoped: a session-scoped lock would leak across pooled requests.
+          await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+            `${projectId}:${scope}:${topicKey}`,
+          ])
+
+          const owner = await client.query(
+            `select sync_id, lamport, client_updated_at from observations
+              where project_id = $1 and scope = $2 and topic_key = $3
+                and sync_id <> $4 and deleted = false and superseded_by is null
+              for update`,
+            [projectId, scope, topicKey, syncId]
+          )
+          if (owner.rows.length > 0) {
+            const existing = {
+              syncId: owner.rows[0].sync_id,
+              updatedAt: new Date(owner.rows[0].client_updated_at).getTime(),
+              lamport: Number(owner.rows[0].lamport),
+            }
+            const incoming = {
+              syncId,
+              updatedAt: parseClientTimestamp(p.updated_at ?? p.client_updated_at, now).getTime(),
+              lamport: Number(p.lamport ?? 0),
+            }
+            const { winner } = resolveTopicCollision(existing, incoming)
+            if (winner.syncId === syncId) {
+              // The incoming wins: the existing row is superseded BEFORE the insert, because
+              // obs_topic_uniq admits no second live row. Insert-then-supersede is not a
+              // slower order, it is an impossible one. The loser also gets a NEW project_seq
+              // here, so devices that already pulled its old seq learn it lost instead of
+              // never seeing this update.
+              await client.query(
+                `update observations set superseded_by = $1, project_seq = $2
+                  where sync_id = $3`,
+                [syncId, await allocateSeqRange(client, projectId, 1), existing.syncId]
+              )
+            } else {
+              // The existing wins: the incoming is stored ALREADY superseded. It is still
+              // accepted and still replicates, so the client learns who won from the pull.
+              supersededBy = existing.syncId
+            }
+          }
+        }
+
+        const upsert = await client.query(
+          `insert into observations (
+             sync_id, project_id, project_seq, scope, type, topic_key, title, content, tags,
+             content_hash, origin_ai, origin_account, git_branch, author_id, author_display,
+             lamport, client_updated_at, client_created_at, deleted, superseded_by, tombstoned_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+             case when $19 then now() else null end)
+           on conflict (sync_id) do update set
+             project_id = excluded.project_id, project_seq = excluded.project_seq,
+             scope = excluded.scope, type = excluded.type, topic_key = excluded.topic_key,
+             title = excluded.title, content = excluded.content, tags = excluded.tags,
+             content_hash = excluded.content_hash, lamport = excluded.lamport,
+             -- F1 (review final): sin estas cuatro, re-subir una fila sellada con el mismo
+             -- sync_id dejaba el mail (origin_account) y la rama en claro para siempre, y
+             -- plaintext_pending no bajaba nunca. La fila es la que manda el cliente, entera.
+             origin_account = excluded.origin_account, git_branch = excluded.git_branch,
+             origin_ai = excluded.origin_ai, author_display = excluded.author_display,
+             client_updated_at = excluded.client_updated_at, deleted = excluded.deleted,
+             superseded_by = excluded.superseded_by,
+             -- Stamped on the TRANSITION into deleted, not on every write: coalesce()
+             -- means a tombstone re-pushed (the same delete resent, or a later unrelated
+             -- update to an already-deleted row) does not get its clock reset and its
+             -- purge-eligibility pushed back out. A row that comes back to life (deleted
+             -- flips false) clears it, so it starts clean if it is ever deleted again.
+             tombstoned_at = case when excluded.deleted
+               then coalesce(observations.tombstoned_at, now())
+               else null end
+           where observations.author_id = excluded.author_id`,
+          [
+            syncId,
+            projectId,
+            seq,
+            scope,
+            String(p.type ?? 'discovery'),
+            // F3 (review final): un tombstone no guarda NINGÚN texto. Antes se anulaba sólo
+            // el content y quedaban título, tags, hash, cuenta de origen, rama y tema — en una
+            // fila de antes del cifrado obligatorio, texto legible que `plaintext_pending`
+            // (`not deleted`) ni miraba. Nada los necesita: la colisión de temas y el índice
+            // `obs_topic_uniq` ignoran las borradas, y el pull aplica el tombstone por sync_id.
+            // `title` es NOT NULL (001_init.sql), por eso '' y no null. La migración 013 hace
+            // lo mismo con los tombstones que ya estaban en la base.
+            incomingDeleted ? null : topicKey,
+            incomingDeleted ? '' : String(p.title ?? ''),
+            // §8.2: the old server never read `op` at all, so a delete on one machine
+            // never reached the other. `incomingDeleted` already reads `op` for the
+            // topic-collision guard above; reuse it here so a tombstone that only sets
+            // `op: 'delete'` (without redundantly setting `payload.deleted`) still nulls
+            // its content and marks the row deleted below.
+            incomingDeleted ? null : ((p.content as string | null) ?? null),
+            JSON.stringify(incomingDeleted ? [] : normalizeTags(p.tags)),
+            incomingDeleted ? null : ((p.content_hash as string | null) ?? null),
+            (p.origin_ai as string | null) ?? null,
+            incomingDeleted ? null : ((p.origin_account as string | null) ?? null),
+            incomingDeleted ? null : ((p.git_branch as string | null) ?? null),
+            auth.userId,
+            (p.author_display as string | null) ?? null,
+            Number(p.lamport ?? 0),
+            parseClientTimestamp(p.updated_at ?? p.client_updated_at, now),
+            parseClientTimestamp(p.created_at ?? p.client_created_at, now),
+            incomingDeleted,
+            supersededBy,
+          ]
+        )
+
+        // Three things depend on that SET list being complete and on this guard:
+        //
+        // - `where observations.author_id = excluded.author_id` makes the update
+        //   SAME-TENANT. `sync_id` is a GLOBAL primary key and the client derives it
+        //   deterministically from (projectKey, scope, type, contentHash, topicKey) with no
+        //   per-user salt (`deriveImportSyncId` in electron/memory-store.ts), so two
+        //   accounts genuinely collide on it. Without the guard, user B's push overwrote
+        //   user A's row and answered `applied` — a cross-tenant write that also silently
+        //   discarded B's own memory. A conflict the guard blocks updates no rows, which is
+        //   what `rowCount === 0` detects, and it is terminal: retrying can never succeed.
+        // - `superseded_by = excluded.superseded_by` — without it a re-pushed row kept a
+        //   STALE marker. Reproduced: A loses to B, A is re-pushed as the LWW winner, so B
+        //   gets superseded_by = A while A still says superseded_by = B. A cycle, zero live
+        //   owners for the topic, and the memory vanishes from the active view everywhere.
+        // - `project_id = excluded.project_id` — `project_seq` was already in the SET list
+        //   without it, so a row whose project_key changed (a repo re-cloned to a different
+        //   path) kept its OLD project while taking a seq from the NEW project's counter,
+        //   violating unique (project_id, project_seq). The mutation was then omitted and
+        //   retried forever, invisibly.
+        if (upsert.rowCount === 0) {
+          throw new TerminalPushError(
+            'sync_id_conflict',
+            `sync_id ${syncId} already belongs to another account`
+          )
+        }
+
+        const result: PushResult = {
+          sync_id: syncId,
+          outcome: supersededBy ? 'superseded' : 'applied',
+          project_seq: seq,
+        }
+        await client.query(
+          `update push_receipts set sync_id = $3, outcome = $4, project_seq = $5
+            where device_id = $1 and seq = $2`,
+          [auth.deviceId, m.seq, syncId, result.outcome, seq]
+        )
+        await client.query('commit')
+        results.push(result)
+      } catch (err) {
+        if (!rolledBack) await client.query('rollback')
+        const rejection = classifyPushError(err)
+        if (rejection) {
+          // Terminal: no retry of this payload can ever succeed, so saying `rejected` (with
+          // the reason) is the honest answer. Omitting it instead is the mirror image of
+          // the bug this service exists to fix — the client would resend it forever and
+          // nothing anywhere would report a problem.
+          console.error('[push] mutation rejected as terminal', syncId, rejection, err)
+          // Observabilidad (005_observability.sql). A PROPÓSITO fuera de la transacción de
+          // arriba, que el `rollback` de la línea de más arriba ya cerró: escribir esto
+          // DENTRO de esa transacción sería un no-op silencioso, porque esa fila nunca
+          // sobreviviría al rollback (mismo destino que el claim de push_receipts, unas
+          // líneas más arriba). Mismo `client`: al no haber transacción abierta vuelve a
+          // autocommit implícito, así que este insert commitea solo, sin depender de nada
+          // de lo que la mutación rechazada intentó hacer.
+          await client.query(
+            `insert into rejected_pushes (device_id, sync_id, error) values ($1, $2, $3)`,
+            [auth.deviceId, syncId, rejection]
+          )
+          results.push({ sync_id: syncId, outcome: 'rejected', project_seq: 0, error: rejection })
+        } else {
+          // Transient: omitted from `results` on purpose. Per §5.1 that is how the server
+          // says "I did not process this, send it again" — and the receipt claim rolled
+          // back with the rest, so the retry can take it cleanly.
+          console.error('[push] mutation failed, leaving it for retry', syncId, err)
+        }
+      }
+    }
+    return { results }
+  } finally {
+    client.release()
+  }
+}

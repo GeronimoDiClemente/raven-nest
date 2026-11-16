@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useProfile } from '../hooks/useProfile'
 import { useTeam } from '../hooks/useTeam'
 import { useSharedMcpConfigs } from '../hooks/useSharedMcpConfigs'
 import { useFixedPopover } from '../hooks/useFixedPopover'
@@ -7,7 +6,6 @@ import ConfirmDialog from './ConfirmDialog'
 
 interface Props {
   repoPath?: string
-  onRequireUpgrade?: () => void
 }
 
 interface FormState {
@@ -40,7 +38,7 @@ function formToServer(form: FormState): Record<string, unknown> {
   return result
 }
 
-export default function MCPPanel({ repoPath, onRequireUpgrade }: Props) {
+export default function MCPPanel({ repoPath }: Props) {
   const [open, setOpen] = useState(false)
   const [globalPath, setGlobalPath] = useState('')
   const [globalServers, setGlobalServers] = useState<Record<string, unknown>>({})
@@ -54,7 +52,6 @@ export default function MCPPanel({ repoPath, onRequireUpgrade }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const popPos = useFixedPopover(panelRef, open, popoverRef)
-  const { plan } = useProfile()
 
   const projectPath = repoPath ? `${repoPath}/.mcp.json` : null
   const { team } = useTeam()
@@ -348,7 +345,6 @@ export default function MCPPanel({ repoPath, onRequireUpgrade }: Props) {
       <button
         className={`titlebar-btn${open ? ' active' : ''}`}
         onClick={() => {
-          if (plan === 'free') { onRequireUpgrade?.(); return }
           setOpen(v => !v)
           setExpandedKey(null)
           setSaveError(null)

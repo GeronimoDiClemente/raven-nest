@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nest — el proceso completo, con memoria</title>
+<style>
+  :root{
+    --bg-app:#000; --bg-surface:#0a0a0a; --bg-elevated:#111; --bg-hover:#161616;
+    --border:#1e1e1e; --border-2:#2a2a2a;
+    --text:#e8e8e8; --text-2:#888; --text-3:#555;
+    --blue:#0066FF; --green:#22C55E; --amber:#F59E0B; --red:#EF4444; --violet:#A78BFA;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg-app);color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:13px;-webkit-font-smoothing:antialiased;
+    line-height:1.5}
+  .mono{font-family:'SFMono-Regular','Consolas',ui-monospace,monospace}
+
+  /* ── layout ─────────────────────────────────────────── */
+  .nav{position:fixed;left:0;top:0;bottom:0;width:210px;background:var(--bg-surface);
+    border-right:1px solid var(--border);padding:22px 0;overflow:auto;z-index:10}
+  .nav h1{font-size:13px;font-weight:600;padding:0 20px 4px;letter-spacing:-.2px}
+  .nav .sub{font-size:11px;color:var(--text-3);padding:0 20px 18px}
+  .nav a{display:block;padding:7px 20px;color:var(--text-2);text-decoration:none;font-size:11.5px;
+    border-left:2px solid transparent}
+  .nav a:hover{color:var(--text);background:var(--bg-elevated)}
+  .nav a .n{display:inline-block;width:18px;color:var(--text-3);font-variant-numeric:tabular-nums}
+  .nav a.key{color:var(--green)}
+  .nav a.key .n{color:var(--green);opacity:.6}
+
+  .wrap{margin-left:210px;padding:56px 48px 120px;max-width:1180px}
+  .lede{margin-bottom:64px;max-width:640px}
+  .lede h2{font-size:26px;font-weight:600;letter-spacing:-.5px;margin-bottom:12px}
+  .lede p{color:var(--text-2);font-size:14px;margin-bottom:10px}
+  .lede b{color:var(--text);font-weight:500}
+
+  section{margin-bottom:76px;scroll-margin-top:32px}
+  .head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+  .head .num{font-size:11px;color:var(--text-3);font-variant-numeric:tabular-nums;
+    border:1px solid var(--border);border-radius:5px;padding:2px 7px}
+  .head h3{font-size:17px;font-weight:600;letter-spacing:-.3px}
+  .head .tag{margin-left:auto;font-size:10px;text-transform:uppercase;letter-spacing:.4px;
+    color:var(--green);border:1px solid #22C55E33;border-radius:5px;padding:2px 8px}
+  .note{color:var(--text-2);font-size:12.5px;max-width:620px;margin-bottom:18px}
+  .note b{color:var(--text);font-weight:500}
+
+  /* ── ventana de la app ──────────────────────────────── */
+  .win{background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;
+    box-shadow:0 12px 40px #000a}
+  .titlebar{height:38px;background:var(--bg-app);border-bottom:1px solid var(--border);
+    display:flex;align-items:center;padding:0 12px;gap:10px}
+  .dots{display:flex;gap:6px}.dots i{width:10px;height:10px;border-radius:50%;background:#2a2a2a;display:block}
+  .tabs{display:flex;gap:2px;margin-left:6px}
+  .tab{font-size:11px;color:var(--text-3);padding:4px 11px;border-radius:6px}
+  .tab.on{background:var(--bg-elevated);color:var(--text)}
+  .winbody{display:flex;min-height:220px}
+  .rail{width:46px;flex:0 0 46px;border-right:1px solid var(--border);padding:12px 0;
+    display:flex;flex-direction:column;align-items:center;gap:6px}
+  .rail i{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--text-3);
+    font-size:13px;font-style:normal}
+  .rail i.on{background:#0066FF18;color:var(--blue)}
+  .rail i.mem.on{background:#22C55E18;color:var(--green)}
+  .pane{flex:1;min-width:0;padding:18px 20px}
+
+  /* ── piezas reutilizables ───────────────────────────── */
+  .ticket{background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:13px 14px;max-width:430px}
+  .ticket .src{font-size:10px;color:var(--text-3);display:flex;align-items:center;gap:6px;margin-bottom:7px}
+  .ticket .src .dot{width:6px;height:6px;border-radius:50%;background:var(--violet)}
+  .ticket .t{font-size:13px;font-weight:500;margin-bottom:5px}
+  .ticket .d{font-size:11.5px;color:var(--text-2)}
+  .ticket .foot{margin-top:11px;padding-top:10px;border-top:1px solid var(--border);
+    display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--text-3)}
+  .btn{font-size:11px;border:1px solid var(--border-2);border-radius:7px;padding:4px 10px;color:var(--text-2)}
+  .btn.p{background:#0066FF18;border-color:#0066FF44;color:var(--blue)}
+  .btn.g{background:#22C55E18;border-color:#22C55E44;color:var(--green)}
+  .btn.a{background:#F59E0B18;border-color:#F59E0B44;color:var(--amber)}
+
+  .flow{display:flex;align-items:center;min-width:max-content;padding:6px 0}
+  .conn{flex:0 0 22px;height:1.5px;background:var(--border-2)}
+  .conn.ok{background:var(--green);opacity:.55}
+  .conn.dash{background:repeating-linear-gradient(90deg,var(--border-2) 0 4px,transparent 4px 9px)}
+  .col{display:flex;flex-direction:column;gap:9px}
+  .node{width:146px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:10px 11px}
+  .node .r1{display:flex;align-items:center;gap:7px}
+  .node .role{font-size:12px;font-weight:600}
+  .node .st{margin-left:auto;font-size:9px;text-transform:uppercase;letter-spacing:.3px;color:var(--text-3);
+    display:flex;align-items:center;gap:5px}
+  .node .st .s{width:6px;height:6px;border-radius:50%;background:var(--text-3)}
+  .node .focus{font-size:10px;color:var(--text-3);margin-top:2px}
+  .node .model{margin-top:7px;font-size:9.5px;color:var(--text-3);background:var(--bg-surface);
+    border:1px solid var(--border);border-radius:5px;padding:1px 6px;display:inline-block}
+  .node.done{border-color:#22C55E33}.node.done .st{color:var(--green)}.node.done .st .s{background:var(--green)}
+  .node.run{border-color:#0066FF55}.node.run .st{color:var(--blue)}.node.run .st .s{background:var(--blue);animation:p 1.7s infinite}
+  .node.block{border-color:#EF444455}.node.block .st{color:var(--red)}.node.block .st .s{background:var(--red)}
+  .node.q{opacity:.5}
+  @keyframes p{50%{opacity:.35}}
+  .gate{font-size:10px;color:var(--text-2);background:var(--bg-elevated);border:1px dashed var(--border-2);
+    border-radius:9px;padding:9px 10px;text-align:center;white-space:nowrap;line-height:1.35;width:104px}
+  .gate.block{border-color:#F59E0B66;color:var(--amber)}
+
+  /* memoria */
+  .mem{background:var(--bg-elevated);border:1px solid #22C55E2e;border-radius:10px;padding:12px 13px;max-width:470px}
+  .mem+.mem{margin-top:9px}
+  .mem .top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .mem .type{font-size:9px;text-transform:uppercase;letter-spacing:.4px;color:var(--green);
+    border:1px solid #22C55E33;border-radius:4px;padding:1px 6px}
+  .mem .type.dec{color:var(--amber);border-color:#F59E0B33}
+  .mem .type.ses{color:var(--blue);border-color:#0066FF33}
+  .mem .when{margin-left:auto;font-size:10px;color:var(--text-3)}
+  .mem .t{font-size:12.5px;font-weight:500;margin-bottom:5px}
+  .mem .prov{margin-top:9px;padding-top:8px;border-top:1px solid var(--border);
+    font-size:10px;color:var(--text-3);line-height:1.6}
+  .mem .prov .k{color:var(--text-2)}
+  .link{color:var(--violet)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:1000px){.grid2{grid-template-columns:1fr}}
+
+  /* vault / grafo */
+  .tree{font-size:11.5px;line-height:1.9;color:var(--text-2)}
+  .tree .f{color:var(--text)}
+  .tree .dim{color:var(--text-3)}
+  .md{background:var(--bg-app);border:1px solid var(--border);border-radius:9px;padding:13px 14px;
+    font-size:11px;line-height:1.75;white-space:pre-wrap;color:var(--text-2);overflow:auto}
+  .md .key{color:var(--text-3)}
+  .md .val{color:var(--text)}
+  .md .wl{color:var(--violet)}
+  .md .h{color:var(--text);font-weight:600}
+
+  .callout{border-left:2px solid var(--green);background:#22C55E0a;padding:12px 16px;
+    border-radius:0 8px 8px 0;margin-top:16px;max-width:640px}
+  .callout .l{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--green);margin-bottom:5px}
+  .callout p{font-size:12.5px;color:var(--text-2)}
+  .callout b{color:var(--text);font-weight:500}
+
+  .warn{border-left:2px solid var(--amber);background:#F59E0B0a;padding:12px 16px;
+    border-radius:0 8px 8px 0;margin-top:16px;max-width:640px}
+  .warn .l{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--amber);margin-bottom:5px}
+  .warn p{font-size:12.5px;color:var(--text-2)}
+
+  footer{margin-left:210px;padding:0 48px 80px;max-width:1180px;color:var(--text-3);font-size:11.5px;
+    border-top:1px solid var(--border);padding-top:24px}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <h1>El proceso completo</h1>
+  <div class="sub">Nest, de punta a punta</div>
+  <a href="#s1"><span class="n">01</span> Llega el trabajo</a>
+  <a href="#s2"><span class="n">02</span> Arranca el run</a>
+  <a href="#s3"><span class="n">03</span> Los agentes trabajan</a>
+  <a href="#s4"><span class="n">04</span> El gate bloquea</a>
+  <a href="#s5" class="key"><span class="n">05</span> Se escribe memoria</a>
+  <a href="#s6" class="key"><span class="n">06</span> Decide una persona</a>
+  <a href="#s7"><span class="n">07</span> Cierra y mergea</a>
+  <a href="#s8" class="key"><span class="n">08</span> La memoria vive</a>
+  <a href="#s9" class="key"><span class="n">09</span> El ciclo se cierra</a>
+</nav>
+
+<div class="wrap">
+
+  <div class="lede">
+    <h2>Un ticket entra, un cambio sale, y Nest queda sabiendo algo que antes no sabía.</h2>
+    <p>Este es el recorrido entero de una tarea dentro de Nest. Los pasos 1 a 4 y el 7 ya funcionan hoy.
+       Los marcados en verde son lo que agrega el <b>memory bridge</b>: el sistema deja de olvidarse
+       de lo que sus propios agentes descubrieron.</p>
+    <p>El punto no es que Nest guarde notas. Es que <b>lo que se aprende en un run alimenta al
+       siguiente</b>, sin que nadie escriba nada a mano.</p>
+  </div>
+
+  <!-- 1 ───────────────────────────────────────────────── -->
+  <section id="s1">
+    <div class="head"><span class="num">01</span><h3>Llega el trabajo</h3></div>
+    <p class="note">Un ticket entra desde donde ya vive el equipo. Nest no pide que nadie cambie de
+      herramienta: escucha Linear, Jira, GitHub o un mensaje al bot en Slack.</p>
+    <div class="win">
+      <div class="titlebar"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="tabs"><div class="tab on">Integrations</div><div class="tab">Workspace</div><div class="tab">Hub</div></div></div>
+      <div class="winbody">
+        <div class="rail"><i>▤</i><i class="on">◈</i><i>◷</i><i class="mem">◍</i></div>
+        <div class="pane">
+          <div class="ticket">
+            <div class="src"><span class="dot"></span> Linear · ENG-412 · asignado a Gero</div>
+            <div class="t">El token de Gupshup se loguea en claro al reconectar</div>
+            <div class="d">Al reintentar la conexión, el retry imprime el header entero en consola.
+              Aparece en los logs de producción.</div>
+            <div class="foot"><span class="btn p">Start run</span><span>Full pipeline</span><span>·</span><span>feat/eng-412</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 ───────────────────────────────────────────────── -->
+  <section id="s2">
+    <div class="head"><span class="num">02</span><h3>Arranca el run</h3></div>
+    <p class="note">Nest crea un worktree propio para el ticket y arma el grafo de roles. Cada nodo es
+      una terminal real con un CLI real adentro, no una llamada a una API. El estado vive en git y en el
+      filesystem, no en un prompt que se va degradando.</p>
+    <div class="win">
+      <div class="titlebar"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="tabs"><div class="tab on">Orchestration</div><div class="tab">Workspace</div></div></div>
+      <div class="winbody">
+        <div class="rail"><i>▤</i><i class="on">◈</i><i>◷</i><i class="mem">◍</i></div>
+        <div class="pane" style="overflow:auto">
+          <div class="flow">
+            <div class="node run"><div class="r1"><span class="role">Architect</span>
+              <span class="st"><span class="s"></span>running</span></div>
+              <div class="model mono">claude · opus</div></div>
+            <div class="conn dash"></div>
+            <div class="node q"><div class="r1"><span class="role">Coder</span>
+              <span class="st"><span class="s"></span>queued</span></div>
+              <div class="model mono">codex</div></div>
+            <div class="conn dash"></div>
+            <div class="col">
+              <div class="node q"><div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>queued</span></div><div class="focus">security</div></div>
+              <div class="node q"><div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>queued</span></div><div class="focus">types</div></div>
+              <div class="node q"><div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>queued</span></div><div class="focus">performance</div></div>
+            </div>
+            <div class="conn dash"></div>
+            <div class="gate">Gate<br><span class="dim">3 reviewers</span></div>
+            <div class="conn dash"></div>
+            <div class="node q"><div class="r1"><span class="role">Tester</span><span class="st"><span class="s"></span>queued</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 ───────────────────────────────────────────────── -->
+  <section id="s3">
+    <div class="head"><span class="num">03</span><h3>Los agentes trabajan</h3></div>
+    <p class="note">El Architect deja un plan, el Coder implementa sobre el mismo worktree, y los tres
+      reviewers arrancan en paralelo con focos distintos. Cada uno deja un artefacto estructurado para el
+      que sigue, en vez de pasarse prosa.</p>
+    <div class="win">
+      <div class="titlebar"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="tabs"><div class="tab on">Orchestration</div><div class="tab">Workspace</div></div></div>
+      <div class="winbody">
+        <div class="rail"><i>▤</i><i class="on">◈</i><i>◷</i><i class="mem">◍</i></div>
+        <div class="pane" style="overflow:auto">
+          <div class="flow">
+            <div class="node done"><div class="r1"><span class="role">Architect</span><span class="st"><span class="s"></span>done</span></div><div class="model mono">claude · opus</div></div>
+            <div class="conn ok"></div>
+            <div class="node done"><div class="r1"><span class="role">Coder</span><span class="st"><span class="s"></span>done</span></div><div class="model mono">codex</div></div>
+            <div class="conn ok"></div>
+            <div class="col">
+              <div class="node run"><div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>running</span></div><div class="focus">security</div></div>
+              <div class="node done"><div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>done</span></div><div class="focus">types</div></div>
+              <div class="node run"><div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>running</span></div><div class="focus">performance</div></div>
+            </div>
+            <div class="conn dash"></div>
+            <div class="gate">Gate<br><span class="dim">esperando 2</span></div>
+            <div class="conn dash"></div>
+            <div class="node q"><div class="r1"><span class="role">Tester</span><span class="st"><span class="s"></span>queued</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 ───────────────────────────────────────────────── -->
+  <section id="s4">
+    <div class="head"><span class="num">04</span><h3>El gate bloquea</h3></div>
+    <p class="note">Dos reviewers pasan, uno bloquea. El gate frena el pipeline antes del Tester y avisa
+      al equipo por donde estén, aunque nadie tenga la app abierta.</p>
+    <div class="win">
+      <div class="titlebar"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="tabs"><div class="tab on">Orchestration</div><div class="tab">Workspace</div></div></div>
+      <div class="winbody">
+        <div class="rail"><i>▤</i><i class="on">◈</i><i>◷</i><i class="mem">◍</i></div>
+        <div class="pane" style="overflow:auto">
+          <div class="flow">
+            <div class="node done"><div class="r1"><span class="role">Coder</span><span class="st"><span class="s"></span>done</span></div><div class="model mono">codex</div></div>
+            <div class="conn ok"></div>
+            <div class="col">
+              <div class="node block"><div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>blocking</span></div><div class="focus">security</div></div>
+              <div class="node done"><div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>done</span></div><div class="focus">types</div></div>
+              <div class="node done"><div class="r1"><span class="role">Reviewer</span><span class="st"><span class="s"></span>done</span></div><div class="focus">performance</div></div>
+            </div>
+            <div class="conn"></div>
+            <div class="gate block">Gate<br><span>bloqueado</span></div>
+            <div class="conn dash"></div>
+            <div class="node q"><div class="r1"><span class="role">Tester</span><span class="st"><span class="s"></span>queued</span></div></div>
+          </div>
+          <div style="margin-top:16px;max-width:430px" class="ticket">
+            <div class="src"><span class="dot" style="background:var(--red)"></span> Reviewer · security</div>
+            <div class="d mono" style="font-size:11px;line-height:1.7">{ "blocking": true,<br>&nbsp;&nbsp;"concerns": [<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;"el retry sigue imprimiendo el header Authorization",<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;"falta redactar el token en el log de reconexion"<br>&nbsp;&nbsp;] }</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 ───────────────────────────────────────────────── -->
+  <section id="s5">
+    <div class="head"><span class="num">05</span><h3>Se escribe memoria, sola</h3><span class="tag">nuevo</span></div>
+    <p class="note">Acá está el cambio. Hasta hoy esos dos hallazgos vivían en un JSON adentro del worktree
+      y <b>morían cuando el worktree se borraba</b>. Ahora cada uno se convierte en una memoria, con la
+      procedencia completa, sin que ningún modelo tenga que acordarse de guardarla.</p>
+    <div class="win">
+      <div class="titlebar"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="tabs"><div class="tab">Orchestration</div><div class="tab on">Memory</div></div></div>
+      <div class="winbody">
+        <div class="rail"><i>▤</i><i>◈</i><i>◷</i><i class="mem on">◍</i></div>
+        <div class="pane">
+          <div class="mem">
+            <div class="top"><span class="type">bugfix</span><span class="when">hace 4 s</span></div>
+            <div class="t">el retry sigue imprimiendo el header Authorization</div>
+            <div class="prov">
+              <span class="k">Nodo:</span> rev-security (reviewer/security) · <span class="k">Agente:</span> claude · opus<br>
+              <span class="k">Branch:</span> feat/eng-412 · <span class="k">Ticket:</span> ENG-412 · <span class="k">Ronda:</span> 1<br>
+              <span class="k">Veredicto:</span> bloqueante &nbsp;<span class="link">[[run-a7f3c1]]</span>
+            </div>
+          </div>
+          <div class="mem">
+            <div class="top"><span class="type">bugfix</span><span class="when">hace 4 s</span></div>
+            <div class="t">falta redactar el token en el log de reconexion</div>
+            <div class="prov">
+              <span class="k">Nodo:</span> rev-security (reviewer/security) · <span class="k">Agente:</span> claude · opus<br>
+              <span class="k">Veredicto:</span> bloqueante &nbsp;<span class="link">[[run-a7f3c1]]</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="callout">
+      <div class="l">Por qué importa</div>
+      <p>Todos los sistemas de memoria del mercado dependen de que el modelo <b>decida</b> llamar a una
+        herramienta para guardar algo. Nest no: es el runtime, ve el evento y lo escribe. La captura deja
+        de ser una esperanza y pasa a ser determinística.</p>
+    </div>
+  </section>
+
+  <!-- 6 ───────────────────────────────────────────────── -->
+  <section id="s6">
+    <div class="head"><span class="num">06</span><h3>Decide una persona, y eso también se guarda</h3><span class="tag">nuevo</span></div>
+    <p class="note">Gero mira los concerns y aprueba igual: en este contexto ese log ya está detrás de un
+      flag de debug. Esa decisión es <b>la memoria más valiosa de todo el sistema</b>, porque es el juicio
+      de una persona corrigiendo el juicio de la máquina.</p>
+    <div class="grid2">
+      <div class="win">
+        <div class="titlebar"><div class="dots"><i></i><i></i><i></i></div>
+          <div class="tabs"><div class="tab on">Orchestration</div></div></div>
+        <div class="winbody"><div class="rail"><i>▤</i><i class="on">◈</i><i>◷</i><i class="mem">◍</i></div>
+          <div class="pane">
+            <div style="font-size:12px;color:var(--text-2);margin-bottom:12px">Gate bloqueado por
+              <b style="color:var(--text)">rev-security</b></div>
+            <div style="display:flex;gap:8px"><span class="btn g">Approve anyway</span>
+              <span class="btn a">Request changes</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="mem" style="max-width:none">
+        <div class="top"><span class="type dec">decision</span><span class="when">ahora</span></div>
+        <div class="t">Aprobado a pesar de 2 concerns bloqueantes</div>
+        <div style="font-size:11.5px;color:var(--text-2);margin-top:4px">
+          Una persona aprobó el gate sabiendo que estos concerns estaban marcados como bloqueantes.
+          En este contexto no lo eran.</div>
+        <div class="prov">
+          <span class="k">Nodo:</span> gate · <span class="k">Ronda:</span> 1<br>
+          <span class="k">Veredicto:</span> aprobado por humano &nbsp;<span class="link">[[run-a7f3c1]]</span>
+        </div>
+      </div>
+    </div>
+    <div class="callout">
+      <div class="l">El diferencial que nadie puede copiar</div>
+      <p>Un memory provider suelto nunca ve este momento, porque no orquesta nada. Un orquestador suelto
+        lo ve y lo tira, porque no tiene memoria. <b>Nest está parado en los dos lados a la vez</b>, y por
+        eso la próxima vez los reviewers no van a volver a bloquear por lo mismo.</p>
+    </div>
+  </section>
+
+  <!-- 7 ───────────────────────────────────────────────── -->
+  <section id="s7">
+    <div class="head"><span class="num">07</span><h3>Cierra el run, mergea el PR</h3></div>
+    <p class="note">El Tester corre, el run completa y se abre el PR. Cuando el merge entra, la memoria de
+      cierre se actualiza sola: deja de decir "esto es lo que pasó" y pasa a decir "esto además sobrevivió".</p>
+    <div class="mem" style="max-width:640px">
+      <div class="top"><span class="type ses">session</span><span class="when">hace 2 h</span></div>
+      <div class="t">Run full pipeline · ticket ENG-412</div>
+      <div style="font-size:11.5px;color:var(--text-2);margin-top:6px;line-height:1.7">
+        Ticket ENG-412 · template full · 2 rondas.<br>
+        Nodos completados: architect, coder, rev-security, rev-types, rev-perf, gate, tester.<br>
+        Concerns bloqueantes durante el run: 2, ambos aceptados por una persona.<br>
+        <b style="color:var(--green)">Mergeado a main: el cambio sobrevivió.</b>
+      </div>
+      <div class="prov"><span class="k">Branch:</span> feat/eng-412 &nbsp;<span class="link">[[run-a7f3c1]]</span></div>
+    </div>
+    <div class="callout">
+      <div class="l">Por qué el merge importa</div>
+      <p>Es lo que separa <b>"un reviewer automático dijo X"</b> de <b>"un reviewer dijo X y el cambio
+        entró igual"</b>. Sin ese dato, una objeción equivocada queda escrita como hecho para siempre.</p>
+    </div>
+  </section>
+
+  <!-- 8 ───────────────────────────────────────────────── -->
+  <section id="s8">
+    <div class="head"><span class="num">08</span><h3>La memoria vive, y es tuya</h3><span class="tag">nuevo</span></div>
+    <p class="note">Todo eso queda en una base local que es la fuente de verdad, y se proyecta a una carpeta
+      de markdown con enlaces. La abrís con Obsidian, con Logseq o con un editor de texto. No hay caja negra:
+      <b>si te querés ir, ya te fuiste</b>.</p>
+    <div class="grid2">
+      <div>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:9px">~/.raven-nest/memory-vault/</div>
+        <div class="win"><div class="winbody"><div class="pane">
+          <div class="tree mono">
+            <span class="dim">▾</span> <span class="f">raven-nest--a1b2c3d4/</span><br>
+            &nbsp;&nbsp;<span class="dim">▾</span> <span class="f">_superseded/</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="dim">retry-imprime-header--3f2a11b8.md</span><br>
+            &nbsp;&nbsp;aprobado-a-pesar-de-2-concerns--9c1e4d02.md<br>
+            &nbsp;&nbsp;falta-redactar-el-token--77ab0e13.md<br>
+            &nbsp;&nbsp;run-full-pipeline-eng-412--a7f3c1de.md<br>
+            <span class="dim">▾</span> <span class="f">_global/</span><br>
+            &nbsp;&nbsp;<span class="dim">preferencias-de-estilo--0d4f9a21.md</span>
+          </div>
+        </div></div></div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:9px">falta-redactar-el-token--77ab0e13.md</div>
+        <div class="md mono"><span class="key">---</span>
+<span class="key">type:</span> <span class="val">bugfix</span>
+<span class="key">scope:</span> <span class="val">personal</span>
+<span class="key">origin_ai:</span> <span class="val">claude</span>
+<span class="key">git_branch:</span> <span class="val">feat/eng-412</span>
+<span class="key">aliases:</span> <span class="val">[obs-77ab0e13...]</span>
+<span class="key">---</span>
+
+<span class="h"># falta redactar el token en el log de reconexion</span>
+
+Nodo: rev-security (reviewer/security)
+Veredicto: bloqueante
+Ver run completo: <span class="wl">[[run-a7f3c1]]</span>
+Anulado por: <span class="wl">[[aprobado-a-pesar-de-2-concerns]]</span></div>
+      </div>
+    </div>
+    <div class="warn">
+      <div class="l">Lo que todavía no está</div>
+      <p>La proyección a markdown está diseñada pero no construida, y va en una sola dirección: editar un
+        archivo a mano todavía no vuelve a la base.</p>
+    </div>
+  </section>
+
+  <!-- 9 ───────────────────────────────────────────────── -->
+  <section id="s9">
+    <div class="head"><span class="num">09</span><h3>El ciclo se cierra</h3><span class="tag">nuevo</span></div>
+    <p class="note">Dos semanas después entra otro ticket que toca el mismo módulo. El Architect arranca
+      leyendo lo que el equipo ya sabe, incluido lo que una persona decidió la vez pasada.</p>
+    <div class="win">
+      <div class="titlebar"><div class="dots"><i></i><i></i><i></i></div>
+        <div class="tabs"><div class="tab on">Architect · ENG-580</div></div></div>
+      <div class="winbody"><div class="rail"><i>▤</i><i class="on">◈</i><i>◷</i><i class="mem on">◍</i></div>
+        <div class="pane">
+          <div class="md mono" style="border:none;background:transparent;padding:0">
+<span style="color:var(--green)">Nest Memory — contexto de este proyecto:</span>
+<span class="dim">- [bugfix] el retry sigue imprimiendo el header Authorization</span>
+<span class="dim">- [decision] Aprobado a pesar de 2 concerns (log detrás de flag de debug)</span>
+<span class="dim">- [session] Run full pipeline · ENG-412 · mergeado</span>
+
+<span style="color:var(--text)">Antes de proponer nada: ya se revisó este módulo por seguridad en
+ENG-412. El log del header quedó, deliberadamente, detrás del flag de
+debug. No lo vuelvo a marcar como bloqueante.</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="callout">
+      <div class="l">El flywheel</div>
+      <p>La orquestación produce memoria de calidad, y la memoria mejora la orquestación siguiente.
+        <b>Cada vuelta vale más que la anterior</b>, y no depende de que nadie documente nada.</p>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  Mockup · 2026-08-26 · Nest Memory + Integrations.
+  Los pasos 1-4 y 7 son funcionalidad existente. Los pasos 5, 6 y 9 son el memory bridge, ya construido
+  (925 tests, pendiente de un smoke en vivo). El paso 8 es el vault de markdown, diseñado y sin construir.
+</footer>
+
+</body>
+</html>

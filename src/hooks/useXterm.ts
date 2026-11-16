@@ -1,18 +1,45 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { isResizeSuppressed, onResizeSettled } from '../lib/pane-resize-gate'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
+import { WebglAddon } from '@xterm/addon-webgl'
+import { activarWebgl, type RendererAcelerado } from '../lib/xterm-webgl'
 import { registerTerminal, unregisterTerminal } from '../terminal-instances'
 import { safeWriteText, safeReadText } from '../lib/clipboard'
 import { isLocalUrl } from '../lib/is-local-url'
+import { aXterm, ajustarContraste, temaPorId, type TemaDeTerminal } from '../lib/terminal-themes'
 
-export function useXterm(paneId: string, onInput?: (data: string) => void, fontSize = 13, onResize?: (cols: number, rows: number) => void) {
+export function useXterm(
+  paneId: string,
+  onInput?: (data: string) => void,
+  fontSize = 13,
+  onResize?: (cols: number, rows: number) => void,
+  /**
+   * El tema, por id del catalogo. `undefined` cae al propio. Ver `src/lib/terminal-themes.ts`.
+   */
+  temaId?: string | null,
+  /** Los temas que el usuario importó. Se buscan antes que el catálogo. */
+  temasImportados?: TemaDeTerminal[],
+  /** Subir al piso de 3:1 lo que no lo alcance. Opcional: el gris de un comentario esta
+   *  atenuado a proposito, y un tema importado tiene que seguir pareciendose al original. */
+  ajustarContrasteDelTema = false,
+  /** `autofocus: false` = no tomar el foco al montar. Lo usa el pane de un worker de
+   *  orquestación: aparece solo mientras Gero escribe en el coordinador. Default: true. */
+  opciones?: { autofocus?: boolean },
+) {
+  const autofocusRef = useRef(opciones?.autofocus !== false)
+  autofocusRef.current = opciones?.autofocus !== false
+  const temaActivo = useMemo(() => {
+    const base = temaPorId(temaId, temasImportados)
+    return ajustarContrasteDelTema ? ajustarContraste(base) : base
+  }, [temaId, temasImportados, ajustarContrasteDelTema])
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
+  const webglRef = useRef<RendererAcelerado | null>(null)
   const onInputRef = useRef(onInput)
   onInputRef.current = onInput
   const onResizeRef = useRef(onResize)
@@ -31,29 +58,8 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       lineHeight: 1.4,
       cursorBlink: true,
       cursorStyle: 'bar',
-      theme: {
-        background: '#000000',
-        foreground: '#e8e8e8',
-        cursor: '#0066FF',
-        cursorAccent: '#0d0d0d',
-        selectionBackground: '#0066FF33',
-        black: '#1a1a1a',
-        red: '#ff5f57',
-        green: '#28cd41',
-        yellow: '#ffbd2e',
-        blue: '#0066FF',
-        magenta: '#b48ead',
-        cyan: '#88c0d0',
-        white: '#e8e8e8',
-        brightBlack: '#4c4c4c',
-        brightRed: '#ff6e67',
-        brightGreen: '#5af78e',
-        brightYellow: '#f4f99d',
-        brightBlue: '#4d9eff',
-        brightMagenta: '#caa9fa',
-        brightCyan: '#9aedfe',
-        brightWhite: '#ffffff'
-      },
+      theme: aXterm(temaActivo),
+
       scrollback: 5000,
       allowProposedApi: true
     })
@@ -74,6 +80,12 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     }))
     term.open(containerRef.current)
 
+    // Despues de open(): el addon necesita el canvas ya montado para crear el contexto.
+    // Si no hay WebGL2 —o Chromium no da mas contextos— esto no hace nada y el pane se
+    // queda con el renderer DOM. Ver `lib/xterm-webgl.ts`.
+    const webgl = activarWebgl(term, { crearAddon: () => new WebglAddon() })
+    webglRef.current = webgl
+
     termRef.current = term
     fitAddonRef.current = fitAddon
     searchAddonRef.current = searchAddon
@@ -84,10 +96,10 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       requestAnimationFrame(() => {
         try {
           fitAddon.fit()
-          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows, 'pane')
+          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows)
           onResizeRef.current?.(term.cols, term.rows)
         } catch { /* ignore */ }
-        term.focus()
+        if (autofocusRef.current) term.focus()
       })
     })
 
@@ -191,7 +203,7 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
         try {
           if (!container.clientWidth || !container.clientHeight) return
           fitAddon.fit()
-          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows, 'pane')
+          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows)
           onResizeRef.current?.(term.cols, term.rows)
         } catch { /* ignore */ }
       })
@@ -202,9 +214,9 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     // movimiento se suprimieron todos, incluidos los degenerados del reflow.
     //
     // "Asentado" no es "un frame despues de soltar": el reflow del grid y la
-    // animacion de zoom siguen corriendo, y medir ahi daba formas imposibles
-    // (21x6, 15x37) que el proceso tomaba como reales — la TUI repintaba y
-    // cortaba las respuestas en curso. Medimos hasta que DOS lecturas
+    // animacion de zoom siguen corriendo, y medir ahi da formas imposibles
+    // (21x6, 15x37) que el proceso toma como reales — la TUI repinta y
+    // corta las respuestas en curso. Medimos hasta que DOS lecturas
     // consecutivas coincidan, y recien ahi mandamos.
     let settleTimer: ReturnType<typeof setTimeout> | null = null
     const offSettled = onResizeSettled(() => {
@@ -218,7 +230,7 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
             fitAddon.fit()
             const key = `${term.cols}x${term.rows}`
             if (key === lastKey) {
-              window.pty.resize(paneId, term.cols, term.rows, 'settled')
+              window.pty.resize(paneId, term.cols, term.rows)
               onResizeRef.current?.(term.cols, term.rows)
               return
             }
@@ -239,7 +251,7 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       requestAnimationFrame(() => {
         try {
           fitAddon.fit()
-          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows, 'pane')
+          if (!isResizeSuppressed()) window.pty.resize(paneId, term.cols, term.rows)
           onResizeRef.current?.(term.cols, term.rows)
         } catch { /* ignore */ }
       })
@@ -254,6 +266,9 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
       if (settleTimer) clearTimeout(settleTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       unregisterTerminal(paneId)
+      // Antes que term.dispose(): el addon se apoya en el renderer del terminal.
+      webgl.dispose()
+      if (webglRef.current === webgl) webglRef.current = null
       term.dispose()
     }
 
@@ -265,9 +280,20 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     termRef.current.options.fontSize = fontSize
     try {
       fitAddonRef.current.fit()
-      if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows, 'pane-fontsize')
+      if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows)
     } catch { /* ignore */ }
   }, [fontSize, paneId])
+
+  /**
+   * Cambiar de tema se aplica EN VIVO, sin recrear la terminal.
+   *
+   * Recrearla perderia el scrollback y mataria el proceso adjunto — cambiar un color no
+   * puede costar la sesion. `options.theme` es la via que xterm.js expone justo para esto.
+   */
+  useEffect(() => {
+    if (!termRef.current) return
+    termRef.current.options.theme = aXterm(temaActivo)
+  }, [temaActivo])
 
   const write = useCallback((data: string) => termRef.current?.write(data), [])
   const focus = useCallback(() => termRef.current?.focus(), [])
@@ -275,7 +301,7 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
     if (!fitAddonRef.current || !termRef.current) return
     try {
       fitAddonRef.current.fit()
-      if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows, 'pane-fontsize')
+      if (!isResizeSuppressed()) window.pty.resize(paneId, termRef.current.cols, termRef.current.rows)
     } catch { /* ignore */ }
   }, [paneId])
 
@@ -288,5 +314,5 @@ export function useXterm(paneId: string, onInput?: (data: string) => void, fontS
   const clearSearch = () =>
     searchAddonRef.current?.findNext('', {})
 
-  return { containerRef, write, focus, resize, findNext, findPrev, clearSearch }
+  return { containerRef, write, focus, resize, findNext, findPrev, clearSearch, temaActivo }
 }

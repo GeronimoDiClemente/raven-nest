@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import SettingsPanel from '../../components/SettingsPanel'
 import type { EditorPreferences, EditorTheme } from '../../lib/ide-config-mappings'
@@ -7,10 +7,20 @@ import type { EditorPreferences, EditorTheme } from '../../lib/ide-config-mappin
 // "Sign out" button) — mocked here the same way useLocalPathsMigration.test.tsx
 // does it, resolving no user so those effects bail out early without hitting
 // the network.
-const supabaseMock = vi.hoisted(() => ({
-  auth: { getUser: vi.fn(), signOut: vi.fn() },
-  from: vi.fn(),
-}))
+const supabaseMock = vi.hoisted(() => {
+  // Al juntarse con la rama de memoria, SettingsPanel monta ademas useUserRepos,
+  // que encadena from().select().order() y lo await-ea. Con `from` devolviendo
+  // undefined la promesa rechazaba y vitest contaba un unhandled error por test:
+  // no rompian, pero un rechazo suelto puede enmascarar un fallo real.
+  const query = {
+    select: vi.fn(() => query),
+    order: vi.fn(() => Promise.resolve({ data: [], error: null })),
+  }
+  return {
+    auth: { getUser: vi.fn(), signOut: vi.fn(), getSession: vi.fn() },
+    from: vi.fn(() => query),
+  }
+})
 vi.mock('../../lib/supabase', () => ({ supabase: supabaseMock }))
 
 // SettingsPanel no longer calls useUserPreferences() itself (Critical
@@ -50,19 +60,26 @@ function makeUserPrefs(setEditorOptionsMock: SetEditorOptionsMock) {
     setFontSize: vi.fn(),
     setEditorOptions: setEditorOptionsMock,
     setEditorTheme: vi.fn(),
+  setTerminalTheme: vi.fn(),
+  setTerminalThemeAutoContrast: vi.fn(),
+  addTerminalTheme: vi.fn(),
+  removeTerminalTheme: vi.fn(),
   }
 }
 
 function openEditorTab(setEditorOptionsMock: SetEditorOptionsMock = vi.fn()) {
   render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(setEditorOptionsMock)} />)
   fireEvent.click(screen.getByTitle('Settings'))
-  fireEvent.click(screen.getByText('Editor'))
+  fireEvent.click(screen.getByRole('button', { name: 'Editor' }))
 }
 
 describe('SettingsPanel — editor config import', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    // useUserRepos cruza los repos con los paths locales de esta maquina.
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
     mockThemesBridge()
   })
 
@@ -152,10 +169,14 @@ describe('SettingsPanel — editor themes', () => {
       setFontSize: vi.fn(),
       setEditorOptions: vi.fn(),
       setEditorTheme,
+      setTerminalTheme: vi.fn(),
+      setTerminalThemeAutoContrast: vi.fn(),
+  addTerminalTheme: vi.fn(),
+  removeTerminalTheme: vi.fn(),
     }
     render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="t@e.com" userPrefs={userPrefs} />)
     fireEvent.click(screen.getByTitle('Settings'))
-    fireEvent.click(screen.getByText('Editor'))
+    fireEvent.click(screen.getByRole('button', { name: 'Editor' }))
     return { setEditorTheme }
   }
 
@@ -286,5 +307,50 @@ describe('SettingsPanel — el match exacto le gana al heurístico', () => {
     await waitFor(() => expect(screen.getByTestId('ide-config-preview')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Apply'))
     expect(setEditorOptionsMock).toHaveBeenCalledWith({ fontSize: 18 }, 'one-dark-pro')
+  })
+})
+
+// Task 3 (plan "memorias vista y settings"): la nube de memoria (conectar/desconectar,
+// cuota, upgrade) salió de Settings hacia su propio componente, CloudMemoryCard — sus
+// tests viven en CloudMemoryCard.test.tsx. Lo único que le queda a SettingsPanel es la
+// puerta: un botón en Account que abre Memories con la pestaña Settings activa.
+describe('SettingsPanel — la nube se mudó a su propia vista (Task 3)', () => {
+  beforeEach(() => {
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: null } })
+    ;(window as unknown as { localPaths: { getAll: () => Promise<Record<string, string>> } })
+      .localPaths = { getAll: async () => ({}) }
+  })
+
+  it('el rail ya no tiene "Cloud memory"', () => {
+    render(<SettingsPanel updateState="idle" onCheckUpdates={vi.fn()} userEmail="test@example.com" userPrefs={makeUserPrefs(vi.fn())} />)
+    fireEvent.click(screen.getByTitle('Settings'))
+
+    expect(screen.queryByRole('button', { name: 'Cloud memory' })).not.toBeInTheDocument()
+  })
+
+  it('Account tiene el botón "Memory settings" que llama onOpenMemories(\'settings\')', () => {
+    const onOpenMemories = vi.fn()
+    render(
+      <SettingsPanel
+        updateState="idle"
+        onCheckUpdates={vi.fn()}
+        userEmail="test@example.com"
+        userPrefs={makeUserPrefs(vi.fn())}
+        onOpenMemories={onOpenMemories}
+      />
+    )
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Memory settings' }))
+    expect(onOpenMemories).toHaveBeenCalledWith('settings')
+  })
+
+  it('subir pedidoDeCuenta abre el panel con Account activa; el valor inicial y el repetido no', () => {
+    const props = { updateState: 'idle' as const, onCheckUpdates: vi.fn(), userEmail: 'test@example.com', userPrefs: makeUserPrefs(vi.fn()) }
+    const { rerender } = render(<SettingsPanel {...props} pedidoDeCuenta={0} />)
+    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
+    rerender(<SettingsPanel {...props} pedidoDeCuenta={1} />)
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
   })
 })

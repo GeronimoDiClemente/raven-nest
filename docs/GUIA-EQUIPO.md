@@ -95,7 +95,7 @@ los PRs de AI traen más defectos por línea y más sutiles:
 Componente raíz: `src/components/TeamsWorkspace.tsx`. Las secciones se definen en el
 union `WorkspaceSection` + `NAV_ITEMS`, y cada una renderiza su componente:
 `ActivityFeed`, `DailyStandup`, `TeamChat`, `PRList`/`PRReview`, `IssueList`/`IssueDetail`,
-`RepoStatusPanel`, `NotificationPanel`, `TeamIntegrationsView`.
+`RepoStatusPanel`, `NotificationPanel`.
 
 Hooks del área (en `src/hooks/`): `useTeam` (members, invites, roles), `useTeamChat`,
 `useTeamPresence`, `useTeamRepos`, `useTeamJoinCode`, `usePendingInvitesCount`,
