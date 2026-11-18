@@ -1420,6 +1420,8 @@ declare global {
     }
     appFlags?: {
       e2eBypass: boolean
+      // NEST_UI_PREVIEW=1 en el proceso main: muestra la preview de piezas base. Sólo lo lee el preload.
+      uiPreview?: boolean
       // Plan simulado para demos/E2E (RAVEN_E2E_PLAN); null fuera de RAVEN_E2E.
       e2ePlan?: string | null
       // Período de facturación simulado (RAVEN_E2E_BILLING): JSON crudo { billingInterval,

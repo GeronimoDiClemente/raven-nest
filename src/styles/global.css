@@ -76,7 +76,18 @@
   --border: rgb(255 255 255 / 0.08);
   --input: rgb(255 255 255 / 0.15);
   --ring: #6e6e6e;
-  --radius: 0.375rem;
+  --radius: 0.5rem;
+
+  --sidebar: #0f0f0f;
+  --sidebar-row-hover: rgb(255 255 255 / 0.05);
+  --sidebar-row-active: rgb(255 255 255 / 0.08);
+  --sidebar-row-selected: #262626;
+  --sidebar-inset: 8px;
+  --ok-surface: rgb(74 222 128 / 0.10);
+  --warn-surface: rgb(227 179 65 / 0.10);
+  --destructive-surface: rgb(255 101 104 / 0.10);
+  --info: #8fb8ff;
+  --info-surface: rgb(143 184 255 / 0.10);
 
   /* ── Botones — tratamiento B (Task 14) ───────────────────────────────
      Los tres roles (primario/secundario/fantasma) usan `--input` para el

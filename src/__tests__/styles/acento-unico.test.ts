@@ -62,6 +62,10 @@ describe('un solo acento, y es acromático', () => {
   //     lo agarra el clasificador de abajo (su tono es 187°, fuera del rango
   //     195°-300° de azul/violeta) — queda documentado igual por si algún
   //     día el rango se ajusta.
+  //   - 8fb8ff: `--info`, el azul del estado "informativo" (par de --ok/--warn/
+  //     --destructive). Es color de estado, no de marca: el acento sigue siendo
+  //     acromático. Lo fija la fase 1 de tokens
+  //     (docs/superpowers/specs/2026-11-18-fase1-tokens-y-piezas-base.md, C1).
   //
   // La familia navy/slate (5a7bb5/9db8e8/7da6ff y sus vecinos del extinto
   // Integration Panel) NO está acá: era CSS de componentes huérfanos
@@ -80,6 +84,7 @@ describe('un solo acento, y es acromático', () => {
       '8fa3ff', 'b6c2ff',
       'aecaff', '3d79ff', '2f6dff',
       '56b6c2',
+      '8fb8ff',
     ])
 
     // 6 dígitos, opcionalmente seguidos de 2 más (alpha de un hex de 8) —

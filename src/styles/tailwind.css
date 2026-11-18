@@ -53,6 +53,16 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-row-hover: var(--sidebar-row-hover);
+  --color-sidebar-row-active: var(--sidebar-row-active);
+  --color-sidebar-row-selected: var(--sidebar-row-selected);
+  --color-ok-surface: var(--ok-surface);
+  --color-warn-surface: var(--warn-surface);
+  --color-destructive-surface: var(--destructive-surface);
+  --color-info: var(--info);
+  --color-info-surface: var(--info-surface);
+  --spacing-sidebar-inset: var(--sidebar-inset);
 
   --radius-xs: calc(var(--radius) - 3px);
   --radius-sm: calc(var(--radius) - 2px);

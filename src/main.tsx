@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { LucideProvider } from 'lucide-react'
 import App from './App'
 import AuthScreen from './components/AuthScreen'
+import UiPreview from './components/ui-preview/UiPreview'
 import { supabase } from './lib/supabase'
 import { leerDeepLinkDeAuth, esCanjeDeRecuperacion, LINK_NO_VALIDO } from './lib/auth-deeplink'
 import { decidirSesionAlArrancar, haySesionGuardada, eventoDecideSesion } from './lib/sesion-al-arrancar'
@@ -158,6 +159,7 @@ function Root() {
     <>
       <div className="global-titlebar-drag" />
       {session && !recoveryMode ? <App /> : <AuthScreen recoveryMode={recoveryMode} oauthError={oauthError} onDismissOauthError={() => setOauthError(null)} />}
+      {window.appFlags?.uiPreview === true && <UiPreview />}
     </>
   )
 }
