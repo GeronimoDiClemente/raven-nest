@@ -14,7 +14,7 @@ function NavRow({ selected, icon, count, countTone = "default", children, classN
       type="button"
       aria-current={selected ? "true" : undefined}
       className={cn(
-        "flex min-h-[30px] w-full items-center gap-2 rounded-sm border-none px-2 py-1.5 text-left text-fs text-muted-foreground no-underline hover:bg-sidebar-row-hover active:bg-sidebar-row-active",
+        "flex min-h-[30px] w-full items-center gap-2 rounded-sm border-none px-2 py-1.5 text-left text-fs text-muted-foreground no-underline focus-visible:outline-2 focus-visible:outline-text-muted focus-visible:outline-offset-1 hover:bg-sidebar-row-hover active:bg-sidebar-row-active",
         selected && "bg-sidebar-row-selected text-foreground",
         className
       )}

@@ -8,7 +8,7 @@ import { NavRow } from "@/components/ui/nav-row"
 import { Kbd } from "@/components/ui/kbd"
 import { Button } from "@/components/ui/button"
 
-const BTN_SM = "h-auto min-h-[26px] rounded-sm border-border-strong px-[9px] py-[3px] text-fs-xs!"
+const BTN_SM = "h-auto min-h-[26px] rounded-sm border-border-strong px-[9px] py-[3px] text-fs-xs"
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (

@@ -20,7 +20,7 @@ type ListRowProps = Omit<React.ComponentProps<"div">, "onClick"> & {
 
 function ListRow({ selected, onClick, className, ...props }: ListRowProps) {
   const classes = cn(
-    "flex min-h-[46px] w-full items-center gap-2 border-t border-border px-3.5 py-2.5 text-left no-underline [border-style:solid_none_none_none] first:border-t-0",
+    "flex min-h-[46px] w-full items-center gap-2 border-t border-border px-3.5 py-2.5 text-left no-underline focus-visible:outline-2 focus-visible:outline-text-muted focus-visible:outline-offset-1 [border-style:solid_none_none_none] first:border-t-0",
     selected && "bg-sidebar-row-active",
     onClick && "cursor-pointer hover:bg-sidebar-row-hover",
     className

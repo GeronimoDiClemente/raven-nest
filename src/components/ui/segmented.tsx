@@ -12,7 +12,7 @@ function Segmented({ options, value, onValueChange, className, ...props }: Segme
   return (
     <div
       role="group"
-      className={cn("inline-flex w-fit gap-0 overflow-hidden rounded-sm border border-border-strong", className)}
+      className={cn("inline-flex w-fit gap-0 rounded-sm border border-border-strong", className)}
       {...props}
     >
       {options.map((o) => {
@@ -24,7 +24,7 @@ function Segmented({ options, value, onValueChange, className, ...props }: Segme
             aria-pressed={pressed}
             onClick={() => onValueChange(o.value)}
             className={cn(
-              "min-h-[26px] border-none px-2.5 py-1 text-fs-xs text-muted-foreground no-underline hover:bg-sidebar-row-hover",
+              "min-h-[26px] border-none px-2.5 py-1 text-fs-xs text-muted-foreground first:rounded-l-xs last:rounded-r-xs no-underline focus-visible:outline-2 focus-visible:outline-text-muted focus-visible:outline-offset-1 hover:bg-sidebar-row-hover",
               pressed && "bg-sidebar-row-selected text-foreground"
             )}
           >
