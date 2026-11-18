@@ -55,6 +55,71 @@ test('una utilidad de Tailwind resuelve al mismo color que el token', async () =
     expect(medido.bg).toBe(medido.tokenBg)
     expect(medido.fg).toBe(medido.tokenFg)
     expect(medido.radio).toBe(medido.tokenRadius)
+    // C2: el radio base es 8px (0.5rem), y rounded-md lo pinta.
+    expect(medido.tokenRadius).toBe('8px')
+    expect(medido.radio).toBe('8px')
+  } finally {
+    await teardown(h)
+  }
+})
+
+// Fase 1, C1: los tokens nuevos existen con el valor del spec y las utilidades que los
+// exponen (`@theme inline`) pintan ese mismo valor. Las clases tienen que existir en un
+// archivo de src/ que Tailwind escanee (las piezas de src/components/ui las usan): si sólo
+// estuvieran en este .spec.ts el motor no las generaría.
+test('los tokens nuevos de la fase 1 se pintan con el valor del token', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    const medido = await page.evaluate(() => {
+      const resolverColor = (v: string) => {
+        const probe = document.createElement('div')
+        probe.style.color = v
+        document.body.appendChild(probe)
+        const out = getComputedStyle(probe).color
+        probe.remove()
+        return out
+      }
+      const raiz = getComputedStyle(document.documentElement)
+      const token = (n: string) => raiz.getPropertyValue(n).trim()
+      const pintar = (clase: string, prop: 'backgroundColor' | 'color') => {
+        const el = document.createElement('div')
+        el.className = clase
+        document.body.appendChild(el)
+        const out = getComputedStyle(el)[prop]
+        el.remove()
+        return out
+      }
+      const tokens = [
+        '--sidebar', '--sidebar-row-hover', '--sidebar-row-active', '--sidebar-row-selected',
+        '--sidebar-inset', '--ok-surface', '--warn-surface', '--destructive-surface',
+        '--info', '--info-surface',
+      ]
+      return {
+        crudos: Object.fromEntries(tokens.map((n) => [n, token(n)])),
+        resueltos: Object.fromEntries(tokens.filter((n) => n !== '--sidebar-inset').map((n) => [n, resolverColor(token(n))])),
+        selectedBg: pintar('bg-sidebar-row-selected', 'backgroundColor'),
+        okSurfaceBg: pintar('bg-ok-surface', 'backgroundColor'),
+        infoFg: pintar('text-info', 'color'),
+      }
+    })
+
+    // Valores del spec (resueltos por el navegador, así que da igual cómo estén escritos).
+    expect(medido.crudos['--sidebar-inset']).toBe('8px')
+    expect(medido.resueltos['--sidebar']).toBe('rgb(15, 15, 15)')
+    expect(medido.resueltos['--sidebar-row-selected']).toBe('rgb(38, 38, 38)')
+    expect(medido.resueltos['--sidebar-row-hover']).toBe('rgba(255, 255, 255, 0.05)')
+    expect(medido.resueltos['--sidebar-row-active']).toBe('rgba(255, 255, 255, 0.08)')
+    expect(medido.resueltos['--ok-surface']).toBe('rgba(74, 222, 128, 0.1)')
+    expect(medido.resueltos['--warn-surface']).toBe('rgba(227, 179, 65, 0.1)')
+    expect(medido.resueltos['--destructive-surface']).toBe('rgba(255, 101, 104, 0.1)')
+    expect(medido.resueltos['--info']).toBe('rgb(143, 184, 255)')
+    expect(medido.resueltos['--info-surface']).toBe('rgba(143, 184, 255, 0.1)')
+
+    // Lo pintado por la utilidad == el token.
+    expect(medido.selectedBg).toBe(medido.resueltos['--sidebar-row-selected'])
+    expect(medido.okSurfaceBg).toBe(medido.resueltos['--ok-surface'])
+    expect(medido.infoFg).toBe(medido.resueltos['--info'])
   } finally {
     await teardown(h)
   }
