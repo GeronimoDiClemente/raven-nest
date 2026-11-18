@@ -300,14 +300,19 @@ describe('pantallas de la TUI — bordes', () => {
   })
 
   it('Esc en Search sin consulta vuelve a Recent en la pantalla', async () => {
-    const { fuente } = fuenteFalsa()
+    const { fuente, llamadas } = fuenteFalsa()
     const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)
     await hasta(() => !!r.lastFrame()?.includes('Link codes'))
+    expect(r.lastFrame()).toContain('Link codes')
     r.stdin.write('/')
     await hasta(() => !!r.lastFrame()?.includes('type to search'))
+    expect(r.lastFrame()).toContain('type to search')
+    const antes = llamadas.filter((l) => l === 'recientes').length
     r.stdin.write(ESC)
-    await hasta(() => !!r.lastFrame()?.includes('g scope'))
-    await hasta(() => !!r.lastFrame()?.includes('Link codes'))
+    await hasta(() => !!r.lastFrame()?.includes('g scope') && !!r.lastFrame()?.includes('Link codes'))
+    expect(r.lastFrame()).toContain('g scope')
+    expect(r.lastFrame()).toContain('Link codes')
+    expect(llamadas.filter((l) => l === 'recientes').length).toBe(antes + 1)
     r.unmount()
   })
 
