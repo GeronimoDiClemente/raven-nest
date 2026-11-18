@@ -133,6 +133,19 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
       return out
     }, token)
 
+  // Resuelve un token de la escala --fs-* a px, como lo pinta el navegador.
+  const fs = (token: string): Promise<string> =>
+    h.page.evaluate((t) => {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(t).trim()
+      if (!v) return `TOKEN ${t} NO EXISTE`
+      const probe = document.createElement('div')
+      probe.style.fontSize = v
+      document.body.appendChild(probe)
+      const out = getComputedStyle(probe).fontSize
+      probe.remove()
+      return out
+    }, token)
+
   // Lo que mide `rounded-sm` (radius - 2px) y la fuente mono, resueltos desde la raíz.
   const deRaiz = () =>
     h.page.evaluate(() => {
@@ -195,6 +208,11 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
   test('los tokens --border-strong y --subtle existen con el valor del spec', async () => {
     expect(await color('--border-strong')).toBe('rgba(255, 255, 255, 0.15)')
     expect(await color('--subtle')).toBe('rgb(122, 122, 122)')
+  })
+
+  test('la escala --fs-xs y --fs-2xs resuelve a 11px y 10px', async () => {
+    expect(await fs('--fs-xs')).toBe('11px')
+    expect(await fs('--fs-2xs')).toBe('10px')
   })
 
   test('la raíz de la preview computa 13px y line-height 18.85px (1.45 x 13)', async () => {
@@ -265,7 +283,7 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
     expect(malos).toEqual([])
   })
 
-  test('Segmented: contenedor con borde 1px border-strong, radio 6px, sin separación; opciones 11.5px, padding 4px 10px, 26px, sin borde', async () => {
+  test('Segmented: contenedor con borde 1px border-strong, radio 6px, sin separación; opciones --fs-xs, padding 4px 10px, 26px, sin borde, y no se estira', async () => {
     const malos: string[] = []
     const fuerte = await color('--border-strong')
     const { radioSm } = await deRaiz()
@@ -276,12 +294,22 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
       { ...borde('1px', 'solid', fuerte), ...radio(radioSm), columnGap: '0px', overflowX: 'hidden', overflowY: 'hidden' },
       malos,
     )
-    const opcion = { fontSize: '11.5px', ...caja(['4px', '10px', '4px', '10px']), minHeight: '26px', ...sinBorde }
+    const opcion = { fontSize: await fs('--fs-xs'), ...caja(['4px', '10px', '4px', '10px']), minHeight: '26px', ...sinBorde }
     const n = await h.page.locator(`${grupo} button`).count()
     expect(n).toBe(3)
     for (let i = 0; i < n; i++) {
       comparar(`Segmented opción ${i}`, await leer(`${grupo} button`, Object.keys(opcion), i), opcion, malos)
     }
+    // El contenedor mide lo que sus opciones + bordes, no el ancho de la sección.
+    const m = await h.page.evaluate(([g, sec]) => {
+      const cont = document.querySelector(g) as HTMLElement
+      const ancho = (el: Element) => el.getBoundingClientRect().width
+      const bordes = parseFloat(getComputedStyle(cont).borderLeftWidth) + parseFloat(getComputedStyle(cont).borderRightWidth)
+      const suma = [...cont.querySelectorAll('button')].reduce((a, b) => a + ancho(b), 0)
+      return { contenedor: ancho(cont), esperado: suma + bordes, seccion: ancho(document.querySelector(sec)!) }
+    }, [grupo, seccion('segmented')])
+    if (Math.abs(m.contenedor - m.esperado) > 1) malos.push(`Segmented ancho: pinta ${m.contenedor}px, opciones + bordes suman ${m.esperado}px`)
+    if (!(m.contenedor < m.seccion * 0.8)) malos.push(`Segmented ancho: ${m.contenedor}px de una sección de ${m.seccion}px, se estira (debe ser bastante menor)`)
     expect(malos).toEqual([])
   })
 
@@ -309,13 +337,13 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
     expect(malos).toEqual([])
   })
 
-  test('StatusBadge: 11.5px, padding 2px 8px, radio pill', async () => {
+  test('StatusBadge: --fs-xs, padding 2px 8px, radio pill', async () => {
     const malos: string[] = []
     const n = await h.page.locator(`${seccion('status-badge')} [data-tone]`).count()
     expect(n).toBe(5)
     for (let i = 0; i < n; i++) {
       const s = await leer(`${seccion('status-badge')} [data-tone]`, ['fontSize', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopLeftRadius'], i)
-      comparar(`StatusBadge ${i}`, s, { fontSize: '11.5px', ...caja(['2px', '8px', '2px', '8px']) }, malos)
+      comparar(`StatusBadge ${i}`, s, { fontSize: await fs('--fs-xs'), ...caja(['2px', '8px', '2px', '8px']) }, malos)
       // pill: el radio es tan grande como para redondear del todo (rounded-full = infinito).
       if (!(parseFloat(s.borderTopLeftRadius) >= 100)) malos.push(`StatusBadge ${i}.borderRadius: pinta "${s.borderTopLeftRadius}", la tabla pide pill`)
     }
@@ -351,7 +379,7 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
     expect(malos).toEqual([])
   })
 
-  test('Kbd: mono, 10.5px, borde 1px border-strong, radio 6px (rounded-sm, como pide C3), padding 0 5px', async () => {
+  test('Kbd: mono, --fs-2xs, borde 1px border-strong, radio 6px (rounded-sm, como pide C3), padding 0 5px', async () => {
     const malos: string[] = []
     const fuerte = await color('--border-strong')
     const { mono, radioSm } = await deRaiz()
@@ -362,19 +390,19 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
       comparar(
         `Kbd ${i}`,
         await leer(sel, ['fontFamily', 'fontSize', ...Object.keys(caja(['', '', '', ''])), ...Object.keys(radio('')), ...Object.keys(borde('', '', ''))], i),
-        { fontFamily: mono, fontSize: '10.5px', ...caja(['0px', '5px', '0px', '5px']), ...radio(radioSm), ...borde('1px', 'solid', fuerte) },
+        { fontFamily: mono, fontSize: await fs('--fs-2xs'), ...caja(['0px', '5px', '0px', '5px']), ...radio(radioSm), ...borde('1px', 'solid', fuerte) },
         malos,
       )
     }
     expect(malos).toEqual([])
   })
 
-  test('botones de acción de la preview (Resume, New session): 11.5px, padding 3px 9px, 26px, borde 1px border-strong, radio 6px', async () => {
+  test('botones de acción de la preview (Resume, New session): --fs-xs, padding 3px 9px, 26px, borde 1px border-strong, radio 6px', async () => {
     const malos: string[] = []
     const fuerte = await color('--border-strong')
     const { radioSm } = await deRaiz()
     const esperado = {
-      fontSize: '11.5px', ...caja(['3px', '9px', '3px', '9px']), minHeight: '26px',
+      fontSize: await fs('--fs-xs'), ...caja(['3px', '9px', '3px', '9px']), minHeight: '26px',
       ...borde('1px', 'solid', fuerte), ...radio(radioSm),
     }
     for (const nombre of ['Resume', 'New session']) {

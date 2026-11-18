@@ -155,13 +155,15 @@ line-height 1.45 en su raíz, como `.app` de la maqueta):
 |---|---|
 | Todo `<button>` de una pieza | `border-style` none salvo donde la tabla pida borde; fondo transparente salvo estado; `font-family` heredada; sin subrayado |
 | `NavRow` | `min-height` 30px, `padding` 6px 8px, radio 6px, 13px, color `muted-foreground`; seleccionada fondo `sidebar-row-selected` y color `foreground`; `count` 11px, color `subtle` (`warn` con `countTone="warn"`) |
-| `Segmented` | contenedor con borde 1px `border-strong`, radio 6px, sin separación entre opciones (`overflow: hidden`); cada opción 11.5px, `padding` 4px 10px, `min-height` 26px, sin borde propio |
+| `Segmented` | contenedor con borde 1px `border-strong`, radio 6px, sin separación entre opciones (`overflow: hidden`) y ancho según su contenido (`inline-flex`, no se estira); cada opción 11px, `padding` 4px 10px, `min-height` 26px, sin borde propio |
 | `List` / `ListRow` | `ListRow` `min-height` 46px, `padding` 10px 14px, separador `border-top` 1px `border` salvo la primera |
-| `StatusBadge` | 11.5px, `padding` 2px 8px, radio pill |
+| `StatusBadge` | 11px, `padding` 2px 8px, radio pill |
 | `Callout` | `padding` 12px 14px, radio 8px, borde 1px del color del tono al 35% |
 | `EmptyState` | borde 1px dashed `border-strong`, radio 8px, `padding` 40px 24px |
-| `Kbd` | mono, 10.5px, borde 1px `border-strong`, radio 6px (`rounded-sm`, como pide C3), `padding` 0 5px |
-| Botones de acción de la preview (Resume, New session) | se ven como `.btn.sm` de la maqueta: 11.5px, `padding` 3px 9px, `min-height` 26px, borde 1px `border-strong`, radio 6px |
+| `Kbd` | mono, 10px, borde 1px `border-strong`, radio 6px (`rounded-sm`, como pide C3), `padding` 0 5px |
+| Botones de acción de la preview (Resume, New session) | se ven como `.btn.sm` de la maqueta: 11px, `padding` 3px 9px, `min-height` 26px, borde 1px `border-strong`, radio 6px |
+
+Los tamaños de letra salen de la escala de `--fs-*` (decisión de Gero, 18-nov): los 11.5px y 10.5px de la maqueta se redondean a 11px (`--fs-xs`) y 10px (`--fs-2xs`); ninguna pieza usa un tamaño fuera de la escala, tampoco con `[font-size:…]`.
 
 **Chequeo:** un e2e en `e2e/21-piezas-base.spec.ts` mide `getComputedStyle` de cada pieza en la
 preview contra la tabla (colores resueltos desde los tokens, no hardcodeados) y falla antes del

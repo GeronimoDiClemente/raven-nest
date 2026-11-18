@@ -22,7 +22,14 @@ import { dirname, resolve, join } from 'node:path'
 const here = dirname(fileURLToPath(import.meta.url))
 const uiDir = resolve(here, '../../components/ui')
 
+const previewDir = resolve(here, '../../components/ui-preview')
+
 const uiFiles = readdirSync(uiDir).filter((f) => f.endsWith('.tsx'))
+const piezas = [
+  ...uiFiles.map((f) => join('ui', f)),
+  ...readdirSync(previewDir).filter((f) => f.endsWith('.tsx')).map((f) => join('ui-preview', f)),
+]
+const componentes = resolve(here, '../../components')
 
 describe('primitivos stock de ui/ — sin font-size arbitrario', () => {
   it('hay archivos para revisar (si esto falla, cambió la carpeta y el guard quedó ciego)', () => {
@@ -37,5 +44,11 @@ describe('primitivos stock de ui/ — sin font-size arbitrario', () => {
     // ningún --text-fs-* ni --fs-* puede alcanzar: tiene que salir de la
     // escala, no inventarse.
     expect(src).not.toMatch(/text-\[[\d.]+(?:px|rem|em)\]/)
+  })
+
+  it.each(piezas)('%s no usa [font-size:...] arbitrario (con o sin !)', (file) => {
+    const src = readFileSync(join(componentes, file), 'utf8')
+    // La propiedad arbitraria esquiva el guard de text-[Npx] y saca el tamaño de la escala --fs-*.
+    expect(src).not.toMatch(/\[font-size:[^\]]+\]/)
   })
 })
