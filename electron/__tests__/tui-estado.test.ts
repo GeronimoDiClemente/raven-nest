@@ -125,6 +125,28 @@ describe('Search', () => {
     expect(paso(conLista(), tecla('q')).efectos).toEqual([{ tipo: 'salir' }])
   })
 
+  it('Esc con la consulta vacía vuelve a Recent y pide los recientes, igual que la tecla 1', () => {
+    const r = paso(enSearch(), tecla('', { escape: true }))
+    expect(r.estado.pestana).toBe('recent')
+    expect(r.efectos).toEqual(paso(enSearch(), tecla('1')).efectos)
+    expect(r.efectos).toEqual([{ tipo: 'cargar-recientes', todos: false }])
+  })
+
+  it('Esc con la consulta vacía respeta el alcance de Recent (g: todos los proyectos)', () => {
+    const e = paso(conLista(), tecla('g'), tecla('/')).estado
+    expect(paso(e, tecla('', { escape: true })).efectos).toEqual([{ tipo: 'cargar-recientes', todos: true }])
+  })
+
+  it('con consulta, el primer Esc la limpia y se queda en Search; el segundo vuelve a Recent', () => {
+    const primero = paso(enSearch(), tecla('a'), tecla('b'), tecla('', { escape: true }))
+    expect(primero.estado.pestana).toBe('search')
+    expect(primero.estado.consulta).toBe('')
+    expect(primero.efectos).toEqual([])
+    const segundo = paso(primero.estado, tecla('', { escape: true }))
+    expect(segundo.estado.pestana).toBe('recent')
+    expect(segundo.efectos).toEqual([{ tipo: 'cargar-recientes', todos: false }])
+  })
+
   it('⏎ abre el resultado seleccionado', () => {
     const e = paso(enSearch(), { tipo: 'lista-cargada', lista: [obs('x')], de: { pestana: 'search', consulta: '' } }, tecla('', { return: true }))
     expect(e.efectos).toEqual([{ tipo: 'abrir', syncId: 'x' }])

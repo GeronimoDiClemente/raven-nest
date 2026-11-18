@@ -6,7 +6,8 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import ts from 'typescript'
 import { cargarInk } from '../tui-del-paquete/ink'
-import { App } from '../tui-del-paquete/app'
+import { App, teclasDe } from '../tui-del-paquete/app'
+import { estadoInicial } from '../tui-del-paquete/estado'
 import type { FuenteDeLaTui } from '../tui-del-paquete/fuente'
 import type { ObservationSummary } from '../memory-protocol'
 import type { DatosDeStatus } from '../status-del-paquete'
@@ -284,6 +285,31 @@ describe('pantallas de la TUI — bordes', () => {
       r.unmount()
     })
   }
+
+  it('la barra de Search avisa que Esc también vuelve y entra en 80 columnas', async () => {
+    const barra = teclasDe({ ...estadoInicial(), pestana: 'search' })
+    expect(barra).toContain('esc clear/back')
+    expect(barra.length).toBeLessThanOrEqual(78)
+    const { fuente } = fuenteFalsa()
+    const r = render(<App fuente={fuente} ancho={80} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('Link codes'))
+    r.stdin.write('/')
+    await hasta(() => !!r.lastFrame()?.includes('type to search'))
+    expect(r.lastFrame()!.split('\n').at(-1)).toContain('esc clear/back')
+    r.unmount()
+  })
+
+  it('Esc en Search sin consulta vuelve a Recent en la pantalla', async () => {
+    const { fuente } = fuenteFalsa()
+    const r = render(<App fuente={fuente} ancho={100} suspenderYEditar={suspender} />)
+    await hasta(() => !!r.lastFrame()?.includes('Link codes'))
+    r.stdin.write('/')
+    await hasta(() => !!r.lastFrame()?.includes('type to search'))
+    r.stdin.write(ESC)
+    await hasta(() => !!r.lastFrame()?.includes('g scope'))
+    expect(r.lastFrame()).toContain('Link codes')
+    r.unmount()
+  })
 
   it('con 45 columnas el encabezado y las pestañas ocupan una fila cada uno', async () => {
     const { fuente } = fuenteFalsa()
