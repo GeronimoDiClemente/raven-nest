@@ -18,7 +18,7 @@ function StatusBadge({ tone, className, ...props }: StatusBadgeProps) {
     <span
       data-tone={tone}
       className={cn(
-        "inline-flex w-fit items-center rounded-full px-2 py-0.5 [font-size:11.5px] font-medium whitespace-nowrap",
+        "inline-flex w-fit items-center rounded-full px-2 py-0.5 text-fs-xs font-medium whitespace-nowrap",
         tones[tone],
         className
       )}
