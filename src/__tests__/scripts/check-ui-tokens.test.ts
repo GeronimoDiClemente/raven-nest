@@ -113,6 +113,48 @@ describe('addedLinesViolations', () => {
     expect(r.every((v) => v.path === GLOBAL)).toBe(true)
   })
 
+  // Contrato de comentarios: se quita todo `/* ... */` de la línea antes de evaluarla. Un comentario
+  // que se abre y no se cierra en la línea deja "dentro de comentario" a las líneas SIGUIENTES, pero
+  // sólo si sus números son consecutivos (un hueco en `line` es contenido sin tocar, no continuación).
+  // La línea de apertura sin cierre y las de adentro cuentan como comentario (válidas).
+  it('un comentario no esconde un selector en la misma línea', () => {
+    const text = '/* nota */ .new-class { color: red; } /* fin */'
+    expect(addedLinesViolations(GLOBAL, [l(7, text)])).toEqual([{ path: GLOBAL, line: 7, text }])
+  })
+
+  it('un comentario multilínea agregado en líneas consecutivas no viola', () => {
+    expect(
+      addedLinesViolations(GLOBAL, [
+        l(20, '/* Tokens de la sidebar:'),
+        l(21, '   explicación de varias líneas'),
+        l(22, '*/'),
+      ]),
+    ).toEqual([])
+  })
+
+  it('un comentario multilínea sigue valiendo con una declaración legítima después del cierre', () => {
+    expect(
+      addedLinesViolations(GLOBAL, [l(20, '/* nota'), l(21, '   más nota'), l(22, '*/'), l(23, '--a: 1px;')]),
+    ).toEqual([])
+  })
+
+  it('la continuación del comentario exige líneas consecutivas', () => {
+    const suelta = l(30, '  .x { color: red; }')
+    expect(addedLinesViolations(GLOBAL, [l(10, '/* abre y no cierra'), suelta])).toEqual([
+      { path: GLOBAL, ...suelta },
+    ])
+  })
+
+  it('un selector después de una declaración en la misma línea viola', () => {
+    const text = '--a: 1px; .x { }'
+    expect(addedLinesViolations(GLOBAL, [l(5, text)])).toEqual([{ path: GLOBAL, line: 5, text }])
+  })
+
+  it('un selector después de una declaración con comentario en la misma línea viola', () => {
+    const text = '--a: 1px; /* c */ .x { }'
+    expect(addedLinesViolations(GLOBAL, [l(5, text)])).toEqual([{ path: GLOBAL, line: 5, text }])
+  })
+
   it('otros archivos no tienen esta regla', () => {
     expect(addedLinesViolations('src/styles/tailwind.css', [l(1, '.foo { color: red; }')])).toEqual([])
     expect(addedLinesViolations('src/App.tsx', [l(1, 'const a = 1')])).toEqual([])

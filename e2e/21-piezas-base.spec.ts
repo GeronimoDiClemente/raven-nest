@@ -51,6 +51,25 @@ test('con NEST_UI_PREVIEW=1 la preview muestra las siete piezas y pasa el guard 
     // Kbd.
     await expect(page.locator(seccion('kbd')).locator('kbd').first()).toBeVisible()
 
+    // global.css tiene `kbd { font-family: inherit; border-radius: 4px }` sin capa: le gana a las
+    // utilidades (que van en @layer). Se compara el estilo COMPUTADO contra los tokens, no las clases.
+    const kbd = await page.locator(seccion('kbd')).locator('kbd').first().evaluate((el) => {
+      const raiz = getComputedStyle(document.documentElement)
+      const probe = document.createElement('div')
+      probe.style.fontFamily = raiz.getPropertyValue('--font-mono').trim()
+      // rounded-sm en tailwind.css: calc(var(--radius) - 2px).
+      probe.style.borderRadius = `calc(${raiz.getPropertyValue('--radius').trim()} - 2px)`
+      document.body.appendChild(probe)
+      const esperado = { fontFamily: getComputedStyle(probe).fontFamily, borderRadius: getComputedStyle(probe).borderRadius }
+      probe.remove()
+      const s = getComputedStyle(el)
+      return { fontFamily: s.fontFamily, borderRadius: s.borderRadius, esperado }
+    })
+    expect(kbd.esperado.fontFamily).toContain('Mono')
+    expect(kbd.fontFamily).toBe(kbd.esperado.fontFamily)
+    expect(kbd.borderRadius).toBe(kbd.esperado.borderRadius)
+    expect(kbd.esperado.borderRadius).toBe('6px')
+
     // Mismo guard que e2e/04-contraste.spec.ts, sólo sobre la preview.
     const malos = await medirContraste(page, RAIZ)
     if (malos.length) {
