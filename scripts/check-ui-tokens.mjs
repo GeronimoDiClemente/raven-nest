@@ -12,7 +12,7 @@ const DIRS_PIEZAS = ['src/components/ui/', 'src/components/ui-preview/']
 const EXT_PIEZAS = /\.(tsx|ts|css)$/
 
 const COLOR = /#[0-9a-fA-F]{8}\b|#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b|\b(?:rgba|rgb|hsla|hsl)\(/g
-const LINEA_PERMITIDA = /^\s*(?:$|\/\*.*\*\/\s*$|--[\w-]+\s*:[^;]*;\s*(?:\/\*.*\*\/\s*)?$)/
+const SOLO_CUSTOM_PROPS = /^\s*(?:--[\w-]+\s*:[^;]*;\s*)*$/
 
 export function findColorLiterals(source) {
   const out = []
@@ -22,11 +22,40 @@ export function findColorLiterals(source) {
   return out
 }
 
+/** Quita los comentarios de una línea; `abierto` indica si arranca dentro de un comentario multilínea. */
+function sinComentarios(texto, abierto) {
+  let resto = ''
+  let i = 0
+  while (i < texto.length) {
+    if (abierto) {
+      const fin = texto.indexOf('*/', i)
+      if (fin === -1) return { resto, abierto: true }
+      i = fin + 2
+      abierto = false
+    } else {
+      const ini = texto.indexOf('/*', i)
+      if (ini === -1) return { resto: resto + texto.slice(i), abierto: false }
+      resto += texto.slice(i, ini)
+      i = ini + 2
+      abierto = true
+    }
+  }
+  return { resto, abierto }
+}
+
 export function addedLinesViolations(path, lines) {
   if (path !== GLOBAL_CSS) return []
-  return lines
-    .filter((l) => !LINEA_PERMITIDA.test(l.text))
-    .map((l) => ({ path, line: l.line, text: l.text }))
+  const out = []
+  let abierto = false
+  let previa = null
+  for (const l of lines) {
+    if (previa === null || l.line !== previa + 1) abierto = false
+    previa = l.line
+    const r = sinComentarios(l.text, abierto)
+    abierto = r.abierto
+    if (!SOLO_CUSTOM_PROPS.test(r.resto)) out.push({ path, line: l.line, text: l.text })
+  }
+  return out
 }
 
 function git(args) {
@@ -48,7 +77,7 @@ function addedLines(base, path) {
 
 function main() {
   const base = process.argv[2] ?? 'origin/main'
-  const cambiados = git(['diff', '--name-only', '--diff-filter=AM', `${base}...HEAD`]).split('\n').filter(Boolean)
+  const cambiados = git(['diff', '--name-only', '--diff-filter=AMR', `${base}...HEAD`]).split('\n').filter(Boolean)
   const violaciones = []
 
   if (cambiados.includes(GLOBAL_CSS)) {

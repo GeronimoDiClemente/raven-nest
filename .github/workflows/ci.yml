@@ -52,7 +52,23 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Check UI tokens
-        run: node scripts/check-ui-tokens.mjs "${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'origin/main' }}"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="origin/$BASE_REF"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+              echo "Sin commit previo (rama nueva): se omite el check de tokens de UI."
+              exit 0
+            fi
+            base="$BEFORE_SHA"
+          else
+            base="origin/main"
+          fi
+          node scripts/check-ui-tokens.mjs "$base"
 
   # server/ (docs/superpowers/specs/2026-08-31-memory-sync-backend-design.md §12.1) es un
   # paquete npm propio, aislado del Electron de arriba — nunca corrió en CI hasta este job.
