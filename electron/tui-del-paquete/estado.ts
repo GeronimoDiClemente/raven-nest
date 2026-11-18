@@ -191,7 +191,10 @@ function teclaEnDetalle(e: EstadoDeLaTui, input: string, key: Tecla): Resultado 
 }
 
 function teclaEnSearch(e: EstadoDeLaTui, input: string, key: Tecla): Resultado | null {
-  if (key.escape) return sin(e.consulta ? { ...e, consulta: '', lista: [], cursor: 0, cargando: false } : e)
+  if (key.escape) {
+    // Con consulta, Esc la limpia; vacía, vuelve a Recent: en Search las letras son texto y no hay otra salida visible.
+    return e.consulta ? sin({ ...e, consulta: '', lista: [], cursor: 0, cargando: false }) : irAPestana(e, 'recent')
+  }
   if (key.backspace || key.delete) {
     if (!e.consulta) return sin(e)
     const consulta = e.consulta.slice(0, -1)

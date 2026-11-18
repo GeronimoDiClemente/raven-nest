@@ -46,7 +46,7 @@ export function teclasDe(e: EstadoDeLaTui): string {
   if (e.pila.length > 0) return '↑↓ scroll  tab link  ⏎ follow  e edit  d delete  esc back  q quit'
   switch (e.pestana) {
     case 'recent': return '↑↓ move  ⏎ open  n new  e edit  d delete  g scope  / search  ? help  q quit'
-    case 'search': return 'type to search  ↑↓ move  ⏎ open  esc clear  tab next tab'
+    case 'search': return 'type to search  ↑↓ move  ⏎ open  esc clear/back  tab next tab'
     case 'status':
     case 'doctor': return '1-4 tabs  tab next  n new  / search  ? help  q quit'
   }
