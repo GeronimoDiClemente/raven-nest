@@ -156,7 +156,7 @@ line-height 1.45 en su raíz, como `.app` de la maqueta):
 | Todo `<button>` de una pieza | `border-style` none salvo donde la tabla pida borde; fondo transparente salvo estado; `font-family` heredada; sin subrayado |
 | Foco de todo `<button>` de una pieza | con `:focus-visible`, `outline` 2px solid `--text-muted` (#6e6e6e, como la maqueta) y `outline-offset` 1px, visible entero: un contenedor con `overflow: hidden` (Segmented) no lo recorta |
 | `NavRow` | `min-height` 30px, `padding` 6px 8px, radio 6px, 13px, color `muted-foreground`; seleccionada fondo `sidebar-row-selected` y color `foreground`; `count` 11px, color `subtle` (`warn` con `countTone="warn"`) |
-| `Segmented` | contenedor con borde 1px `border-strong`, radio 6px, sin separación entre opciones (`overflow: hidden`) y ancho según su contenido (`inline-flex`, no se estira); cada opción 11px, `padding` 4px 10px, `min-height` 26px, sin borde propio |
+| `Segmented` | contenedor con borde 1px `border-strong`, radio 6px, sin separación entre opciones; sin `overflow: hidden` (recortaría el anillo de foco): la primera y la última opción redondean sus esquinas exteriores y ancho según su contenido (`inline-flex`, no se estira); cada opción 11px, `padding` 4px 10px, `min-height` 26px, sin borde propio |
 | `List` / `ListRow` | `ListRow` `min-height` 46px, `padding` 10px 14px, separador `border-top` 1px `border` salvo la primera |
 | `StatusBadge` | 11px, `padding` 2px 8px, radio pill |
 | `Callout` | `padding` 12px 14px, radio 8px, borde 1px del color del tono al 35% |

@@ -334,8 +334,8 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
     const grupo = `${seccion('segmented')} [role="group"]`
     comparar(
       'Segmented contenedor',
-      await leer(grupo, [...Object.keys(borde('', '', '')), ...Object.keys(radio('')), 'columnGap', 'overflowX', 'overflowY']),
-      { ...borde('1px', 'solid', fuerte), ...radio(radioSm), columnGap: '0px', overflowX: 'hidden', overflowY: 'hidden' },
+      await leer(grupo, [...Object.keys(borde('', '', '')), ...Object.keys(radio('')), 'columnGap']),
+      { ...borde('1px', 'solid', fuerte), ...radio(radioSm), columnGap: '0px' },
       malos,
     )
     const opcion = { fontSize: await fs('--fs-xs'), ...caja(['4px', '10px', '4px', '10px']), minHeight: '26px', ...sinBorde }
@@ -343,6 +343,17 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
     expect(n).toBe(3)
     for (let i = 0; i < n; i++) {
       comparar(`Segmented opción ${i}`, await leer(`${grupo} button`, Object.keys(opcion), i), opcion, malos)
+    }
+    // Sin overflow hidden (recortaría el anillo de foco): la primera y la última opción redondean
+    // sus esquinas exteriores, con un radio > 0 y no mayor que el del contenedor.
+    const rc = parseFloat(radioSm)
+    const esquinas = await h.page.evaluate((g) => {
+      const bs = [...document.querySelectorAll(`${g} button`)] as HTMLElement[]
+      const r = (el: HTMLElement) => { const c = getComputedStyle(el); return { tl: parseFloat(c.borderTopLeftRadius), bl: parseFloat(c.borderBottomLeftRadius), tr: parseFloat(c.borderTopRightRadius), br: parseFloat(c.borderBottomRightRadius) } }
+      return { primera: r(bs[0]), ultima: r(bs[bs.length - 1]) }
+    }, grupo)
+    for (const [k, v] of Object.entries({ 'primera.top-left': esquinas.primera.tl, 'primera.bottom-left': esquinas.primera.bl, 'última.top-right': esquinas.ultima.tr, 'última.bottom-right': esquinas.ultima.br })) {
+      if (!(v > 0 && v <= rc)) malos.push(`Segmented ${k}: radio ${v}px, debe estar en (0, ${rc}px]`)
     }
     // El contenedor mide lo que sus opciones + bordes, no el ancho de la sección.
     const m = await h.page.evaluate(([g, sec]) => {
