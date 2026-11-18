@@ -128,7 +128,7 @@ describe('Search', () => {
   it('Esc con la consulta vacía vuelve a Recent y pide los recientes, igual que la tecla 1', () => {
     const r = paso(enSearch(), tecla('', { escape: true }))
     expect(r.estado.pestana).toBe('recent')
-    expect(r.efectos).toEqual(paso(enSearch(), tecla('1')).efectos)
+    expect(r.efectos).toEqual(paso(conLista(), tecla('3'), tecla('1')).efectos)
     expect(r.efectos).toEqual([{ tipo: 'cargar-recientes', todos: false }])
   })
 

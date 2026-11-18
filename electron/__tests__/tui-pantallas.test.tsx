@@ -307,7 +307,7 @@ describe('pantallas de la TUI — bordes', () => {
     await hasta(() => !!r.lastFrame()?.includes('type to search'))
     r.stdin.write(ESC)
     await hasta(() => !!r.lastFrame()?.includes('g scope'))
-    expect(r.lastFrame()).toContain('Link codes')
+    await hasta(() => !!r.lastFrame()?.includes('Link codes'))
     r.unmount()
   })
 
