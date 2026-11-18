@@ -129,6 +129,8 @@ script sobre esta rama da exit 0.
 **Chequeo:** capturas antes/después de la app con un repo abierto, Settings y Memories. Las
 diferencias aceptables son sólo esquinas. Se hace a mano y se dice si no se pudo.
 
+**Hecho (18-nov):** Gero comparó la ventana de desarrollo de esta rama con su Nest instalada (repo abierto, Settings y Memories): "se ve igual salvo las esquinas".
+
 ### C7 · Verde de punta a punta
 
 - `npx tsc -p tsconfig.node.json --noEmit --composite false` y
