@@ -239,10 +239,12 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
           borderTopStyle: c.borderTopStyle, borderRightStyle: c.borderRightStyle,
           borderBottomStyle: c.borderBottomStyle, borderLeftStyle: c.borderLeftStyle,
           backgroundColor: c.backgroundColor, fontFamily: c.fontFamily, textDecorationLine: c.textDecorationLine,
+          esListRow: !!el.closest('[data-testid="ui-preview-list"]'),
         }
       })
       const donde = `button#${i} "${(await b.innerText()).replace(/\s+/g, ' ').slice(0, 24)}"`
       // El borde superior de ListRow es el separador; el resto no tiene borde propio.
+      if (!s.esListRow && s.borderTopStyle !== 'none') malos.push(`${donde}.border-top-style: pinta "${s.borderTopStyle}", sólo ListRow lleva separador arriba, la tabla pide "none"`)
       const estilos = [s.borderRightStyle, s.borderBottomStyle, s.borderLeftStyle]
       if (estilos.some((e) => e !== 'none')) malos.push(`${donde}.border-style: pinta "${estilos.join('/')}" (right/bottom/left), la tabla pide "none"`)
       if (!sel && s.backgroundColor !== TRANSPARENTE) malos.push(`${donde}.backgroundColor: pinta "${s.backgroundColor}", la tabla pide transparente`)
@@ -256,6 +258,48 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
       })
       if (s.fontFamily !== heredada) malos.push(`boton "${nombre}".fontFamily: pinta "${s.fontFamily}", la tabla pide la heredada "${heredada}"`)
       if (s.textDecorationLine !== 'none') malos.push(`boton "${nombre}".textDecorationLine: pinta "${s.textDecorationLine}", la tabla pide none`)
+    }
+    expect(malos).toEqual([])
+  })
+
+  test('foco con teclado de NavRow, ListRow y Segmented: outline 2px solid --text-muted, offset 1px, sin recorte', async () => {
+    const malos: string[] = []
+    const esperadoColor = await color('--text-muted')
+    const casos: Array<[string, string, number]> = [
+      ['NavRow', `${seccion('nav-row')} button`, 0],
+      ['ListRow', `${seccion('list')} button[type="button"]`, 0],
+      ['Segmented opción 0', `${seccion('segmented')} [role="group"] button`, 0],
+      ['Segmented opción 2', `${seccion('segmented')} [role="group"] button`, 2],
+    ]
+    for (const [nombre, sel, nth] of casos) {
+      const el = h.page.locator(sel).nth(nth)
+      // Tab y Shift+Tab: el foco llega por teclado, así que :focus-visible aplica de verdad.
+      await el.focus()
+      await h.page.keyboard.press('Tab')
+      await h.page.keyboard.press('Shift+Tab')
+      const r = await el.evaluate((node) => {
+        const c = getComputedStyle(node)
+        const cont = node.closest('[role="group"]') as HTMLElement | null
+        const cc = cont ? getComputedStyle(cont) : null
+        const b = node.getBoundingClientRect()
+        const k = cont?.getBoundingClientRect()
+        const bw = cc ? [parseFloat(cc.borderLeftWidth), parseFloat(cc.borderRightWidth), parseFloat(cc.borderTopWidth), parseFloat(cc.borderBottomWidth)] : null
+        const anillo = parseFloat(c.outlineWidth) + parseFloat(c.outlineOffset)
+        return {
+          enfocado: node.matches(':focus-visible'),
+          outlineStyle: c.outlineStyle, outlineWidth: c.outlineWidth, outlineColor: c.outlineColor, outlineOffset: c.outlineOffset,
+          recorta: cc ? cc.overflowX !== 'visible' || cc.overflowY !== 'visible' : false,
+          // Si el contenedor recorta, el anillo (caja del botón + offset + ancho) tiene que caer dentro de su padding box.
+          anilloDentro: !cont || !k || !bw ? true :
+            b.left - anillo >= k.left + bw[0] && b.right + anillo <= k.right - bw[1] &&
+            b.top - anillo >= k.top + bw[2] && b.bottom + anillo <= k.bottom - bw[3],
+        }
+      })
+      if (!r.enfocado) malos.push(`${nombre}: no quedó en :focus-visible tras Tab/Shift+Tab`)
+      comparar(nombre, r, { outlineStyle: 'solid', outlineWidth: '2px', outlineColor: esperadoColor, outlineOffset: '1px' }, malos)
+      if (nombre.startsWith('Segmented') && r.recorta && !r.anilloDentro) {
+        malos.push(`${nombre}: el contenedor recorta (overflow hidden) y el anillo de foco cae fuera de su padding box`)
+      }
     }
     expect(malos).toEqual([])
   })
