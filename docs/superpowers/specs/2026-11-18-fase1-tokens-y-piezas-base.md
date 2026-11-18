@@ -138,6 +138,35 @@ diferencias aceptables son sólo esquinas. Se hace a mano y se dice si no se pud
   e2e/05-tailwind-vivo.spec.ts e2e/21-piezas-base.spec.ts` en verde.
 - `node scripts/check-ui-tokens.mjs` exit 0.
 
+### C8 · Cada pieza se pinta como el lienzo
+
+Agregado el 18-nov después de ver la preview: las clases eran las correctas pero se pintaba el
+botón del navegador (borde 3D) y otros tamaños. La referencia es el CSS de
+`Main.dc.html` de la maqueta EQo535fMbsDhT9anbWqd1B.
+
+Tokens nuevos en `:root` (expuestos como `--color-*`): `--border-strong: rgb(255 255 255 / 0.15)`
+y `--subtle: #7a7a7a`. El `--radius-row` de la maqueta (6px) es `rounded-sm` (radius − 2px):
+no se crea token.
+
+Valores computados que tiene que dar cada pieza en la preview (la preview hereda 13px y
+line-height 1.45 en su raíz, como `.app` de la maqueta):
+
+| Pieza | Valores |
+|---|---|
+| Todo `<button>` de una pieza | `border-style` none salvo donde la tabla pida borde; fondo transparente salvo estado; `font-family` heredada; sin subrayado |
+| `NavRow` | `min-height` 30px, `padding` 6px 8px, radio 6px, 13px, color `muted-foreground`; seleccionada fondo `sidebar-row-selected` y color `foreground`; `count` 11px, color `subtle` (`warn` con `countTone="warn"`) |
+| `Segmented` | contenedor con borde 1px `border-strong`, radio 6px, sin separación entre opciones (`overflow: hidden`); cada opción 11.5px, `padding` 4px 10px, `min-height` 26px, sin borde propio |
+| `List` / `ListRow` | `ListRow` `min-height` 46px, `padding` 10px 14px, separador `border-top` 1px `border` salvo la primera |
+| `StatusBadge` | 11.5px, `padding` 2px 8px, radio pill |
+| `Callout` | `padding` 12px 14px, radio 8px, borde 1px del color del tono al 35% |
+| `EmptyState` | borde 1px dashed `border-strong`, radio 8px, `padding` 40px 24px |
+| `Kbd` | mono, 10.5px, borde 1px `border-strong`, radio 4px, `padding` 0 5px |
+| Botones de acción de la preview (Resume, New session) | se ven como `.btn.sm` de la maqueta: 11.5px, `padding` 3px 9px, `min-height` 26px, borde 1px `border-strong`, radio 6px |
+
+**Chequeo:** un e2e en `e2e/21-piezas-base.spec.ts` mide `getComputedStyle` de cada pieza en la
+preview contra la tabla (colores resueltos desde los tokens, no hardcodeados) y falla antes del
+arreglo. Además, captura de la preview junto a la maqueta para que Gero la vea.
+
 ## Fuera de alcance
 
 Migrar pantallas, la sidebar nueva, la vista visual, tema claro, tocar `global.css` fuera de

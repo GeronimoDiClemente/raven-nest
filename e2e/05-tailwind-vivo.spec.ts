@@ -124,3 +124,43 @@ test('los tokens nuevos de la fase 1 se pintan con el valor del token', async ()
     await teardown(h)
   }
 })
+
+// Fase 1, C8: las utilidades de los tokens nuevos (`border-border-strong`, `text-subtle`) pintan
+// lo mismo que el token. Se usan en las piezas de src/components/ui, así que Tailwind las genera.
+test('border-border-strong y text-subtle pintan el valor del token', async () => {
+  const h = await launchHarness({ withRepo: false })
+  const { page } = h
+  try {
+    const medido = await page.evaluate(() => {
+      const raiz = getComputedStyle(document.documentElement)
+      const resolverColor = (v: string) => {
+        if (!v) return 'TOKEN NO EXISTE'
+        const probe = document.createElement('div')
+        probe.style.color = v
+        document.body.appendChild(probe)
+        const out = getComputedStyle(probe).color
+        probe.remove()
+        return out
+      }
+      const el = document.createElement('div')
+      el.className = 'border border-border-strong text-subtle'
+      document.body.appendChild(el)
+      const s = getComputedStyle(el)
+      const out = {
+        borde: s.borderTopColor,
+        texto: s.color,
+        tokenBorde: resolverColor(raiz.getPropertyValue('--border-strong').trim()),
+        tokenTexto: resolverColor(raiz.getPropertyValue('--subtle').trim()),
+      }
+      el.remove()
+      return out
+    })
+
+    expect(medido.tokenBorde).toBe('rgba(255, 255, 255, 0.15)')
+    expect(medido.tokenTexto).toBe('rgb(122, 122, 122)')
+    expect(medido.borde).toBe(medido.tokenBorde)
+    expect(medido.texto).toBe(medido.tokenTexto)
+  } finally {
+    await teardown(h)
+  }
+})
