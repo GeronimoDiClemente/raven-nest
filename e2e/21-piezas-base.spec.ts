@@ -197,6 +197,11 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
     expect(await color('--subtle')).toBe('rgb(122, 122, 122)')
   })
 
+  test('la raíz de la preview computa 13px y line-height 18.85px (1.45 x 13)', async () => {
+    const r = await leer(RAIZ, ['fontSize', 'lineHeight'])
+    expect(r).toEqual({ fontSize: '13px', lineHeight: '18.85px' })
+  })
+
   test('todo <button> de una pieza: sin borde 3D, fondo transparente, fuente heredada, sin subrayado', async () => {
     const heredada = (await leer(RAIZ, ['fontFamily'])).fontFamily
     const malos: string[] = []
@@ -346,10 +351,10 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
     expect(malos).toEqual([])
   })
 
-  test('Kbd: mono, 10.5px, borde 1px border-strong, radio 4px, padding 0 5px', async () => {
+  test('Kbd: mono, 10.5px, borde 1px border-strong, radio 6px (rounded-sm, como pide C3), padding 0 5px', async () => {
     const malos: string[] = []
     const fuerte = await color('--border-strong')
-    const { mono } = await deRaiz()
+    const { mono, radioSm } = await deRaiz()
     const sel = `${seccion('kbd')} kbd`
     const n = await h.page.locator(sel).count()
     expect(n).toBe(2)
@@ -357,7 +362,7 @@ test.describe('C8: cada pieza se pinta como el lienzo', () => {
       comparar(
         `Kbd ${i}`,
         await leer(sel, ['fontFamily', 'fontSize', ...Object.keys(caja(['', '', '', ''])), ...Object.keys(radio('')), ...Object.keys(borde('', '', ''))], i),
-        { fontFamily: mono, fontSize: '10.5px', ...caja(['0px', '5px', '0px', '5px']), ...radio('4px'), ...borde('1px', 'solid', fuerte) },
+        { fontFamily: mono, fontSize: '10.5px', ...caja(['0px', '5px', '0px', '5px']), ...radio(radioSm), ...borde('1px', 'solid', fuerte) },
         malos,
       )
     }
