@@ -5,7 +5,7 @@ function List({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "divide-y divide-border overflow-hidden rounded-md border border-border bg-card text-sm text-card-foreground",
+        "overflow-hidden rounded-md border border-border bg-card text-fs text-card-foreground",
         className
       )}
       {...props}
@@ -20,7 +20,7 @@ type ListRowProps = Omit<React.ComponentProps<"div">, "onClick"> & {
 
 function ListRow({ selected, onClick, className, ...props }: ListRowProps) {
   const classes = cn(
-    "flex w-full items-center gap-2 px-3 py-2 text-left",
+    "flex min-h-[46px] w-full items-center gap-2 border-t border-border px-3.5 py-2.5 text-left no-underline [border-style:solid_none_none_none] first:border-t-0",
     selected && "bg-sidebar-row-active",
     onClick && "cursor-pointer hover:bg-sidebar-row-hover",
     className

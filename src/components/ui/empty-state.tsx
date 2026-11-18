@@ -11,7 +11,7 @@ function EmptyState({ title, description, action, className, ...props }: EmptySt
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border px-6 py-8 text-center text-sm",
+        "flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border-strong px-6 py-10 text-center text-fs",
         className
       )}
       {...props}

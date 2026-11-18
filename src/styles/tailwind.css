@@ -51,6 +51,8 @@
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-subtle: var(--subtle);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);

@@ -6,6 +6,9 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { Segmented } from "@/components/ui/segmented"
 import { NavRow } from "@/components/ui/nav-row"
 import { Kbd } from "@/components/ui/kbd"
+import { Button } from "@/components/ui/button"
+
+const BTN_SM = "h-auto min-h-[26px] rounded-sm border-border-strong px-[9px] py-[3px] text-[11.5px]!"
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
@@ -21,7 +24,7 @@ export default function UiPreview() {
   return (
     <div
       data-testid="ui-preview"
-      className="fixed inset-0 z-[9999] flex flex-col gap-8 overflow-y-auto bg-background p-8 text-foreground"
+      className="fixed inset-0 z-[9999] flex flex-col gap-8 overflow-y-auto bg-background p-8 text-[13px] leading-[1.45] text-foreground"
     >
       <Section id="list" title="List">
         <List aria-label="Sessions">
@@ -43,7 +46,7 @@ export default function UiPreview() {
 
       <Section id="callout" title="Callout">
         <div className="flex flex-col gap-2">
-          <Callout tone="warn" title="Sync is paused" action={<button type="button" className="text-warn">Resume</button>}>
+          <Callout tone="warn" title="Sync is paused" action={<Button type="button" variant="outline" size="sm" className={BTN_SM}>Resume</Button>}>
             Another device holds the lock for this account.
           </Callout>
           <Callout tone="destructive" title="Push failed">The server rejected the last change.</Callout>
@@ -55,7 +58,7 @@ export default function UiPreview() {
         <EmptyState
           title="No sessions yet"
           description="Start an agent in this repo to see it here."
-          action={<button type="button" className="text-foreground underline">New session</button>}
+          action={<Button type="button" variant="outline" size="sm" className={BTN_SM}>New session</Button>}
         />
       </Section>
 

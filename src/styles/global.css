@@ -75,6 +75,8 @@
   --warn: #e3b341;
   --border: rgb(255 255 255 / 0.08);
   --input: rgb(255 255 255 / 0.15);
+  --border-strong: rgb(255 255 255 / 0.15);
+  --subtle: #7a7a7a;
   --ring: #6e6e6e;
   --radius: 0.5rem;
 
